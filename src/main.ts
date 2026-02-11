@@ -18,6 +18,7 @@ const STRIDE_SAMPLES = Math.floor(STRIDE_SECS * SAMPLE_RATE);
 const CHUNK_STEP_SAMPLES = Math.max(1, CHUNK_SAMPLES - STRIDE_SAMPLES);
 const SILENCE_RMS = 0.004;
 const SILENCE_PEAK = 0.02;
+const DEBUG_METRICS = isDebugMetricsEnabled();
 const appBase = new URL("./", window.location.href);
 const modelsDir = new URL("models/", appBase).href;
 const ortDir = new URL("ort/", appBase).href;
@@ -49,6 +50,10 @@ let pcmCount = 0;
 let chunkIdx = 0;
 let transcriptText = "";
 let chunkTask: Promise<void> = Promise.resolve();
+let queuedChunkCount = 0;
+let activeChunkCount = 0;
+let metricChunkId = 0;
+let silentChunkSkips = 0;
 
 window.addEventListener("DOMContentLoaded", () => {
   statusEl = mustEl("status");
@@ -234,6 +239,11 @@ async function toggleRecording(): Promise<void> {
         chunkIdx = 0;
         transcriptText = "";
         chunkTask = Promise.resolve();
+        queuedChunkCount = 0;
+        activeChunkCount = 0;
+        metricChunkId = 0;
+        silentChunkSkips = 0;
+        debugMetric("session-start", { chunkSecs: CHUNK_SECS, strideSecs: STRIDE_SECS });
 
         transcriptEl.textContent = "";
         isRecording = true;
@@ -378,10 +388,37 @@ function normalizeMergeToken(token: string): string {
 
 function queueChunk(samples: Float32Array): Promise<void> {
   if (isSilentChunk(samples)) {
+    silentChunkSkips += 1;
+    if (silentChunkSkips === 1 || silentChunkSkips % 10 === 0) {
+      debugMetric("chunk-silent-skip", {
+        count: silentChunkSkips,
+        chunkSecs: roundMetric(samples.length / SAMPLE_RATE),
+      });
+    }
     return chunkTask;
   }
 
-  chunkTask = chunkTask.catch(() => undefined).then(() => processChunk(samples));
+  const metricId = ++metricChunkId;
+  const queuedAt = performance.now();
+  queuedChunkCount += 1;
+  debugMetric("chunk-queued", {
+    id: metricId,
+    queueDepth: queuedChunkCount,
+    chunkSecs: roundMetric(samples.length / SAMPLE_RATE),
+  });
+
+  chunkTask = chunkTask
+    .catch(() => undefined)
+    .then(async () => {
+      queuedChunkCount = Math.max(queuedChunkCount - 1, 0);
+      activeChunkCount += 1;
+      const queueWaitMs = performance.now() - queuedAt;
+      try {
+        await processChunk(samples, metricId, queueWaitMs);
+      } finally {
+        activeChunkCount = Math.max(activeChunkCount - 1, 0);
+      }
+    });
   return chunkTask;
 }
 
@@ -447,11 +484,17 @@ function requestChunk(samples: Float32Array): Promise<string> {
   });
 }
 
-async function processChunk(samples: Float32Array): Promise<void> {
+async function processChunk(
+  samples: Float32Array,
+  metricId = -1,
+  queueWaitMs = 0,
+): Promise<void> {
   if (!ready) {
+    debugMetric("chunk-dropped-unready", { chunkSecs: roundMetric(samples.length / SAMPLE_RATE) });
     return;
   }
 
+  const inferStartedAt = performance.now();
   chunkIdx += 1;
   setStatus(`Processing chunk ${chunkIdx}...`);
 
@@ -466,13 +509,50 @@ async function processChunk(samples: Float32Array): Promise<void> {
     if (isRecording) {
       setStatus("Recording...");
     }
+    debugMetric("chunk-complete", {
+      id: metricId,
+      chunkIdx,
+      queueWaitMs: roundMetric(queueWaitMs),
+      inferMs: roundMetric(performance.now() - inferStartedAt),
+      queueDepth: queuedChunkCount,
+      active: activeChunkCount,
+      textChars: text.length,
+    });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     setStatus(`Inference error: ${msg}`);
+    debugMetric("chunk-error", {
+      id: metricId,
+      chunkIdx,
+      queueWaitMs: roundMetric(queueWaitMs),
+      inferMs: roundMetric(performance.now() - inferStartedAt),
+      queueDepth: queuedChunkCount,
+      active: activeChunkCount,
+      message: msg,
+    });
   }
 
   if (pcmCount >= CHUNK_SAMPLES) {
     const next = takeChunkWindow();
     void queueChunk(next);
+  }
+}
+
+function debugMetric(event: string, values: Record<string, number | string>): void {
+  if (!DEBUG_METRICS) {
+    return;
+  }
+  console.debug(`[asr-metrics] ${event}`, values);
+}
+
+function roundMetric(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function isDebugMetricsEnabled(): boolean {
+  try {
+    return window.localStorage.getItem("toru.debug.metrics") !== "0";
+  } catch {
+    return true;
   }
 }
