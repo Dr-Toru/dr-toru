@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <title>Dr. Toru</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <h1>Dr. Toru</h1>
+      <p class="subtitle">Medical speech recognition running locally.</p>
+
+      <div class="actions">
+        <button id="loadBtn" type="button">Load Model</button>
+        <button id="recordBtn" type="button" disabled>Record</button>
+      </div>
+
+      <div id="status" class="status">Status: Ready to load model</div>
+
+      <h2>Transcript</h2>
+      <div id="transcript" class="transcript">
+        Click "Load Model" to begin.
+      </div>
+    </main>
+  </body>
+</html>
