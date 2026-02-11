@@ -293,6 +293,7 @@ function decodeCTC(
   const frames = dims[1];
   const vocabSize = dims[2];
   const blankId = vocabData.blank_id ?? 0;
+  const eosId = vocabData.eos_token_id ?? -1;
   const tokens = vocabData.tokens;
 
   const result: string[] = [];
@@ -311,10 +312,21 @@ function decodeCTC(
     }
 
     if (bestIdx !== blankId && bestIdx !== prevToken) {
-      result.push(tokens[bestIdx] ?? "");
+      const token = tokens[bestIdx] ?? "";
+      if (bestIdx !== eosId && !isSpecialToken(token)) {
+        result.push(token);
+      }
     }
     prevToken = bestIdx;
   }
 
   return result.join("").replace(/▁/g, " ").trim();
+}
+
+function isSpecialToken(token: string): boolean {
+  if (!token) {
+    return true;
+  }
+
+  return /^<[^<>]+>$/.test(token) || /^\{[a-zA-Z0-9_:-]+\}$/.test(token);
 }
