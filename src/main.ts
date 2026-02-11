@@ -10,9 +10,12 @@ interface PendingChunk {
   reject: (error: Error) => void;
 }
 
-const CHUNK_SECS = 5;
+const CHUNK_SECS = 4;
+const STRIDE_SECS = 1;
 const SAMPLE_RATE = 16000;
-const CHUNK_SAMPLES = CHUNK_SECS * SAMPLE_RATE;
+const CHUNK_SAMPLES = Math.floor(CHUNK_SECS * SAMPLE_RATE);
+const STRIDE_SAMPLES = Math.floor(STRIDE_SECS * SAMPLE_RATE);
+const CHUNK_STEP_SAMPLES = Math.max(1, CHUNK_SAMPLES - STRIDE_SAMPLES);
 const appBase = new URL("./", window.location.href);
 const modelsDir = new URL("models/", appBase).href;
 const ortDir = new URL("ort/", appBase).href;
@@ -43,7 +46,7 @@ let scriptNode: ScriptProcessorNode | null = null;
 let pcmBuffer: Float32Array[] = [];
 let pcmCount = 0;
 let chunkIdx = 0;
-let transcriptParts: string[] = [];
+let transcriptText = "";
 let chunkTask: Promise<void> = Promise.resolve();
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -229,7 +232,7 @@ async function toggleRecording(): Promise<void> {
         pcmBuffer = [];
         pcmCount = 0;
         chunkIdx = 0;
-        transcriptParts = [];
+        transcriptText = "";
         processing = false;
         chunkTask = Promise.resolve();
 
@@ -258,7 +261,7 @@ async function toggleRecording(): Promise<void> {
 
     await waitForChunks();
 
-    if (transcriptParts.length === 0) {
+    if (!transcriptText) {
       transcriptEl.textContent = "(No speech detected)";
     }
     setStatus("Done");
@@ -278,23 +281,93 @@ function onAudioProcess(event: AudioProcessingEvent): void {
   pcmCount += input.length;
 
   if (pcmCount >= CHUNK_SAMPLES && !processing) {
-    const chunk = drainBuffer();
+    const chunk = takeChunkWindow();
     void queueChunk(chunk);
   }
 }
 
 function drainBuffer(): Float32Array {
-  const samples = new Float32Array(pcmCount);
-  let offset = 0;
-  for (const chunk of pcmBuffer) {
-    const take = Math.min(chunk.length, pcmCount - offset);
-    samples.set(chunk.subarray(0, take), offset);
-    offset += take;
-  }
-
+  const samples = readHead(pcmCount);
   pcmBuffer = [];
   pcmCount = 0;
   return samples;
+}
+
+function takeChunkWindow(): Float32Array {
+  const samples = readHead(CHUNK_SAMPLES);
+  discardHead(CHUNK_STEP_SAMPLES);
+  return samples;
+}
+
+function readHead(sampleCount: number): Float32Array {
+  const takeCount = Math.min(sampleCount, pcmCount);
+  const samples = new Float32Array(takeCount);
+  let offset = 0;
+  for (const chunk of pcmBuffer) {
+    const take = Math.min(chunk.length, takeCount - offset);
+    samples.set(chunk.subarray(0, take), offset);
+    offset += take;
+    if (offset >= takeCount) {
+      break;
+    }
+  }
+  return samples;
+}
+
+function discardHead(sampleCount: number): void {
+  let dropCount = Math.min(sampleCount, pcmCount);
+  while (dropCount > 0) {
+    const chunk = pcmBuffer[0];
+    if (!chunk) {
+      break;
+    }
+
+    if (dropCount >= chunk.length) {
+      dropCount -= chunk.length;
+      pcmCount -= chunk.length;
+      pcmBuffer.shift();
+      continue;
+    }
+
+    pcmBuffer[0] = chunk.subarray(dropCount);
+    pcmCount -= dropCount;
+    dropCount = 0;
+  }
+}
+
+function mergeChunkText(currentText: string, nextText: string): string {
+  const next = nextText.trim();
+  if (!next) {
+    return currentText;
+  }
+  if (!currentText) {
+    return next;
+  }
+
+  const currentWords = currentText.split(/\s+/);
+  const nextWords = next.split(/\s+/);
+  const maxOverlap = Math.min(currentWords.length, nextWords.length, 20);
+  let overlapCount = 0;
+
+  for (let size = maxOverlap; size > 0; size -= 1) {
+    let match = true;
+    for (let idx = 0; idx < size; idx += 1) {
+      const left = currentWords[currentWords.length - size + idx].toLowerCase();
+      const right = nextWords[idx].toLowerCase();
+      if (left !== right) {
+        match = false;
+        break;
+      }
+    }
+
+    if (match) {
+      overlapCount = size;
+      break;
+    }
+  }
+
+  const suffix = nextWords.slice(overlapCount).join(" ");
+  return suffix ? `${currentText} ${suffix}` : currentText;
 }
 
 function queueChunk(samples: Float32Array): Promise<void> {
@@ -355,9 +428,10 @@ async function processChunk(samples: Float32Array): Promise<void> {
 
   try {
     const text = await requestChunk(samples);
-    if (text) {
-      transcriptParts.push(text);
-      transcriptEl.textContent = transcriptParts.join(" ");
+    const mergedText = mergeChunkText(transcriptText, text);
+    if (mergedText !== transcriptText) {
+      transcriptText = mergedText;
+      transcriptEl.textContent = transcriptText;
     }
 
     if (isRecording) {
@@ -371,7 +445,7 @@ async function processChunk(samples: Float32Array): Promise<void> {
   }
 
   if (pcmCount >= CHUNK_SAMPLES) {
-    const next = drainBuffer();
+    const next = takeChunkWindow();
     void queueChunk(next);
   }
 }
