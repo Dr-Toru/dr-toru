@@ -224,7 +224,7 @@ async function toggleRecording(): Promise<void> {
         captureCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
         sourceNode = captureCtx.createMediaStreamSource(micStream);
 
-        scriptNode = captureCtx.createScriptProcessor(4096, 1, 1);
+        scriptNode = captureCtx.createScriptProcessor(2048, 1, 1);
         scriptNode.onaudioprocess = onAudioProcess;
         sourceNode.connect(scriptNode);
         scriptNode.connect(captureCtx.destination);

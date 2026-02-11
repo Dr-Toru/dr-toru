@@ -67,7 +67,7 @@ async function loadModel(message: LoadRequest): Promise<void> {
   loadTask = (async () => {
     send({ type: "status", message: "Loading vocab in background..." });
     ort.env.wasm.wasmPaths = message.ortDir;
-    ort.env.wasm.numThreads = 1;
+    ort.env.wasm.numThreads = 2;
 
     const vocabRes = await fetch(`${message.modelsDir}medasr_lasr_vocab.json`);
     if (!vocabRes.ok) {
