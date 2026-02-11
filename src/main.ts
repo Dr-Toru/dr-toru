@@ -352,8 +352,8 @@ function mergeChunkText(currentText: string, nextText: string): string {
   for (let size = maxOverlap; size > 0; size -= 1) {
     let match = true;
     for (let idx = 0; idx < size; idx += 1) {
-      const left = currentWords[currentWords.length - size + idx].toLowerCase();
-      const right = nextWords[idx].toLowerCase();
+      const left = normalizeMergeToken(currentWords[currentWords.length - size + idx]);
+      const right = normalizeMergeToken(nextWords[idx]);
       if (left !== right) {
         match = false;
         break;
@@ -368,6 +368,13 @@ function mergeChunkText(currentText: string, nextText: string): string {
 
   const suffix = nextWords.slice(overlapCount).join(" ");
   return suffix ? `${currentText} ${suffix}` : currentText;
+}
+
+function normalizeMergeToken(token: string): string {
+  return token
+    .toLowerCase()
+    .replace(/^[^\w]+|[^\w]+$/g, "")
+    .trim();
 }
 
 function queueChunk(samples: Float32Array): Promise<void> {
