@@ -16,6 +16,8 @@ const SAMPLE_RATE = 16000;
 const CHUNK_SAMPLES = Math.floor(CHUNK_SECS * SAMPLE_RATE);
 const STRIDE_SAMPLES = Math.floor(STRIDE_SECS * SAMPLE_RATE);
 const CHUNK_STEP_SAMPLES = Math.max(1, CHUNK_SAMPLES - STRIDE_SAMPLES);
+const SILENCE_RMS = 0.004;
+const SILENCE_PEAK = 0.02;
 const appBase = new URL("./", window.location.href);
 const modelsDir = new URL("models/", appBase).href;
 const ortDir = new URL("ort/", appBase).href;
@@ -30,7 +32,6 @@ let requestId = 0;
 const pendingChunks = new Map<number, PendingChunk>();
 
 let isRecording = false;
-let processing = false;
 let toggling = false;
 
 let statusEl: HTMLElement;
@@ -148,7 +149,6 @@ function onWorkerError(event: ErrorEvent): void {
   setStatus(`Worker error: ${msg}`);
   ready = false;
   isRecording = false;
-  processing = false;
   loadBtn.disabled = false;
   recordBtn.disabled = true;
   recordBtn.textContent = "Record";
@@ -233,7 +233,6 @@ async function toggleRecording(): Promise<void> {
         pcmCount = 0;
         chunkIdx = 0;
         transcriptText = "";
-        processing = false;
         chunkTask = Promise.resolve();
 
         transcriptEl.textContent = "";
@@ -280,7 +279,7 @@ function onAudioProcess(event: AudioProcessingEvent): void {
   pcmBuffer.push(new Float32Array(input));
   pcmCount += input.length;
 
-  if (pcmCount >= CHUNK_SAMPLES && !processing) {
+  if (pcmCount >= CHUNK_SAMPLES) {
     const chunk = takeChunkWindow();
     void queueChunk(chunk);
   }
@@ -378,8 +377,32 @@ function normalizeMergeToken(token: string): string {
 }
 
 function queueChunk(samples: Float32Array): Promise<void> {
+  if (isSilentChunk(samples)) {
+    return chunkTask;
+  }
+
   chunkTask = chunkTask.catch(() => undefined).then(() => processChunk(samples));
   return chunkTask;
+}
+
+function isSilentChunk(samples: Float32Array): boolean {
+  if (samples.length === 0) {
+    return true;
+  }
+
+  let peak = 0;
+  let power = 0;
+  for (let idx = 0; idx < samples.length; idx += 1) {
+    const value = samples[idx];
+    const absValue = Math.abs(value);
+    if (absValue > peak) {
+      peak = absValue;
+    }
+    power += value * value;
+  }
+
+  const rms = Math.sqrt(power / samples.length);
+  return rms < SILENCE_RMS && peak < SILENCE_PEAK;
 }
 
 async function waitForChunks(): Promise<void> {
@@ -429,7 +452,6 @@ async function processChunk(samples: Float32Array): Promise<void> {
     return;
   }
 
-  processing = true;
   chunkIdx += 1;
   setStatus(`Processing chunk ${chunkIdx}...`);
 
@@ -447,8 +469,6 @@ async function processChunk(samples: Float32Array): Promise<void> {
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     setStatus(`Inference error: ${msg}`);
-  } finally {
-    processing = false;
   }
 
   if (pcmCount >= CHUNK_SAMPLES) {
