@@ -20,7 +20,7 @@ Dr. Toru is a local-first medical dictation app built with Tauri. The app uses m
 - `/public/models` and `/public/ort`
   - Bundled ASR model + ORT wasm assets.
 
-# GitHub Issues Cheatsheet
+# GitHub Issues Cheatsheet (requires sandbox escalation)
 - `gh issue list`
 - `gh issue list --search "query"`
 - `gh issue view {<number> | <url>}`
