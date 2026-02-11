@@ -29,6 +29,9 @@ const N_FFT = 512;
 const N_MELS = 128;
 const MEL_LOWER = 125;
 const MEL_UPPER = 7500;
+const MODEL_CACHE_NAME = "asr-model-cache-v1";
+const MODEL_FILE = "medasr_lasr_ctc.onnx";
+const VOCAB_FILE = "medasr_lasr_vocab.json";
 
 const hannWindow = new Float64Array(FRAME_LEN);
 for (let idx = 0; idx < FRAME_LEN; idx += 1) {
@@ -69,14 +72,26 @@ async function loadModel(message: LoadRequest): Promise<void> {
     ort.env.wasm.wasmPaths = message.ortDir;
     ort.env.wasm.numThreads = 2;
 
-    const vocabRes = await fetch(`${message.modelsDir}medasr_lasr_vocab.json`);
-    if (!vocabRes.ok) {
-      throw new Error(`Failed to load vocab (${vocabRes.status})`);
-    }
-    vocab = (await vocabRes.json()) as MedasrVocab;
+    const vocabUrl = `${message.modelsDir}${VOCAB_FILE}`;
+    const vocabResult = await loadJsonWithCache<MedasrVocab>(vocabUrl, "vocab");
+    vocab = vocabResult.data;
 
-    send({ type: "status", message: "Loading ONNX model in background..." });
-    session = await ort.InferenceSession.create(`${message.modelsDir}medasr_lasr_ctc.onnx`, {
+    const modelUrl = `${message.modelsDir}${MODEL_FILE}`;
+    send({
+      type: "status",
+      message: vocabResult.fromCache
+        ? "Loaded cached vocab. Loading ONNX model..."
+        : "Vocab fetched. Loading ONNX model...",
+    });
+    const modelResult = await loadBinaryWithCache(modelUrl, "ONNX model");
+
+    send({
+      type: "status",
+      message: modelResult.fromCache
+        ? "Initializing inference from cached model..."
+        : "Initializing inference from downloaded model...",
+    });
+    session = await ort.InferenceSession.create(modelResult.data, {
       executionProviders: ["wasm"],
       graphOptimizationLevel: "all",
     });
@@ -94,6 +109,71 @@ async function loadModel(message: LoadRequest): Promise<void> {
     });
 
   return loadTask;
+}
+
+interface CachedLoadResult<T> {
+  data: T;
+  fromCache: boolean;
+}
+
+async function loadJsonWithCache<T>(
+  url: string,
+  label: string,
+): Promise<CachedLoadResult<T>> {
+  const result = await fetchWithCache(url, label);
+  return {
+    data: (await result.response.json()) as T,
+    fromCache: result.fromCache,
+  };
+}
+
+async function loadBinaryWithCache(
+  url: string,
+  label: string,
+): Promise<CachedLoadResult<Uint8Array>> {
+  const result = await fetchWithCache(url, label);
+  return {
+    data: new Uint8Array(await result.response.arrayBuffer()),
+    fromCache: result.fromCache,
+  };
+}
+
+interface CacheFetchResult {
+  response: Response;
+  fromCache: boolean;
+}
+
+async function fetchWithCache(url: string, label: string): Promise<CacheFetchResult> {
+  const fetchFromNetwork = async (): Promise<CacheFetchResult> => ({
+    response: await fetchRequired(url, label),
+    fromCache: false,
+  });
+
+  if (typeof caches === "undefined") {
+    return fetchFromNetwork();
+  }
+
+  try {
+    const cache = await caches.open(MODEL_CACHE_NAME);
+    const cached = await cache.match(url);
+    if (cached) {
+      return { response: cached, fromCache: true };
+    }
+
+    const response = await fetchRequired(url, label);
+    await cache.put(url, response.clone());
+    return { response, fromCache: false };
+  } catch {
+    return fetchFromNetwork();
+  }
+}
+
+async function fetchRequired(url: string, label: string): Promise<Response> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to load ${label} (${response.status})`);
+  }
+  return response;
 }
 
 async function transcribe(message: TranscribeRequest): Promise<void> {
