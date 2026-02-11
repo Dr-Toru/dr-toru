@@ -35,6 +35,7 @@ let melFilterbank: Float64Array | null = null;
 
 let session: ort.InferenceSession | null = null;
 let vocab: MedasrVocab | null = null;
+let loadPromise: Promise<void> | null = null;
 let isRecording = false;
 let processing = false;
 
@@ -65,6 +66,8 @@ window.addEventListener("DOMContentLoaded", () => {
   recordBtn.addEventListener("click", () => {
     void toggleRecording();
   });
+
+  void loadModel();
 });
 
 function mustEl(id: string): HTMLElement {
@@ -92,39 +95,49 @@ async function loadModel(): Promise<void> {
     setStatus("Model already loaded");
     return;
   }
-
-  loadBtn.disabled = true;
-  setStatus("Loading vocab...");
-
-  try {
-    ort.env.wasm.wasmPaths = ortDir;
-    ort.env.wasm.numThreads = 1;
-
-    const vocabRes = await fetch(`${modelsDir}medasr_lasr_vocab.json`);
-    if (!vocabRes.ok) {
-      throw new Error(`Failed to load vocab (${vocabRes.status})`);
-    }
-    vocab = (await vocabRes.json()) as MedasrVocab;
-
-    setStatus("Loading ONNX model...");
-    session = await ort.InferenceSession.create(`${modelsDir}medasr_lasr_ctc.onnx`, {
-      executionProviders: ["wasm"],
-      graphOptimizationLevel: "all",
-    });
-
-    setStatus("Model loaded. Ready to record.");
-    transcriptEl.textContent = 'Model loaded. Click "Record" to start.';
-    recordBtn.disabled = false;
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    setStatus(`Load failed: ${msg}`);
-    loadBtn.disabled = false;
+  if (loadPromise) {
+    return loadPromise;
   }
+
+  loadPromise = (async () => {
+    loadBtn.disabled = true;
+    setStatus("Loading vocab in background...");
+
+    try {
+      ort.env.wasm.wasmPaths = ortDir;
+      ort.env.wasm.numThreads = 1;
+
+      const vocabRes = await fetch(`${modelsDir}medasr_lasr_vocab.json`);
+      if (!vocabRes.ok) {
+        throw new Error(`Failed to load vocab (${vocabRes.status})`);
+      }
+      vocab = (await vocabRes.json()) as MedasrVocab;
+
+      setStatus("Loading ONNX model in background...");
+      session = await ort.InferenceSession.create(`${modelsDir}medasr_lasr_ctc.onnx`, {
+        executionProviders: ["wasm"],
+        graphOptimizationLevel: "all",
+      });
+
+      setStatus("Model loaded. Ready to record.");
+      transcriptEl.textContent = 'Model loaded. Click "Record" to start.';
+      recordBtn.disabled = false;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      setStatus(`Load failed: ${msg}`);
+      loadBtn.disabled = false;
+    } finally {
+      loadPromise = null;
+    }
+  })();
+
+  return loadPromise;
 }
 
 async function toggleRecording(): Promise<void> {
   if (!session || !vocab) {
-    setStatus("Load model first");
+    setStatus("Model still loading in background...");
+    void loadModel();
     return;
   }
 
