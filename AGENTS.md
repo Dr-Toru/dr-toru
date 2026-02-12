@@ -21,6 +21,14 @@ Dr. Toru is a local-first medical dictation app built with Tauri. The app uses m
   - Bundled ASR model + ORT wasm assets.
 
 # GitHub Issues Cheatsheet (requires sandbox escalation)
-- `gh issue list`
-- `gh issue list --search "query"`
-- `gh issue view {<number> | <url>}`
+- Find ready issues:
+  - `gh issue list --search "status:ready [query]"`
+- Read issue:
+  - `gh issue view {<number> | <url>}`
+- Set exactly one status label:
+  - Clear all labels shortcut: `gh api -X DELETE repos/spicyneuron/dr-toru/issues/<number>/labels`
+  - Add new status label: `gh issue edit <number> --add-label "<ready|wip|blocked|review|done>"`
+- Proactively manage assigned issues:
+  - Set `wip` when work starts.
+  - Set `blocked` immediately when unable to finish.
+  - Set `review` when implementation/tests are complete.
