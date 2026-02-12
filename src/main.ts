@@ -58,19 +58,18 @@ window.addEventListener("DOMContentLoaded", () => {
   settingsBtn = mustBtn("settingsBtn");
   splashEl = mustEl("screen-splash");
 
-  asr = new AsrClient(
-    new URL("./asr.worker.ts", import.meta.url),
-    {
-      onStatus: (message) => setStatus(message),
-      onCrash: (message) => handleAsrCrash(message),
-    },
-  );
+  asr = new AsrClient(new URL("./asr.worker.ts", import.meta.url), {
+    onStatus: (message) => setStatus(message),
+    onCrash: (message) => handleAsrCrash(message),
+  });
   screenEls = {
     transcription: mustEl("screen-transcription"),
     list: mustEl("screen-list"),
     settings: mustEl("screen-settings"),
   };
-  navBtns = Array.from(document.querySelectorAll<HTMLButtonElement>(".nav-btn[data-route]"));
+  navBtns = Array.from(
+    document.querySelectorAll<HTMLButtonElement>(".nav-btn[data-route]"),
+  );
 
   for (const navBtn of navBtns) {
     navBtn.addEventListener("click", () => {
@@ -231,7 +230,6 @@ function clearSplashHideTimer(): void {
   }
 }
 
-
 async function initializeStorage(): Promise<void> {
   try {
     await getSessionStore().init();
@@ -318,7 +316,10 @@ async function toggleRecording(): Promise<void> {
         transcriptText = "";
         metricChunkId = 0;
         silentChunkSkips = 0;
-        debugMetric("session-start", { chunkSecs: CHUNK_SECS, strideSecs: STRIDE_SECS });
+        debugMetric("session-start", {
+          chunkSecs: CHUNK_SECS,
+          strideSecs: STRIDE_SECS,
+        });
 
         await capture.start((chunk) => void queueChunk(chunk));
 
@@ -357,7 +358,6 @@ async function toggleRecording(): Promise<void> {
   }
 }
 
-
 function mergeChunkText(currentText: string, nextText: string): string {
   const next = nextText.trim();
   if (!next) {
@@ -375,7 +375,9 @@ function mergeChunkText(currentText: string, nextText: string): string {
   for (let size = maxOverlap; size > 0; size -= 1) {
     let match = true;
     for (let idx = 0; idx < size; idx += 1) {
-      const left = normalizeMergeToken(currentWords[currentWords.length - size + idx]);
+      const left = normalizeMergeToken(
+        currentWords[currentWords.length - size + idx],
+      );
       const right = normalizeMergeToken(nextWords[idx]);
       if (left !== right) {
         match = false;
@@ -438,7 +440,9 @@ async function processChunk(
   queueWaitMs = 0,
 ): Promise<void> {
   if (!asr.ready) {
-    debugMetric("chunk-dropped-unready", { chunkSecs: roundMetric(samples.length / SAMPLE_RATE) });
+    debugMetric("chunk-dropped-unready", {
+      chunkSecs: roundMetric(samples.length / SAMPLE_RATE),
+    });
     return;
   }
 
@@ -479,10 +483,12 @@ async function processChunk(
       message: msg,
     });
   }
-
 }
 
-function debugMetric(event: string, values: Record<string, number | string>): void {
+function debugMetric(
+  event: string,
+  values: Record<string, number | string>,
+): void {
   if (!DEBUG_METRICS) {
     return;
   }

@@ -16,20 +16,31 @@
     <main id="app-shell" class="app-shell">
       <header class="app-header">
         <h1>Dr. Toru</h1>
-        <button id="settingsBtn" class="header-btn" type="button" aria-label="Open settings">
+        <button
+          id="settingsBtn"
+          class="header-btn"
+          type="button"
+          aria-label="Open settings"
+        >
           Settings
         </button>
       </header>
 
       <div class="screen-stack">
-        <section id="screen-transcription" class="screen" data-screen="transcription">
+        <section
+          id="screen-transcription"
+          class="screen"
+          data-screen="transcription"
+        >
           <h2>Transcription</h2>
           <div class="actions">
             <button id="loadBtn" type="button">Load Model</button>
             <button id="recordBtn" type="button" disabled>Record</button>
           </div>
 
-          <div id="status" class="status">Status: Loading model in background...</div>
+          <div id="status" class="status">
+            Status: Loading model in background...
+          </div>
 
           <h3>Transcript</h3>
           <div id="transcript" class="transcript">
@@ -62,7 +73,9 @@
 
       <nav class="shell-nav" aria-label="Primary">
         <button type="button" class="nav-btn" data-route="list">List</button>
-        <button type="button" class="nav-btn" data-route="transcription">Transcribe</button>
+        <button type="button" class="nav-btn" data-route="transcription">
+          Transcribe
+        </button>
       </nav>
     </main>
   </body>

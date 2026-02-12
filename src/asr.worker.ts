@@ -20,7 +20,8 @@ interface FeatureTensor {
   shape: [number, number, number];
 }
 
-const workerScope: DedicatedWorkerGlobalScope = self as DedicatedWorkerGlobalScope;
+const workerScope: DedicatedWorkerGlobalScope =
+  self as DedicatedWorkerGlobalScope;
 
 const SAMPLE_RATE = 16000;
 const FRAME_LEN = 400;
@@ -142,7 +143,10 @@ interface CacheFetchResult {
   fromCache: boolean;
 }
 
-async function fetchWithCache(url: string, label: string): Promise<CacheFetchResult> {
+async function fetchWithCache(
+  url: string,
+  label: string,
+): Promise<CacheFetchResult> {
   const fetchFromNetwork = async (): Promise<CacheFetchResult> => ({
     response: await fetchRequired(url, label),
     fromCache: false,
@@ -187,7 +191,11 @@ async function transcribe(message: TranscribeRequest): Promise<void> {
 
   try {
     const features = extractMelFeatures(message.samples);
-    const inputTensor = new ort.Tensor("float32", features.data, features.shape);
+    const inputTensor = new ort.Tensor(
+      "float32",
+      features.data,
+      features.shape,
+    );
     const maskTensor = new ort.Tensor(
       "bool",
       new Uint8Array(features.shape[1]).fill(1),

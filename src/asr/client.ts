@@ -70,7 +70,9 @@ export class AsrClient {
         requestId: id,
         samples,
       };
-      target.postMessage(message satisfies MainToWorkerMessage, [samples.buffer]);
+      target.postMessage(message satisfies MainToWorkerMessage, [
+        samples.buffer,
+      ]);
     });
   }
 
