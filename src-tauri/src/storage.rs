@@ -400,6 +400,9 @@ pub fn storage_get_session(
     let raw = fs::read_to_string(&file_path).map_err(err_to_string)?;
     let session = serde_json::from_str::<SessionRecord>(&raw).map_err(err_to_string)?;
     validate_session(&session)?;
+    if session.session_id != session_id {
+        return Err("Session id mismatch".to_string());
+    }
     Ok(Some(session))
 }
 
