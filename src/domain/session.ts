@@ -5,10 +5,12 @@ export const SESSION_FORMAT = 1 as const;
 export type ArtifactRole = "source" | "derived";
 export type ArtifactCreator = "asr" | "transform" | "user" | "system";
 export type ArtifactMetaValue = string | number | boolean | null;
+export type ArtifactKind = "transcript_raw" | "transcript_corrected" | "audio_capture";
+export type TextArtifactKind = Extract<ArtifactKind, "transcript_raw" | "transcript_corrected">;
 
 export interface ArtifactRecord {
   artifactId: string;
-  kind: string;
+  kind: ArtifactKind;
   role: ArtifactRole;
   contentType: string;
   path: string;
@@ -16,7 +18,6 @@ export interface ArtifactRecord {
   createdBy: ArtifactCreator;
   sourceArtifactId: string | null;
   metadata: Record<string, ArtifactMetaValue>;
-  available: boolean;
 }
 
 export interface SessionRecord {
@@ -43,7 +44,7 @@ export interface NewSessionInput {
 
 export interface NewTextArtifactInput {
   artifactId?: string;
-  kind: string;
+  kind: TextArtifactKind;
   role: ArtifactRole;
   createdAt?: string;
   createdBy: ArtifactCreator;
@@ -75,6 +76,5 @@ export function createTextArtifact(input: NewTextArtifactInput): ArtifactRecord 
     createdBy: input.createdBy,
     sourceArtifactId: input.sourceArtifactId ?? null,
     metadata: input.metadata ?? {},
-    available: true,
   };
 }
