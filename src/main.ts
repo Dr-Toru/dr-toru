@@ -10,6 +10,13 @@ interface PendingChunk {
   reject: (error: Error) => void;
 }
 
+const ROUTES = ["transcription", "list", "settings"] as const;
+type RouteName = (typeof ROUTES)[number];
+const TAB_ROUTES = ["list", "transcription"] as const;
+type TabRoute = (typeof TAB_ROUTES)[number];
+const DEFAULT_ROUTE: TabRoute = "transcription";
+const SPLASH_FADE_MS = 280;
+
 const CHUNK_SECS = 4;
 const STRIDE_SECS = 1;
 const SAMPLE_RATE = 16000;
@@ -39,6 +46,13 @@ let statusEl: HTMLElement;
 let transcriptEl: HTMLElement;
 let loadBtn: HTMLButtonElement;
 let recordBtn: HTMLButtonElement;
+let settingsBtn: HTMLButtonElement;
+let navBtns: HTMLButtonElement[] = [];
+let currentRoute: RouteName | null = null;
+let screenEls: Record<RouteName, HTMLElement>;
+let lastMainRoute: TabRoute = DEFAULT_ROUTE;
+let splashEl: HTMLElement;
+let splashHideTimer: number | null = null;
 
 let micStream: MediaStream | null = null;
 let captureCtx: AudioContext | null = null;
@@ -60,6 +74,45 @@ window.addEventListener("DOMContentLoaded", () => {
   transcriptEl = mustEl("transcript");
   loadBtn = mustBtn("loadBtn");
   recordBtn = mustBtn("recordBtn");
+  settingsBtn = mustBtn("settingsBtn");
+  splashEl = mustEl("screen-splash");
+  screenEls = {
+    transcription: mustEl("screen-transcription"),
+    list: mustEl("screen-list"),
+    settings: mustEl("screen-settings"),
+  };
+  navBtns = Array.from(document.querySelectorAll<HTMLButtonElement>(".nav-btn[data-route]"));
+
+  for (const navBtn of navBtns) {
+    navBtn.addEventListener("click", () => {
+      const route = navBtn.dataset.route;
+      if (!isTabRoute(route)) {
+        return;
+      }
+      setRoute(route, true);
+    });
+  }
+
+  settingsBtn.addEventListener("click", () => {
+    if (currentRoute === "settings") {
+      setRoute(lastMainRoute, true);
+      return;
+    }
+    setRoute("settings", true);
+  });
+
+  window.addEventListener("hashchange", () => {
+    setRoute(routeFromHash(window.location.hash), false);
+  });
+
+  const initialHash = hashValue(window.location.hash);
+  if (initialHash) {
+    hideSplash(false);
+    setRoute(routeFromHash(window.location.hash), true);
+  } else {
+    setRoute(DEFAULT_ROUTE, true);
+    showSplash();
+  }
 
   loadBtn.addEventListener("click", () => {
     void loadModel();
@@ -69,6 +122,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   window.addEventListener("beforeunload", () => {
+    clearSplashHideTimer();
     void stopCapture();
     worker?.terminate();
     worker = null;
@@ -76,6 +130,117 @@ window.addEventListener("DOMContentLoaded", () => {
 
   void loadModel();
 });
+
+function isRoute(value: string | undefined): value is RouteName {
+  return value !== undefined && ROUTES.includes(value as RouteName);
+}
+
+function isTabRoute(value: string | undefined): value is TabRoute {
+  return value !== undefined && TAB_ROUTES.includes(value as TabRoute);
+}
+
+function hashValue(hash: string): string {
+  return hash.replace(/^#/, "");
+}
+
+function routeFromHash(hash: string): RouteName {
+  const route = hashValue(hash);
+  return isRoute(route) ? route : DEFAULT_ROUTE;
+}
+
+function setRoute(route: RouteName, syncHash: boolean): void {
+  const changed = route !== currentRoute;
+  if (!changed) {
+    return;
+  }
+
+  currentRoute = route;
+
+  for (const name of ROUTES) {
+    const isActive = name === route;
+    const screen = screenEls[name];
+    screen.classList.toggle("is-hidden", !isActive);
+    screen.hidden = !isActive;
+    screen.setAttribute("aria-hidden", String(!isActive));
+  }
+
+  if (changed) {
+    const active = screenEls[route];
+    active.classList.remove("fade-in");
+    void active.offsetWidth;
+    active.classList.add("fade-in");
+  }
+
+  for (const navBtn of navBtns) {
+    const isActive = navBtn.dataset.route === route;
+    navBtn.classList.toggle("is-active", isActive);
+    if (isActive) {
+      navBtn.setAttribute("aria-current", "page");
+    } else {
+      navBtn.removeAttribute("aria-current");
+    }
+  }
+
+  const settingsActive = route === "settings";
+  settingsBtn.classList.toggle("is-active", settingsActive);
+  settingsBtn.setAttribute("aria-pressed", String(settingsActive));
+
+  if (isTabRoute(route)) {
+    lastMainRoute = route;
+  }
+
+  if (!syncHash) {
+    return;
+  }
+
+  const hash = `#${route}`;
+  if (window.location.hash !== hash) {
+    window.location.hash = hash;
+  }
+}
+
+function showSplash(): void {
+  clearSplashHideTimer();
+  splashEl.hidden = false;
+  splashEl.setAttribute("aria-hidden", "false");
+  splashEl.classList.remove("is-fading");
+}
+
+function hideSplash(withFade: boolean): void {
+  if (splashEl.hidden) {
+    return;
+  }
+
+  if (!withFade) {
+    splashEl.classList.remove("is-fading");
+    splashEl.hidden = true;
+    splashEl.setAttribute("aria-hidden", "true");
+    return;
+  }
+
+  splashEl.classList.add("is-fading");
+  clearSplashHideTimer();
+  splashHideTimer = window.setTimeout(() => {
+    splashHideTimer = null;
+    splashEl.hidden = true;
+    splashEl.setAttribute("aria-hidden", "true");
+    splashEl.classList.remove("is-fading");
+  }, SPLASH_FADE_MS);
+}
+
+function maybeExitSplash(): void {
+  if (splashEl.hidden) {
+    return;
+  }
+  hideSplash(true);
+}
+
+function clearSplashHideTimer(): void {
+  if (splashHideTimer !== null) {
+    window.clearTimeout(splashHideTimer);
+    splashHideTimer = null;
+  }
+}
 
 function mustEl(id: string): HTMLElement {
   const el = document.getElementById(id);
@@ -122,6 +287,7 @@ function onWorkerMessage(event: MessageEvent<WorkerToMainMessage>): void {
     transcriptEl.textContent = 'Model loaded. Click "Record" to start.';
     recordBtn.disabled = false;
     loadBtn.disabled = true;
+    maybeExitSplash();
     loadDone?.();
     return;
   }
@@ -131,6 +297,7 @@ function onWorkerMessage(event: MessageEvent<WorkerToMainMessage>): void {
     recordBtn.disabled = true;
     setStatus(`Load failed: ${message.message}`);
     loadBtn.disabled = false;
+    maybeExitSplash();
     loadFail?.(new Error(message.message));
     return;
   }
@@ -152,6 +319,7 @@ function onWorkerMessage(event: MessageEvent<WorkerToMainMessage>): void {
 function onWorkerError(event: ErrorEvent): void {
   const msg = event.message || "Worker crashed";
   setStatus(`Worker error: ${msg}`);
+  maybeExitSplash();
   ready = false;
   isRecording = false;
   loadBtn.disabled = false;

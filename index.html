@@ -8,21 +8,62 @@
     <script type="module" src="/src/main.ts" defer></script>
   </head>
   <body>
-    <main class="app-shell">
-      <h1>Dr. Toru</h1>
-      <p class="subtitle">Medical speech recognition running locally.</p>
+    <section id="screen-splash" class="splash-screen" aria-hidden="false">
+      <p class="splash-title">Dr. Toru</p>
+      <p class="splash-subtitle">Preparing local workspace...</p>
+    </section>
 
-      <div class="actions">
-        <button id="loadBtn" type="button">Load Model</button>
-        <button id="recordBtn" type="button" disabled>Record</button>
+    <main id="app-shell" class="app-shell">
+      <header class="app-header">
+        <h1>Dr. Toru</h1>
+        <button id="settingsBtn" class="header-btn" type="button" aria-label="Open settings">
+          Settings
+        </button>
+      </header>
+
+      <div class="screen-stack">
+        <section id="screen-transcription" class="screen" data-screen="transcription">
+          <h2>Transcription</h2>
+          <div class="actions">
+            <button id="loadBtn" type="button">Load Model</button>
+            <button id="recordBtn" type="button" disabled>Record</button>
+          </div>
+
+          <div id="status" class="status">Status: Loading model in background...</div>
+
+          <h3>Transcript</h3>
+          <div id="transcript" class="transcript">
+            Model is loading in the background.
+          </div>
+        </section>
+
+        <section
+          id="screen-list"
+          class="screen is-hidden"
+          data-screen="list"
+          hidden
+          aria-hidden="true"
+        >
+          <h2>List</h2>
+          <p class="placeholder">List screen placeholder.</p>
+        </section>
+
+        <section
+          id="screen-settings"
+          class="screen is-hidden"
+          data-screen="settings"
+          hidden
+          aria-hidden="true"
+        >
+          <h2>Settings</h2>
+          <p class="placeholder">Settings screen placeholder.</p>
+        </section>
       </div>
 
-      <div id="status" class="status">Status: Loading model in background...</div>
-
-      <h2>Transcript</h2>
-      <div id="transcript" class="transcript">
-        Model is loading in the background.
-      </div>
+      <nav class="shell-nav" aria-label="Primary">
+        <button type="button" class="nav-btn" data-route="list">List</button>
+        <button type="button" class="nav-btn" data-route="transcription">Transcribe</button>
+      </nav>
     </main>
   </body>
 </html>
