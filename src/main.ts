@@ -4,6 +4,7 @@ import type {
   TranscribeRequest,
   WorkerToMainMessage,
 } from "./asr-messages";
+import { getSessionStore } from "./storage";
 
 interface PendingChunk {
   resolve: (text: string) => void;
@@ -128,6 +129,7 @@ window.addEventListener("DOMContentLoaded", () => {
     worker = null;
   });
 
+  void initializeStorage();
   void loadModel();
 });
 
@@ -239,6 +241,15 @@ function clearSplashHideTimer(): void {
   if (splashHideTimer !== null) {
     window.clearTimeout(splashHideTimer);
     splashHideTimer = null;
+  }
+}
+
+async function initializeStorage(): Promise<void> {
+  try {
+    await getSessionStore().init();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("Storage init failed:", message);
   }
 }
 
