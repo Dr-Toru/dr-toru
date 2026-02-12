@@ -4,12 +4,20 @@ import type {
   TranscribeRequest,
   WorkerToMainMessage,
 } from "./asr-messages";
+import { asrQueue } from "./runtime/queues";
 import { getSessionStore } from "./storage";
 
 interface PendingChunk {
   resolve: (text: string) => void;
   reject: (error: Error) => void;
 }
+
+const ROUTES = ["transcription", "list", "settings"] as const;
+type RouteName = (typeof ROUTES)[number];
+const TAB_ROUTES = ["list", "transcription"] as const;
+type TabRoute = (typeof TAB_ROUTES)[number];
+const DEFAULT_ROUTE: TabRoute = "transcription";
+const SPLASH_FADE_MS = 280;
 
 const CHUNK_SECS = 4;
 const STRIDE_SECS = 1;
@@ -40,6 +48,13 @@ let statusEl: HTMLElement;
 let transcriptEl: HTMLElement;
 let loadBtn: HTMLButtonElement;
 let recordBtn: HTMLButtonElement;
+let settingsBtn: HTMLButtonElement;
+let navBtns: HTMLButtonElement[] = [];
+let currentRoute: RouteName | null = null;
+let screenEls: Record<RouteName, HTMLElement>;
+let lastMainRoute: TabRoute = DEFAULT_ROUTE;
+let splashEl: HTMLElement;
+let splashHideTimer: number | null = null;
 
 let micStream: MediaStream | null = null;
 let captureCtx: AudioContext | null = null;
@@ -50,9 +65,6 @@ let pcmBuffer: Float32Array[] = [];
 let pcmCount = 0;
 let chunkIdx = 0;
 let transcriptText = "";
-let chunkTask: Promise<void> = Promise.resolve();
-let queuedChunkCount = 0;
-let activeChunkCount = 0;
 let metricChunkId = 0;
 let silentChunkSkips = 0;
 
@@ -61,6 +73,45 @@ window.addEventListener("DOMContentLoaded", () => {
   transcriptEl = mustEl("transcript");
   loadBtn = mustBtn("loadBtn");
   recordBtn = mustBtn("recordBtn");
+  settingsBtn = mustBtn("settingsBtn");
+  splashEl = mustEl("screen-splash");
+  screenEls = {
+    transcription: mustEl("screen-transcription"),
+    list: mustEl("screen-list"),
+    settings: mustEl("screen-settings"),
+  };
+  navBtns = Array.from(document.querySelectorAll<HTMLButtonElement>(".nav-btn[data-route]"));
+
+  for (const navBtn of navBtns) {
+    navBtn.addEventListener("click", () => {
+      const route = navBtn.dataset.route;
+      if (!isTabRoute(route)) {
+        return;
+      }
+      setRoute(route, true);
+    });
+  }
+
+  settingsBtn.addEventListener("click", () => {
+    if (currentRoute === "settings") {
+      setRoute(lastMainRoute, true);
+      return;
+    }
+    setRoute("settings", true);
+  });
+
+  window.addEventListener("hashchange", () => {
+    setRoute(routeFromHash(window.location.hash), false);
+  });
+
+  const initialHash = hashValue(window.location.hash);
+  if (initialHash) {
+    hideSplash(false);
+    setRoute(routeFromHash(window.location.hash), true);
+  } else {
+    setRoute(DEFAULT_ROUTE, true);
+    showSplash();
+  }
 
   loadBtn.addEventListener("click", () => {
     void loadModel();
@@ -70,6 +121,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   window.addEventListener("beforeunload", () => {
+    clearSplashHideTimer();
     void stopCapture();
     worker?.terminate();
     worker = null;
@@ -78,6 +130,118 @@ window.addEventListener("DOMContentLoaded", () => {
   void initializeStorage();
   void loadModel();
 });
+
+function isRoute(value: string | undefined): value is RouteName {
+  return value !== undefined && ROUTES.includes(value as RouteName);
+}
+
+function isTabRoute(value: string | undefined): value is TabRoute {
+  return value !== undefined && TAB_ROUTES.includes(value as TabRoute);
+}
+
+function hashValue(hash: string): string {
+  return hash.replace(/^#/, "");
+}
+
+function routeFromHash(hash: string): RouteName {
+  const route = hashValue(hash);
+  return isRoute(route) ? route : DEFAULT_ROUTE;
+}
+
+function setRoute(route: RouteName, syncHash: boolean): void {
+  const changed = route !== currentRoute;
+  if (!changed) {
+    return;
+  }
+
+  currentRoute = route;
+
+  for (const name of ROUTES) {
+    const isActive = name === route;
+    const screen = screenEls[name];
+    screen.classList.toggle("is-hidden", !isActive);
+    screen.hidden = !isActive;
+    screen.setAttribute("aria-hidden", String(!isActive));
+  }
+
+  if (changed) {
+    const active = screenEls[route];
+    active.classList.remove("fade-in");
+    void active.offsetWidth;
+    active.classList.add("fade-in");
+  }
+
+  for (const navBtn of navBtns) {
+    const isActive = navBtn.dataset.route === route;
+    navBtn.classList.toggle("is-active", isActive);
+    if (isActive) {
+      navBtn.setAttribute("aria-current", "page");
+    } else {
+      navBtn.removeAttribute("aria-current");
+    }
+  }
+
+  const settingsActive = route === "settings";
+  settingsBtn.classList.toggle("is-active", settingsActive);
+  settingsBtn.setAttribute("aria-pressed", String(settingsActive));
+
+  if (isTabRoute(route)) {
+    lastMainRoute = route;
+  }
+
+  if (!syncHash) {
+    return;
+  }
+
+  const hash = `#${route}`;
+  if (window.location.hash !== hash) {
+    window.location.hash = hash;
+  }
+}
+
+function showSplash(): void {
+  clearSplashHideTimer();
+  splashEl.hidden = false;
+  splashEl.setAttribute("aria-hidden", "false");
+  splashEl.classList.remove("is-fading");
+}
+
+function hideSplash(withFade: boolean): void {
+  if (splashEl.hidden) {
+    return;
+  }
+
+  if (!withFade) {
+    splashEl.classList.remove("is-fading");
+    splashEl.hidden = true;
+    splashEl.setAttribute("aria-hidden", "true");
+    return;
+  }
+
+  splashEl.classList.add("is-fading");
+  clearSplashHideTimer();
+  splashHideTimer = window.setTimeout(() => {
+    splashHideTimer = null;
+    splashEl.hidden = true;
+    splashEl.setAttribute("aria-hidden", "true");
+    splashEl.classList.remove("is-fading");
+  }, SPLASH_FADE_MS);
+}
+
+function maybeExitSplash(): void {
+  if (splashEl.hidden) {
+    return;
+  }
+  hideSplash(true);
+}
+
+function clearSplashHideTimer(): void {
+  if (splashHideTimer !== null) {
+    window.clearTimeout(splashHideTimer);
+    splashHideTimer = null;
+  }
+}
+
 
 async function initializeStorage(): Promise<void> {
   try {
@@ -133,6 +297,7 @@ function onWorkerMessage(event: MessageEvent<WorkerToMainMessage>): void {
     transcriptEl.textContent = 'Model loaded. Click "Record" to start.';
     recordBtn.disabled = false;
     loadBtn.disabled = true;
+    maybeExitSplash();
     loadDone?.();
     return;
   }
@@ -142,6 +307,7 @@ function onWorkerMessage(event: MessageEvent<WorkerToMainMessage>): void {
     recordBtn.disabled = true;
     setStatus(`Load failed: ${message.message}`);
     loadBtn.disabled = false;
+    maybeExitSplash();
     loadFail?.(new Error(message.message));
     return;
   }
@@ -163,6 +329,7 @@ function onWorkerMessage(event: MessageEvent<WorkerToMainMessage>): void {
 function onWorkerError(event: ErrorEvent): void {
   const msg = event.message || "Worker crashed";
   setStatus(`Worker error: ${msg}`);
+  maybeExitSplash();
   ready = false;
   isRecording = false;
   loadBtn.disabled = false;
@@ -249,9 +416,6 @@ async function toggleRecording(): Promise<void> {
         pcmCount = 0;
         chunkIdx = 0;
         transcriptText = "";
-        chunkTask = Promise.resolve();
-        queuedChunkCount = 0;
-        activeChunkCount = 0;
         metricChunkId = 0;
         silentChunkSkips = 0;
         debugMetric("session-start", { chunkSecs: CHUNK_SECS, strideSecs: STRIDE_SECS });
@@ -406,31 +570,23 @@ function queueChunk(samples: Float32Array): Promise<void> {
         chunkSecs: roundMetric(samples.length / SAMPLE_RATE),
       });
     }
-    return chunkTask;
+    return asrQueue.waitForIdle();
   }
 
   const metricId = ++metricChunkId;
   const queuedAt = performance.now();
-  queuedChunkCount += 1;
-  debugMetric("chunk-queued", {
-    id: metricId,
-    queueDepth: queuedChunkCount,
-    chunkSecs: roundMetric(samples.length / SAMPLE_RATE),
+
+  const task = asrQueue.enqueue(async () => {
+    const queueWaitMs = performance.now() - queuedAt;
+    await processChunk(samples, metricId, queueWaitMs);
   });
 
-  chunkTask = chunkTask
-    .catch(() => undefined)
-    .then(async () => {
-      queuedChunkCount = Math.max(queuedChunkCount - 1, 0);
-      activeChunkCount += 1;
-      const queueWaitMs = performance.now() - queuedAt;
-      try {
-        await processChunk(samples, metricId, queueWaitMs);
-      } finally {
-        activeChunkCount = Math.max(activeChunkCount - 1, 0);
-      }
-    });
-  return chunkTask;
+  debugMetric("chunk-queued", {
+    id: metricId,
+    queueDepth: asrQueue.pendingCount,
+    chunkSecs: roundMetric(samples.length / SAMPLE_RATE),
+  });
+  return task;
 }
 
 function isSilentChunk(samples: Float32Array): boolean {
@@ -454,13 +610,7 @@ function isSilentChunk(samples: Float32Array): boolean {
 }
 
 async function waitForChunks(): Promise<void> {
-  while (true) {
-    const task = chunkTask;
-    await task;
-    if (task === chunkTask) {
-      return;
-    }
-  }
+  await asrQueue.waitForIdle();
 }
 
 async function stopCapture(): Promise<void> {
@@ -525,8 +675,8 @@ async function processChunk(
       chunkIdx,
       queueWaitMs: roundMetric(queueWaitMs),
       inferMs: roundMetric(performance.now() - inferStartedAt),
-      queueDepth: queuedChunkCount,
-      active: activeChunkCount,
+      queueDepth: asrQueue.pendingCount,
+      active: asrQueue.activeCount,
       textChars: text.length,
     });
   } catch (error) {
@@ -537,8 +687,8 @@ async function processChunk(
       chunkIdx,
       queueWaitMs: roundMetric(queueWaitMs),
       inferMs: roundMetric(performance.now() - inferStartedAt),
-      queueDepth: queuedChunkCount,
-      active: activeChunkCount,
+      queueDepth: asrQueue.pendingCount,
+      active: asrQueue.activeCount,
       message: msg,
     });
   }
