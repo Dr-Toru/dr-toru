@@ -106,6 +106,18 @@ export class SerialQueue {
   }
 
   waitForIdle(): Promise<void> {
-    return this.tail;
+    return (async () => {
+      while (true) {
+        const snapshot = this.tail;
+        await snapshot;
+        if (
+          snapshot === this.tail &&
+          this.pendingCountValue === 0 &&
+          this.activeCountValue === 0
+        ) {
+          return;
+        }
+      }
+    })();
   }
 }
