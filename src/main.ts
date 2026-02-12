@@ -297,7 +297,7 @@ function onWorkerMessage(event: MessageEvent<WorkerToMainMessage>): void {
     recordBtn.disabled = true;
     setStatus(`Load failed: ${message.message}`);
     loadBtn.disabled = false;
-    hideSplash(true);
+    maybeExitSplash();
     loadFail?.(new Error(message.message));
     return;
   }
