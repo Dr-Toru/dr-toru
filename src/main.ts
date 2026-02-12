@@ -319,7 +319,7 @@ function onWorkerMessage(event: MessageEvent<WorkerToMainMessage>): void {
 function onWorkerError(event: ErrorEvent): void {
   const msg = event.message || "Worker crashed";
   setStatus(`Worker error: ${msg}`);
-  hideSplash(true);
+  maybeExitSplash();
   ready = false;
   isRecording = false;
   loadBtn.disabled = false;
