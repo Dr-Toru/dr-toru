@@ -4,6 +4,7 @@ import type {
   TranscribeRequest,
   WorkerToMainMessage,
 } from "./asr-messages";
+import { asrQueue } from "./runtime/queues";
 import { getSessionStore } from "./storage";
 
 interface PendingChunk {
@@ -64,9 +65,6 @@ let pcmBuffer: Float32Array[] = [];
 let pcmCount = 0;
 let chunkIdx = 0;
 let transcriptText = "";
-let chunkTask: Promise<void> = Promise.resolve();
-let queuedChunkCount = 0;
-let activeChunkCount = 0;
 let metricChunkId = 0;
 let silentChunkSkips = 0;
 
@@ -417,9 +415,6 @@ async function toggleRecording(): Promise<void> {
         pcmCount = 0;
         chunkIdx = 0;
         transcriptText = "";
-        chunkTask = Promise.resolve();
-        queuedChunkCount = 0;
-        activeChunkCount = 0;
         metricChunkId = 0;
         silentChunkSkips = 0;
         debugMetric("session-start", { chunkSecs: CHUNK_SECS, strideSecs: STRIDE_SECS });
@@ -574,31 +569,23 @@ function queueChunk(samples: Float32Array): Promise<void> {
         chunkSecs: roundMetric(samples.length / SAMPLE_RATE),
       });
     }
-    return chunkTask;
+    return asrQueue.waitForIdle();
   }
 
   const metricId = ++metricChunkId;
   const queuedAt = performance.now();
-  queuedChunkCount += 1;
-  debugMetric("chunk-queued", {
-    id: metricId,
-    queueDepth: queuedChunkCount,
-    chunkSecs: roundMetric(samples.length / SAMPLE_RATE),
+
+  const task = asrQueue.enqueue(async () => {
+    const queueWaitMs = performance.now() - queuedAt;
+    await processChunk(samples, metricId, queueWaitMs);
   });
 
-  chunkTask = chunkTask
-    .catch(() => undefined)
-    .then(async () => {
-      queuedChunkCount = Math.max(queuedChunkCount - 1, 0);
-      activeChunkCount += 1;
-      const queueWaitMs = performance.now() - queuedAt;
-      try {
-        await processChunk(samples, metricId, queueWaitMs);
-      } finally {
-        activeChunkCount = Math.max(activeChunkCount - 1, 0);
-      }
-    });
-  return chunkTask;
+  debugMetric("chunk-queued", {
+    id: metricId,
+    queueDepth: asrQueue.pendingCount,
+    chunkSecs: roundMetric(samples.length / SAMPLE_RATE),
+  });
+  return task;
 }
 
 function isSilentChunk(samples: Float32Array): boolean {
@@ -622,13 +609,7 @@ function isSilentChunk(samples: Float32Array): boolean {
 }
 
 async function waitForChunks(): Promise<void> {
-  while (true) {
-    const task = chunkTask;
-    await task;
-    if (task === chunkTask) {
-      return;
-    }
-  }
+  await asrQueue.waitForIdle();
 }
 
 async function stopCapture(): Promise<void> {
@@ -693,8 +674,8 @@ async function processChunk(
       chunkIdx,
       queueWaitMs: roundMetric(queueWaitMs),
       inferMs: roundMetric(performance.now() - inferStartedAt),
-      queueDepth: queuedChunkCount,
-      active: activeChunkCount,
+      queueDepth: asrQueue.pendingCount,
+      active: asrQueue.activeCount,
       textChars: text.length,
     });
   } catch (error) {
@@ -705,8 +686,8 @@ async function processChunk(
       chunkIdx,
       queueWaitMs: roundMetric(queueWaitMs),
       inferMs: roundMetric(performance.now() - inferStartedAt),
-      queueDepth: queuedChunkCount,
-      active: activeChunkCount,
+      queueDepth: asrQueue.pendingCount,
+      active: asrQueue.activeCount,
       message: msg,
     });
   }
