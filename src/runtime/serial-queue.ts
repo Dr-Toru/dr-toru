@@ -23,6 +23,10 @@ function toErrorMessage(error: unknown): string {
   return String(error);
 }
 
+function reportStatusError(queueName: string, error: unknown): void {
+  console.error(`[${queueName}-queue] status handler failed`, error);
+}
+
 export class SerialQueue {
   private tail: Promise<void> = Promise.resolve();
   private nextJobId = 0;
@@ -47,7 +51,11 @@ export class SerialQueue {
     const jobId = ++this.nextJobId;
     const queuedAt = performance.now();
     const emit = (state: QueueJobState): void => {
-      options.onStatus?.(state);
+      try {
+        options.onStatus?.(state);
+      } catch (error) {
+        reportStatusError(this.queueName, error);
+      }
     };
 
     this.pendingCountValue += 1;
