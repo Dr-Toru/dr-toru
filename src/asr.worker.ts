@@ -42,7 +42,6 @@ let melFilterbank: Float64Array | null = null;
 let session: ort.InferenceSession | null = null;
 let vocab: MedasrVocab | null = null;
 let loadTask: Promise<void> | null = null;
-let runTask: Promise<void> = Promise.resolve();
 
 function send(message: WorkerToMainMessage): void {
   workerScope.postMessage(message);
@@ -55,7 +54,7 @@ workerScope.onmessage = (event: MessageEvent<MainToWorkerMessage>) => {
     return;
   }
 
-  runTask = runTask.then(() => transcribe(message)).catch(() => undefined);
+  void transcribe(message);
 };
 
 async function loadModel(message: LoadRequest): Promise<void> {

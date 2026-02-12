@@ -182,26 +182,6 @@ fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
     write_bytes_atomic(path, &encoded)
 }
 
-fn read_index(paths: &StoragePaths) -> Result<SessionIndex, String> {
-    if !paths.index_file.exists() {
-        return Ok(SessionIndex::default());
-    }
-
-    let raw = fs::read_to_string(&paths.index_file).map_err(err_to_string)?;
-    let parsed = serde_json::from_str::<SessionIndex>(&raw).map_err(err_to_string)?;
-    if parsed.format != STORAGE_FORMAT {
-        return Err(format!(
-            "Unsupported index format {}, expected {}",
-            parsed.format, STORAGE_FORMAT
-        ));
-    }
-    Ok(parsed)
-}
-
-fn write_index(paths: &StoragePaths, index: &SessionIndex) -> Result<(), String> {
-    write_json_atomic(&paths.index_file, index).map_err(err_to_string)
-}
-
 fn session_dir(paths: &StoragePaths, session_id: &str) -> PathBuf {
     paths.sessions_dir.join(session_id)
 }
@@ -249,23 +229,6 @@ fn build_index_entry(session: &SessionRecord) -> SessionIndexEntry {
         active_artifact_id: session.active_artifact_id.clone(),
         artifact_count: session.artifacts.len(),
     }
-}
-
-fn upsert_index_entry(index: &mut SessionIndex, session: &SessionRecord) {
-    let next = build_index_entry(session);
-    if let Some(existing) = index
-        .sessions
-        .iter_mut()
-        .find(|entry| entry.session_id == session.session_id)
-    {
-        *existing = next;
-    } else {
-        index.sessions.push(next);
-    }
-
-    index
-        .sessions
-        .sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
 }
 
 fn validate_session(session: &SessionRecord) -> Result<(), String> {
@@ -369,15 +332,7 @@ pub fn storage_init(app: AppHandle) -> Result<StorageInitResult, String> {
 pub fn storage_list_sessions(app: AppHandle) -> Result<Vec<SessionIndexEntry>, String> {
     let paths = storage_paths(&app)?;
     ensure_storage(&paths)?;
-    let sessions = list_session_entries_from_files(&paths)?;
-
-    let index = SessionIndex {
-        format: STORAGE_FORMAT,
-        sessions: sessions.clone(),
-    };
-    write_index(&paths, &index)?;
-
-    Ok(sessions)
+    list_session_entries_from_files(&paths)
 }
 
 #[tauri::command]
@@ -400,12 +355,9 @@ pub fn storage_get_session(
     let raw = fs::read_to_string(&file_path).map_err(err_to_string)?;
     let session = serde_json::from_str::<SessionRecord>(&raw).map_err(err_to_string)?;
     validate_session(&session)?;
-<<<<<<< HEAD
-=======
     if session.session_id != session_id {
         return Err("Session id mismatch".to_string());
     }
->>>>>>> 658d10fe39da59496060f19ddf0154dd46ba8d37
     Ok(Some(session))
 }
 
@@ -421,10 +373,6 @@ pub fn storage_save_session(app: AppHandle, session: SessionRecord) -> Result<()
 
     let file_path = dir_path.join(SESSION_FILE_NAME);
     write_json_atomic(&file_path, &session).map_err(err_to_string)?;
-
-    let mut index = read_index(&paths).unwrap_or_default();
-    upsert_index_entry(&mut index, &session);
-    write_index(&paths, &index)?;
 
     Ok(())
 }

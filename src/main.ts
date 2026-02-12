@@ -1,16 +1,7 @@
-import type {
-  LoadRequest,
-  MainToWorkerMessage,
-  TranscribeRequest,
-  WorkerToMainMessage,
-} from "./asr-messages";
+import { AsrClient } from "./asr/client";
+import { AudioCapture, isSilent } from "./audio/capture";
 import { asrQueue } from "./runtime/queues";
 import { getSessionStore } from "./storage";
-
-interface PendingChunk {
-  resolve: (text: string) => void;
-  reject: (error: Error) => void;
-}
 
 const ROUTES = ["transcription", "list", "settings"] as const;
 type RouteName = (typeof ROUTES)[number];
@@ -28,19 +19,17 @@ const CHUNK_STEP_SAMPLES = Math.max(1, CHUNK_SAMPLES - STRIDE_SAMPLES);
 const SILENCE_RMS = 0.004;
 const SILENCE_PEAK = 0.02;
 const DEBUG_METRICS = isDebugMetricsEnabled();
+
+const capture = new AudioCapture({
+  sampleRate: SAMPLE_RATE,
+  chunkSamples: CHUNK_SAMPLES,
+  stepSamples: CHUNK_STEP_SAMPLES,
+});
 const appBase = new URL("./", window.location.href);
 const modelsDir = new URL("models/", appBase).href;
 const ortDir = new URL("ort/", appBase).href;
 
-let worker: Worker | null = null;
-let ready = false;
-let loadPromise: Promise<void> | null = null;
-let loadDone: (() => void) | null = null;
-let loadFail: ((error: Error) => void) | null = null;
-let requestId = 0;
-
-const pendingChunks = new Map<number, PendingChunk>();
-
+let asr: AsrClient;
 let isRecording = false;
 let toggling = false;
 
@@ -56,13 +45,6 @@ let lastMainRoute: TabRoute = DEFAULT_ROUTE;
 let splashEl: HTMLElement;
 let splashHideTimer: number | null = null;
 
-let micStream: MediaStream | null = null;
-let captureCtx: AudioContext | null = null;
-let sourceNode: MediaStreamAudioSourceNode | null = null;
-let scriptNode: ScriptProcessorNode | null = null;
-
-let pcmBuffer: Float32Array[] = [];
-let pcmCount = 0;
 let chunkIdx = 0;
 let transcriptText = "";
 let metricChunkId = 0;
@@ -75,6 +57,14 @@ window.addEventListener("DOMContentLoaded", () => {
   recordBtn = mustBtn("recordBtn");
   settingsBtn = mustBtn("settingsBtn");
   splashEl = mustEl("screen-splash");
+
+  asr = new AsrClient(
+    new URL("./asr.worker.ts", import.meta.url),
+    {
+      onStatus: (message) => setStatus(message),
+      onCrash: (message) => handleAsrCrash(message),
+    },
+  );
   screenEls = {
     transcription: mustEl("screen-transcription"),
     list: mustEl("screen-list"),
@@ -122,9 +112,8 @@ window.addEventListener("DOMContentLoaded", () => {
 
   window.addEventListener("beforeunload", () => {
     clearSplashHideTimer();
-    void stopCapture();
-    worker?.terminate();
-    worker = null;
+    void capture.stop();
+    asr.terminate();
   });
 
   void initializeStorage();
@@ -272,117 +261,39 @@ function setStatus(message: string): void {
   statusEl.textContent = `Status: ${message}`;
 }
 
-function getWorker(): Worker {
-  if (worker) {
-    return worker;
-  }
-
-  worker = new Worker(new URL("./asr.worker.ts", import.meta.url), { type: "module" });
-  worker.addEventListener("message", onWorkerMessage);
-  worker.addEventListener("error", onWorkerError);
-  return worker;
-}
-
-function onWorkerMessage(event: MessageEvent<WorkerToMainMessage>): void {
-  const message = event.data;
-
-  if (message.type === "status") {
-    setStatus(message.message);
-    return;
-  }
-
-  if (message.type === "load-success") {
-    ready = true;
-    setStatus("Model loaded. Ready to record.");
-    transcriptEl.textContent = 'Model loaded. Click "Record" to start.';
-    recordBtn.disabled = false;
-    loadBtn.disabled = true;
-    maybeExitSplash();
-    loadDone?.();
-    return;
-  }
-
-  if (message.type === "load-error") {
-    ready = false;
-    recordBtn.disabled = true;
-    setStatus(`Load failed: ${message.message}`);
-    loadBtn.disabled = false;
-    maybeExitSplash();
-    loadFail?.(new Error(message.message));
-    return;
-  }
-
-  const pending = pendingChunks.get(message.requestId);
-  if (!pending) {
-    return;
-  }
-  pendingChunks.delete(message.requestId);
-
-  if (message.type === "transcribe-success") {
-    pending.resolve(message.text);
-    return;
-  }
-
-  pending.reject(new Error(message.message));
-}
-
-function onWorkerError(event: ErrorEvent): void {
-  const msg = event.message || "Worker crashed";
-  setStatus(`Worker error: ${msg}`);
+function handleAsrCrash(message: string): void {
+  setStatus(`Worker error: ${message}`);
   maybeExitSplash();
-  ready = false;
   isRecording = false;
   loadBtn.disabled = false;
   recordBtn.disabled = true;
   recordBtn.textContent = "Record";
   recordBtn.classList.remove("recording");
-  void stopCapture();
-
-  loadFail?.(new Error(msg));
-  loadFail = null;
-  loadDone = null;
-
-  for (const pending of pendingChunks.values()) {
-    pending.reject(new Error(msg));
-  }
-  pendingChunks.clear();
-
-  worker?.terminate();
-  worker = null;
+  void capture.stop();
 }
 
 async function loadModel(): Promise<void> {
-  if (ready) {
+  if (asr.ready) {
     setStatus("Model already loaded");
     return;
-  }
-  if (loadPromise) {
-    return loadPromise;
   }
 
   loadBtn.disabled = true;
   setStatus("Loading model in background...");
 
-  const target = getWorker();
-  loadPromise = new Promise<void>((resolve, reject) => {
-    loadDone = resolve;
-    loadFail = reject;
-    const message: LoadRequest = {
-      type: "load",
-      modelsDir,
-      ortDir,
-    };
-    target.postMessage(message satisfies MainToWorkerMessage);
-  });
-
   try {
-    await loadPromise;
-  } catch {
-    // Status is set from worker events.
-  } finally {
-    loadPromise = null;
-    loadDone = null;
-    loadFail = null;
+    await asr.load(modelsDir, ortDir);
+    setStatus("Model loaded. Ready to record.");
+    transcriptEl.textContent = 'Model loaded. Click "Record" to start.';
+    recordBtn.disabled = false;
+    loadBtn.disabled = true;
+    maybeExitSplash();
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    setStatus(`Load failed: ${msg}`);
+    recordBtn.disabled = true;
+    loadBtn.disabled = false;
+    maybeExitSplash();
   }
 }
 
@@ -395,7 +306,7 @@ async function toggleRecording(): Promise<void> {
   recordBtn.disabled = true;
 
   try {
-    if (!ready) {
+    if (!asr.ready) {
       setStatus("Model still loading in background...");
       void loadModel();
       return;
@@ -403,22 +314,13 @@ async function toggleRecording(): Promise<void> {
 
     if (!isRecording) {
       try {
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        captureCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
-        sourceNode = captureCtx.createMediaStreamSource(micStream);
-
-        scriptNode = captureCtx.createScriptProcessor(2048, 1, 1);
-        scriptNode.onaudioprocess = onAudioProcess;
-        sourceNode.connect(scriptNode);
-        scriptNode.connect(captureCtx.destination);
-
-        pcmBuffer = [];
-        pcmCount = 0;
         chunkIdx = 0;
         transcriptText = "";
         metricChunkId = 0;
         silentChunkSkips = 0;
         debugMetric("session-start", { chunkSecs: CHUNK_SECS, strideSecs: STRIDE_SECS });
+
+        await capture.start((chunk) => void queueChunk(chunk));
 
         transcriptEl.textContent = "";
         isRecording = true;
@@ -433,13 +335,13 @@ async function toggleRecording(): Promise<void> {
     }
 
     isRecording = false;
-    await stopCapture();
+    await capture.stop();
 
     recordBtn.textContent = "Record";
     recordBtn.classList.remove("recording");
 
-    if (pcmCount > 0) {
-      const tail = drainBuffer();
+    const tail = capture.drain();
+    if (tail) {
       void queueChunk(tail);
     }
 
@@ -451,73 +353,10 @@ async function toggleRecording(): Promise<void> {
     setStatus("Done");
   } finally {
     toggling = false;
-    recordBtn.disabled = !ready;
+    recordBtn.disabled = !asr.ready;
   }
 }
 
-function onAudioProcess(event: AudioProcessingEvent): void {
-  if (!isRecording) {
-    return;
-  }
-
-  const input = event.inputBuffer.getChannelData(0);
-  pcmBuffer.push(new Float32Array(input));
-  pcmCount += input.length;
-
-  if (pcmCount >= CHUNK_SAMPLES) {
-    const chunk = takeChunkWindow();
-    void queueChunk(chunk);
-  }
-}
-
-function drainBuffer(): Float32Array {
-  const samples = readHead(pcmCount);
-  pcmBuffer = [];
-  pcmCount = 0;
-  return samples;
-}
-
-function takeChunkWindow(): Float32Array {
-  const samples = readHead(CHUNK_SAMPLES);
-  discardHead(CHUNK_STEP_SAMPLES);
-  return samples;
-}
-
-function readHead(sampleCount: number): Float32Array {
-  const takeCount = Math.min(sampleCount, pcmCount);
-  const samples = new Float32Array(takeCount);
-  let offset = 0;
-  for (const chunk of pcmBuffer) {
-    const take = Math.min(chunk.length, takeCount - offset);
-    samples.set(chunk.subarray(0, take), offset);
-    offset += take;
-    if (offset >= takeCount) {
-      break;
-    }
-  }
-  return samples;
-}
-
-function discardHead(sampleCount: number): void {
-  let dropCount = Math.min(sampleCount, pcmCount);
-  while (dropCount > 0) {
-    const chunk = pcmBuffer[0];
-    if (!chunk) {
-      break;
-    }
-
-    if (dropCount >= chunk.length) {
-      dropCount -= chunk.length;
-      pcmCount -= chunk.length;
-      pcmBuffer.shift();
-      continue;
-    }
-
-    pcmBuffer[0] = chunk.subarray(dropCount);
-    pcmCount -= dropCount;
-    dropCount = 0;
-  }
-}
 
 function mergeChunkText(currentText: string, nextText: string): string {
   const next = nextText.trim();
@@ -562,7 +401,7 @@ function normalizeMergeToken(token: string): string {
 }
 
 function queueChunk(samples: Float32Array): Promise<void> {
-  if (isSilentChunk(samples)) {
+  if (isSilent(samples, SILENCE_RMS, SILENCE_PEAK)) {
     silentChunkSkips += 1;
     if (silentChunkSkips === 1 || silentChunkSkips % 10 === 0) {
       debugMetric("chunk-silent-skip", {
@@ -589,60 +428,8 @@ function queueChunk(samples: Float32Array): Promise<void> {
   return task;
 }
 
-function isSilentChunk(samples: Float32Array): boolean {
-  if (samples.length === 0) {
-    return true;
-  }
-
-  let peak = 0;
-  let power = 0;
-  for (let idx = 0; idx < samples.length; idx += 1) {
-    const value = samples[idx];
-    const absValue = Math.abs(value);
-    if (absValue > peak) {
-      peak = absValue;
-    }
-    power += value * value;
-  }
-
-  const rms = Math.sqrt(power / samples.length);
-  return rms < SILENCE_RMS && peak < SILENCE_PEAK;
-}
-
 async function waitForChunks(): Promise<void> {
   await asrQueue.waitForIdle();
-}
-
-async function stopCapture(): Promise<void> {
-  scriptNode?.disconnect();
-  sourceNode?.disconnect();
-  try {
-    await captureCtx?.close();
-  } catch {
-    // Ignore close errors from torn-down contexts.
-  }
-  micStream?.getTracks().forEach((track) => track.stop());
-
-  scriptNode = null;
-  sourceNode = null;
-  captureCtx = null;
-  micStream = null;
-}
-
-function requestChunk(samples: Float32Array): Promise<string> {
-  const target = getWorker();
-  requestId += 1;
-  const nextId = requestId;
-
-  return new Promise<string>((resolve, reject) => {
-    pendingChunks.set(nextId, { resolve, reject });
-    const message: TranscribeRequest = {
-      type: "transcribe",
-      requestId: nextId,
-      samples,
-    };
-    target.postMessage(message satisfies MainToWorkerMessage, [samples.buffer]);
-  });
 }
 
 async function processChunk(
@@ -650,7 +437,7 @@ async function processChunk(
   metricId = -1,
   queueWaitMs = 0,
 ): Promise<void> {
-  if (!ready) {
+  if (!asr.ready) {
     debugMetric("chunk-dropped-unready", { chunkSecs: roundMetric(samples.length / SAMPLE_RATE) });
     return;
   }
@@ -660,7 +447,7 @@ async function processChunk(
   setStatus(`Processing chunk ${chunkIdx}...`);
 
   try {
-    const text = await requestChunk(samples);
+    const text = await asr.transcribe(samples);
     const mergedText = mergeChunkText(transcriptText, text);
     if (mergedText !== transcriptText) {
       transcriptText = mergedText;
@@ -693,10 +480,6 @@ async function processChunk(
     });
   }
 
-  if (pcmCount >= CHUNK_SAMPLES) {
-    const next = takeChunkWindow();
-    void queueChunk(next);
-  }
 }
 
 function debugMetric(event: string, values: Record<string, number | string>): void {
@@ -712,8 +495,8 @@ function roundMetric(value: number): number {
 
 function isDebugMetricsEnabled(): boolean {
   try {
-    return window.localStorage.getItem("toru.debug.metrics") !== "0";
+    return window.localStorage.getItem("toru.debug.metrics") === "1";
   } catch {
-    return true;
+    return false;
   }
 }
