@@ -1,12 +1,11 @@
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { AudioCapture, isSilent } from "./audio/capture";
-import { getPluginRegistryStore } from "./plugins";
-import type { PluginCapability, PluginManifest } from "./plugins/contracts";
-import { PluginService } from "./plugins/service";
 import {
-  createRuntimeAdapter,
-  type RuntimeAdapter,
-} from "./plugins/runtime-adapter";
+  createPluginPlatform,
+  formatPluginSummary,
+  formatTransformStatus,
+  type PluginPlatform,
+  type PluginPlatformState,
+} from "./plugins";
 import { asrQueue } from "./runtime/queues";
 import { getSessionStore } from "./storage";
 
@@ -36,14 +35,8 @@ const appBase = new URL("./", window.location.href);
 const modelsDir = new URL("models/", appBase).href;
 const ortDir = new URL("ort/", appBase).href;
 
-let pluginService: PluginService | null = null;
-let pluginsInitTask: Promise<void> | null = null;
-let activeAsrPlugin: PluginManifest | null = null;
-let activeTransformPlugin: PluginManifest | null = null;
-let asrRuntime: RuntimeAdapter | null = null;
-let transformRuntime: RuntimeAdapter | null = null;
-let asrReady = false;
-let transformServiceRunning = false;
+let pluginPlatform: PluginPlatform;
+let pluginState: PluginPlatformState | null = null;
 let isRecording = false;
 let toggling = false;
 
@@ -144,13 +137,20 @@ window.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("beforeunload", () => {
     clearSplashHideTimer();
     void capture.stop();
-    asrReady = false;
-    void asrRuntime?.shutdown();
-    void transformRuntime?.shutdown();
+    void pluginPlatform.shutdown();
   });
 
-  pluginService = new PluginService(getPluginRegistryStore());
-  pluginsInitTask = initializePlugins();
+  pluginPlatform = createPluginPlatform({
+    workerUrl: new URL("./asr.worker.ts", import.meta.url),
+    modelsDir,
+    ortDir,
+    asrEvents: {
+      onStatus: (message) => setStatus(message),
+      onCrash: (message) => handleAsrCrash(message),
+    },
+  });
+
+  void initializePlugins();
   void initializeStorage();
   void loadModel();
 });
@@ -276,177 +276,62 @@ async function initializeStorage(): Promise<void> {
 }
 
 async function initializePlugins(): Promise<void> {
-  if (!pluginService) {
-    return;
+  pluginState = await pluginPlatform.init();
+  renderPluginStatus();
+  if (pluginState.error) {
+    setStatus(`Plugin init failed: ${pluginState.error}`);
   }
-
-  await pluginService.init();
-  activeAsrPlugin = await pluginService.activePlugin("asr");
-  const transformPlugins = await pluginService.discover({ role: "transform" });
-  const previousTransformPluginId = activeTransformPlugin?.pluginId ?? null;
-  activeTransformPlugin = await pluginService.activePlugin("transform");
-  if (
-    previousTransformPluginId !== (activeTransformPlugin?.pluginId ?? null) &&
-    transformRuntime
-  ) {
-    await transformRuntime.shutdown().catch(() => undefined);
-    transformRuntime = null;
-    transformServiceRunning = false;
-  }
-
-  const lines: string[] = [];
-  if (activeAsrPlugin) {
-    lines.push(`ASR: ${activeAsrPlugin.name} (${activeAsrPlugin.runtime})`);
-  } else {
-    lines.push("ASR: none configured");
-  }
-
-  if (activeTransformPlugin) {
-    lines.push(
-      `Transform: ${activeTransformPlugin.name} (${activeTransformPlugin.runtime})`,
-    );
-  } else if (transformPlugins.length > 0) {
-    lines.push(`Transform: ${transformPlugins.length} installed, none active`);
-  } else {
-    lines.push("Transform: unavailable (core dictation only)");
-  }
-
-  pluginSummaryEl.textContent = lines.join(" | ");
-  updateTransformControls();
-  await refreshTransformServiceStatus();
-}
-
-async function ensureAsrRuntime(): Promise<RuntimeAdapter> {
-  if (!pluginService) {
-    throw new Error("Plugin service unavailable");
-  }
-
-  activeAsrPlugin = await pluginService.activePlugin("asr");
-  if (!activeAsrPlugin) {
-    throw new Error("No active ASR provider configured");
-  }
-
-  if (!asrRuntime) {
-    asrRuntime = createRuntimeAdapter(activeAsrPlugin, {
-      workerUrl: new URL("./asr.worker.ts", import.meta.url),
-      modelsDir,
-      ortDir,
-      events: {
-        onStatus: (message) => setStatus(message),
-        onCrash: (message) => handleAsrCrash(message),
-      },
-    });
-  }
-
-  return asrRuntime;
-}
-
-async function ensureTransformRuntime(): Promise<RuntimeAdapter> {
-  if (!pluginService) {
-    throw new Error("Plugin service unavailable");
-  }
-  // Safe: pluginsInitTask is assigned before initializePlugins hits its first
-  // await, so this never awaits the caller's own promise.
-  if (pluginsInitTask) {
-    await pluginsInitTask;
-  }
-
-  activeTransformPlugin = await pluginService.activePlugin("transform");
-  if (!activeTransformPlugin) {
-    throw new Error("No active transform provider configured");
-  }
-
-  if (!transformRuntime) {
-    transformRuntime = createRuntimeAdapter(activeTransformPlugin, {
-      workerUrl: new URL("./asr.worker.ts", import.meta.url),
-      modelsDir,
-      ortDir,
-      events: {
-        onStatus: () => undefined,
-        onCrash: (message) =>
-          console.error("Transform runtime crash reported:", message),
-      },
-    });
-  }
-  return transformRuntime;
-}
-
-function pickTransformCapability(
-  plugin: PluginManifest,
-): PluginCapability | null {
-  if (plugin.capabilities.includes("llm.transform.correct")) {
-    return "llm.transform.correct";
-  }
-  if (plugin.capabilities.includes("llm.transform.soap")) {
-    return "llm.transform.soap";
-  }
-  return null;
 }
 
 function updateTransformControls(): void {
-  const hasProvider = activeTransformPlugin !== null;
-  importPluginBtn.disabled = false;
+  const hasProvider = Boolean(pluginState?.activeTransform);
+  const canImport = pluginState?.canImport ?? false;
+  const running = pluginState?.transformRunning ?? false;
+  importPluginBtn.disabled = !canImport;
   toggleTransformBtn.disabled = !hasProvider;
-  runTransformBtn.disabled = !hasProvider || !transformServiceRunning;
-  toggleTransformBtn.textContent = transformServiceRunning
+  runTransformBtn.disabled = !hasProvider || !running;
+  toggleTransformBtn.textContent = running
     ? "Stop Transform Service"
     : "Start Transform Service";
 }
 
-async function refreshTransformServiceStatus(): Promise<void> {
-  if (!pluginService || !activeTransformPlugin) {
-    transformServiceRunning = false;
+function renderPluginStatus(): void {
+  if (!pluginState) {
+    pluginSummaryEl.textContent = "Plugin registry loading...";
     transformServiceStatusEl.textContent = "Transform service: unavailable";
     updateTransformControls();
     return;
   }
-
-  try {
-    const status = await pluginService.serviceStatus(
-      activeTransformPlugin.pluginId,
-    );
-    transformServiceRunning = status.running;
-    const details = status.endpoint
-      ? `${status.message} (${status.endpoint})`
-      : status.message;
-    transformServiceStatusEl.textContent = `Transform service: ${details}`;
-  } catch (error) {
-    transformServiceRunning = false;
-    const message = error instanceof Error ? error.message : String(error);
-    transformServiceStatusEl.textContent = `Transform service: ${message}`;
-  }
+  pluginSummaryEl.textContent = formatPluginSummary(pluginState);
+  transformServiceStatusEl.textContent = formatTransformStatus(pluginState);
   updateTransformControls();
 }
 
 async function importPlugin(): Promise<void> {
-  if (!pluginService) {
+  if (!pluginState?.canImport) {
+    setStatus("Import unavailable outside desktop runtime");
     return;
   }
-
-  const sourcePath = await openFileDialog({
-    title: "Import Model File",
-    multiple: false,
-    filters: [{ name: "Model Files", extensions: ["llamafile", "onnx"] }],
-  });
-  if (!sourcePath) {
-    return;
-  }
-
-  const displayName = window.prompt(
-    "Optional display name for this model (leave blank to use filename):",
-    "",
-  );
 
   importPluginBtn.disabled = true;
   setStatus("Importing plugin...");
   try {
-    const imported = await pluginService.importFromPath({
+    const sourcePath = await pluginPlatform.pickImportPath();
+    if (!sourcePath) {
+      return;
+    }
+
+    const displayName = window.prompt(
+      "Optional display name for this model (leave blank to use filename):",
+      "",
+    );
+
+    const imported = await pluginPlatform.importFromPath({
       sourcePath,
       displayName: displayName?.trim() || undefined,
     });
     setStatus(`Imported plugin: ${imported.name}`);
-    pluginsInitTask = initializePlugins();
-    await pluginsInitTask;
+    await initializePlugins();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setStatus(`Import failed: ${message}`);
@@ -457,41 +342,30 @@ async function importPlugin(): Promise<void> {
 }
 
 async function toggleTransformService(): Promise<void> {
-  if (!pluginService || !activeTransformPlugin) {
+  if (!pluginState?.activeTransform) {
     return;
   }
+
   toggleTransformBtn.disabled = true;
   try {
-    if (!transformServiceRunning) {
-      const runtime = await ensureTransformRuntime();
-      await runtime.init();
-      transformServiceRunning = true;
-    } else {
-      await transformRuntime?.shutdown();
-      transformServiceRunning = false;
-    }
+    const running = !(pluginState?.transformRunning ?? false);
+    pluginState = await pluginPlatform.setTransformServiceRunning(running);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     transformServiceStatusEl.textContent = `Transform service: ${message}`;
   } finally {
-    await refreshTransformServiceStatus();
+    pluginState = await pluginPlatform.status();
+    renderPluginStatus();
   }
 }
 
 async function runTransformTest(): Promise<void> {
-  if (!activeTransformPlugin) {
+  if (!pluginState?.activeTransform) {
     transformOutputEl.textContent = "(No active transform provider)";
     return;
   }
-  if (!transformServiceRunning) {
+  if (!pluginState.transformRunning) {
     transformOutputEl.textContent = "(Start the transform service first)";
-    return;
-  }
-
-  const capability = pickTransformCapability(activeTransformPlugin);
-  if (!capability) {
-    transformOutputEl.textContent =
-      "(Active transform plugin has no supported capability)";
     return;
   }
 
@@ -504,19 +378,14 @@ async function runTransformTest(): Promise<void> {
   runTransformBtn.disabled = true;
   transformOutputEl.textContent = "Running transform...";
   try {
-    const runtime = await ensureTransformRuntime();
-    const result = await runtime.execute({
-      type: "llm.transform",
-      capability,
-      input,
-    });
-    transformOutputEl.textContent = result.text || "(No output returned)";
+    const text = await pluginPlatform.runTransform(input);
+    transformOutputEl.textContent = text || "(No output returned)";
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     transformOutputEl.textContent = `Transform failed: ${message}`;
-    await refreshTransformServiceStatus();
   } finally {
-    updateTransformControls();
+    pluginState = await pluginPlatform.status();
+    renderPluginStatus();
   }
 }
 
@@ -551,7 +420,6 @@ function setStatus(message: string): void {
 function handleAsrCrash(message: string): void {
   setStatus(`Worker error: ${message}`);
   maybeExitSplash();
-  asrReady = false;
   isRecording = false;
   loadBtn.disabled = false;
   recordBtn.disabled = true;
@@ -561,7 +429,7 @@ function handleAsrCrash(message: string): void {
 }
 
 async function loadModel(): Promise<void> {
-  if (asrReady) {
+  if (pluginPlatform.isAsrReady()) {
     setStatus("Model already loaded");
     return;
   }
@@ -569,25 +437,16 @@ async function loadModel(): Promise<void> {
   loadBtn.disabled = true;
   setStatus("Loading model in background...");
 
-  // Plugin registry must be ready before we can resolve the active ASR provider.
-  if (pluginsInitTask) await pluginsInitTask;
-
   try {
-    const runtime = await ensureAsrRuntime();
-    await runtime.init();
-    const health = await runtime.health();
-    if (!health.ready) {
-      throw new Error(health.message);
-    }
-    asrReady = true;
-    const providerName = activeAsrPlugin?.name ?? "ASR provider";
-    setStatus(`${providerName} loaded. Ready to record.`);
+    const provider = await pluginPlatform.loadAsr();
+    pluginState = await pluginPlatform.status();
+    renderPluginStatus();
+    setStatus(`${provider.name} loaded. Ready to record.`);
     transcriptEl.textContent = 'Model loaded. Click "Record" to start.';
     recordBtn.disabled = false;
     loadBtn.disabled = true;
     maybeExitSplash();
   } catch (error) {
-    asrReady = false;
     const msg = error instanceof Error ? error.message : String(error);
     setStatus(`Load failed: ${msg}`);
     recordBtn.disabled = true;
@@ -605,7 +464,7 @@ async function toggleRecording(): Promise<void> {
   recordBtn.disabled = true;
 
   try {
-    if (!asrReady) {
+    if (!pluginPlatform.isAsrReady()) {
       setStatus("Model still loading in background...");
       void loadModel();
       return;
@@ -655,7 +514,7 @@ async function toggleRecording(): Promise<void> {
     setStatus("Done");
   } finally {
     toggling = false;
-    recordBtn.disabled = !asrReady;
+    recordBtn.disabled = !pluginPlatform.isAsrReady();
   }
 }
 
@@ -740,7 +599,7 @@ async function processChunk(
   metricId = -1,
   queueWaitMs = 0,
 ): Promise<void> {
-  if (!asrReady || !asrRuntime) {
+  if (!pluginPlatform.isAsrReady()) {
     debugMetric("chunk-dropped-unready", {
       chunkSecs: roundMetric(samples.length / SAMPLE_RATE),
     });
@@ -752,11 +611,7 @@ async function processChunk(
   setStatus(`Processing chunk ${chunkIdx}...`);
 
   try {
-    const result = await asrRuntime.execute({
-      type: "asr.transcribe",
-      samples,
-    });
-    const text = result.text;
+    const text = await pluginPlatform.transcribe(samples);
     const mergedText = mergeChunkText(transcriptText, text);
     if (mergedText !== transcriptText) {
       transcriptText = mergedText;

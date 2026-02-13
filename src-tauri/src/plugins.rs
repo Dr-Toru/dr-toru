@@ -794,6 +794,21 @@ fn imported_plugin_manifest(
     })
 }
 
+fn imported_asset_dir(app: &AppHandle, manifest: &PluginManifest) -> Result<Option<PathBuf>, String> {
+    let prefix = format!("plugins/assets/{}/", manifest.plugin_id);
+    if !manifest.entrypoint_path.starts_with(&prefix) {
+        return Ok(None);
+    }
+
+    let app_data = app.path().app_data_dir().map_err(err_to_string)?;
+    Ok(Some(
+        app_data
+            .join("plugins")
+            .join("assets")
+            .join(&manifest.plugin_id),
+    ))
+}
+
 #[tauri::command]
 pub fn plugin_registry_init(app: AppHandle) -> Result<PluginRegistryState, String> {
     let paths = plugin_paths(&app)?;
@@ -908,11 +923,14 @@ pub fn plugin_registry_remove(
     ensure_registry(&paths)?;
     let mut state = load_registry(&paths)?;
 
-    let original_len = state.plugins.len();
-    state.plugins.retain(|plugin| plugin.plugin_id != plugin_id);
-    if state.plugins.len() == original_len {
+    let removed_plugin = state
+        .plugins
+        .iter()
+        .position(|plugin| plugin.plugin_id == plugin_id)
+        .map(|idx| state.plugins.remove(idx));
+    let Some(removed_plugin) = removed_plugin else {
         return Err(format!("Unknown pluginId: {plugin_id}"));
-    }
+    };
 
     if state.active_providers.asr.as_deref() == Some(plugin_id.as_str()) {
         state.active_providers.asr = Some(BUILTIN_ORT_ASR_PLUGIN_ID.to_string());
@@ -925,6 +943,27 @@ pub fn plugin_registry_remove(
     let mut running = runtime_state
         .lock_running();
     stop_service(&mut running, &plugin_id)?;
+
+    match imported_asset_dir(&app, &removed_plugin) {
+        Ok(Some(asset_dir)) if asset_dir.exists() => {
+            if let Err(error) = fs::remove_dir_all(&asset_dir) {
+                eprintln!(
+                    "Failed to remove imported assets for {} at {}: {}",
+                    removed_plugin.plugin_id,
+                    asset_dir.display(),
+                    error
+                );
+            }
+        }
+        Ok(_) => {}
+        Err(error) => {
+            eprintln!(
+                "Failed to resolve imported asset path for {}: {}",
+                removed_plugin.plugin_id, error
+            );
+        }
+    }
+
     Ok(())
 }
 

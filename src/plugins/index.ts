@@ -4,8 +4,15 @@ import {
   TauriPluginRegistryStore,
   canUseTauriPluginStore,
 } from "./store";
+import {
+  PluginPlatform,
+  type PluginPlatformOptions,
+  formatPluginSummary,
+  formatTransformStatus,
+} from "./platform";
 
 let registryStore: PluginRegistryStore | null = null;
+let pluginPlatform: PluginPlatform | null = null;
 
 export function getPluginRegistryStore(): PluginRegistryStore {
   if (registryStore) {
@@ -20,3 +27,17 @@ export function getPluginRegistryStore(): PluginRegistryStore {
   registryStore = new NoopPluginRegistryStore();
   return registryStore;
 }
+
+export function createPluginPlatform(
+  options: PluginPlatformOptions,
+): PluginPlatform {
+  if (pluginPlatform) {
+    return pluginPlatform;
+  }
+  pluginPlatform = new PluginPlatform(getPluginRegistryStore(), options);
+  return pluginPlatform;
+}
+
+export { PluginPlatform };
+export type { PluginPlatformOptions, PluginPlatformState } from "./platform";
+export { formatPluginSummary, formatTransformStatus };
