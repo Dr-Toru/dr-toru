@@ -105,17 +105,16 @@ export class PluginPlatform {
   }
 
   async init(): Promise<PluginPlatformState> {
-    if (this.initTask) {
-      return this.initTask;
-    }
+    const task = this.initTask ?? this.initNow();
+    this.initTask = task;
 
-    const task = this.initNow();
-    this.initTask = task.finally(() => {
+    try {
+      return await task;
+    } finally {
       if (this.initTask === task) {
         this.initTask = null;
       }
-    });
-    return this.initTask;
+    }
   }
 
   async status(): Promise<PluginPlatformState> {
