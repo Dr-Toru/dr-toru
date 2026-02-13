@@ -33,7 +33,11 @@ export class AsrClient {
     return this.readyValue;
   }
 
-  async load(modelsDir: string, ortDir: string): Promise<void> {
+  async load(
+    modelUrl: string,
+    vocabUrl: string,
+    ortDir: string,
+  ): Promise<void> {
     if (this.readyValue) {
       return;
     }
@@ -45,7 +49,7 @@ export class AsrClient {
     this.loadPromise = new Promise<void>((resolve, reject) => {
       this.loadResolve = resolve;
       this.loadReject = reject;
-      const message: LoadRequest = { type: "load", modelsDir, ortDir };
+      const message: LoadRequest = { type: "load", modelUrl, vocabUrl, ortDir };
       target.postMessage(message satisfies MainToWorkerMessage);
     });
 

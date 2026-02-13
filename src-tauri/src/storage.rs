@@ -7,7 +7,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 
 const STORAGE_FORMAT: u8 = 1;
-const INDEX_FILE_NAME: &str = "sessions.json";
 const SESSION_FILE_NAME: &str = "session.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,22 +54,6 @@ pub struct SessionIndexEntry {
     pub artifact_count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SessionIndex {
-    format: u8,
-    sessions: Vec<SessionIndexEntry>,
-}
-
-impl Default for SessionIndex {
-    fn default() -> Self {
-        Self {
-            format: STORAGE_FORMAT,
-            sessions: Vec::new(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageInitResult {
@@ -100,7 +83,6 @@ pub struct WriteArtifactTextResult {
 struct StoragePaths {
     root: PathBuf,
     sessions_dir: PathBuf,
-    index_file: PathBuf,
 }
 
 fn err_to_string(error: impl std::fmt::Display) -> String {
@@ -111,23 +93,12 @@ fn storage_paths(app: &AppHandle) -> Result<StoragePaths, String> {
     let root = app.path().app_data_dir().map_err(err_to_string)?;
     Ok(StoragePaths {
         sessions_dir: root.join("sessions"),
-        index_file: root.join("index").join(INDEX_FILE_NAME),
         root,
     })
 }
 
 fn ensure_storage(paths: &StoragePaths) -> Result<(), String> {
     fs::create_dir_all(&paths.sessions_dir).map_err(err_to_string)?;
-
-    let Some(index_dir) = paths.index_file.parent() else {
-        return Err("Missing index directory".to_string());
-    };
-    fs::create_dir_all(index_dir).map_err(err_to_string)?;
-
-    if !paths.index_file.exists() {
-        write_json_atomic(&paths.index_file, &SessionIndex::default()).map_err(err_to_string)?;
-    }
-
     Ok(())
 }
 

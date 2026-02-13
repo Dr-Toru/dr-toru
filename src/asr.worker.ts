@@ -31,8 +31,6 @@ const N_MELS = 128;
 const MEL_LOWER = 125;
 const MEL_UPPER = 7500;
 const MODEL_CACHE_NAME = "asr-model-cache-v1";
-const MODEL_FILE = "medasr_lasr_ctc.onnx";
-const VOCAB_FILE = "medasr_lasr_vocab.json";
 
 const hannWindow = new Float64Array(FRAME_LEN);
 for (let idx = 0; idx < FRAME_LEN; idx += 1) {
@@ -72,18 +70,22 @@ async function loadModel(message: LoadRequest): Promise<void> {
     ort.env.wasm.wasmPaths = message.ortDir;
     ort.env.wasm.numThreads = 2;
 
-    const vocabUrl = `${message.modelsDir}${VOCAB_FILE}`;
-    const vocabResult = await loadJsonWithCache<MedasrVocab>(vocabUrl, "vocab");
+    const vocabResult = await loadJsonWithCache<MedasrVocab>(
+      message.vocabUrl,
+      "vocab",
+    );
     vocab = vocabResult.data;
 
-    const modelUrl = `${message.modelsDir}${MODEL_FILE}`;
     send({
       type: "status",
       message: vocabResult.fromCache
         ? "Loaded cached vocab. Loading ONNX model..."
         : "Vocab fetched. Loading ONNX model...",
     });
-    const modelResult = await loadBinaryWithCache(modelUrl, "ONNX model");
+    const modelResult = await loadBinaryWithCache(
+      message.modelUrl,
+      "ONNX model",
+    );
 
     send({
       type: "status",

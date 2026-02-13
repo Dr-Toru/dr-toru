@@ -6,7 +6,7 @@ import { NoopPluginRegistryStore } from "./store";
 function createPlatform(): PluginPlatform {
   return new PluginPlatform(new NoopPluginRegistryStore(), {
     workerUrl: new URL("http://localhost/asr.worker.ts"),
-    modelsDir: "models/",
+    assetBaseUrl: "http://localhost/",
     ortDir: "ort/",
     asrEvents: {
       onStatus: () => undefined,

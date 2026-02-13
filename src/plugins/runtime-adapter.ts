@@ -33,7 +33,7 @@ export interface RuntimeAdapter {
 
 export interface RuntimeFactoryOptions {
   workerUrl: URL;
-  modelsDir: string;
+  assetBaseUrl: string;
   ortDir: string;
   events: AsrClientEvents;
 }
@@ -43,10 +43,23 @@ export function createRuntimeAdapter(
   options: RuntimeFactoryOptions,
 ): RuntimeAdapter {
   if (manifest.runtime === "ort") {
+    const modelUrl = resolveAssetUrl(
+      manifest.entrypointPath,
+      options.assetBaseUrl,
+    );
+    const vocabPath = getMetadataString(manifest, "vocabPath");
+    if (!vocabPath) {
+      throw new Error(
+        `ASR plugin ${manifest.pluginId} is missing metadata.vocabPath`,
+      );
+    }
+    const vocabUrl = resolveAssetUrl(vocabPath, options.assetBaseUrl);
+
     return new OrtRuntimeAdapter(
       manifest,
       new AsrClient(options.workerUrl, options.events),
-      options.modelsDir,
+      modelUrl,
+      vocabUrl,
       options.ortDir,
     );
   }
@@ -58,12 +71,13 @@ class OrtRuntimeAdapter implements RuntimeAdapter {
   constructor(
     private readonly manifest: PluginManifest,
     private readonly asrClient: AsrClient,
-    private readonly modelsDir: string,
+    private readonly modelUrl: string,
+    private readonly vocabUrl: string,
     private readonly ortDir: string,
   ) {}
 
   async init(): Promise<void> {
-    await this.asrClient.load(this.modelsDir, this.ortDir);
+    await this.asrClient.load(this.modelUrl, this.vocabUrl, this.ortDir);
   }
 
   async health(): Promise<RuntimeHealth> {
@@ -133,4 +147,33 @@ class LlamafileRuntimeAdapter implements RuntimeAdapter {
       pluginId: this.pluginId,
     });
   }
+}
+
+function getMetadataString(
+  manifest: PluginManifest,
+  key: string,
+): string | null {
+  const value = manifest.metadata?.[key];
+  if (typeof value !== "string") {
+    return null;
+  }
+  const text = value.trim();
+  return text.length > 0 ? text : null;
+}
+
+function resolveAssetUrl(path: string, assetBaseUrl: string): string {
+  const trimmed = path.trim();
+  if (!trimmed) {
+    throw new Error("Asset path is required");
+  }
+
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/(^|[\\/])\.\.([\\/]|$)/.test(trimmed)) {
+    throw new Error(`Asset path cannot contain '..': ${path}`);
+  }
+
+  return new URL(trimmed, assetBaseUrl).href;
 }

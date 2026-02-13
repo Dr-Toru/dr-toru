@@ -1195,27 +1195,6 @@ pub fn plugin_service_stop(
     })
 }
 
-#[tauri::command]
-pub async fn plugin_runtime_llamafile_init(
-    app: AppHandle,
-    plugin_id: String,
-) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        service_start_blocking(&app, &plugin_id).map(|_| ())
-    })
-    .await
-    .map_err(err_to_string)?
-}
-
-#[tauri::command]
-pub fn plugin_runtime_llamafile_health(
-    app: AppHandle,
-    plugin_id: String,
-    runtime_state: State<'_, PluginRuntimeState>,
-) -> Result<RuntimeHealth, String> {
-    plugin_service_status(app, plugin_id, runtime_state)
-}
-
 fn llamafile_execute_blocking(
     app: &AppHandle,
     plugin_id: &str,
@@ -1305,12 +1284,4 @@ pub async fn plugin_runtime_llamafile_execute(
     })
     .await
     .map_err(err_to_string)?
-}
-
-#[tauri::command]
-pub fn plugin_runtime_llamafile_shutdown(
-    plugin_id: String,
-    runtime_state: State<'_, PluginRuntimeState>,
-) -> Result<(), String> {
-    plugin_service_stop(plugin_id, runtime_state).map(|_| ())
 }
