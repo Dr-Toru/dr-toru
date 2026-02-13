@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 
 import { AsrClient, type AsrClientEvents } from "../asr/client";
 import type { PluginCapability, PluginManifest } from "./contracts";
@@ -33,9 +33,39 @@ export interface RuntimeAdapter {
 
 export interface RuntimeFactoryOptions {
   workerUrl: URL;
-  assetBaseUrl: string;
   ortDir: string;
+  appDataDir: string;
+  /** Absolute URL for the webview origin (e.g. "https://tauri.localhost/"). */
+  appOrigin: string;
   events: AsrClientEvents;
+}
+
+// Resolve manifest asset paths to absolute URLs suitable for fetch()
+// inside a web worker (where relative URLs resolve against the worker
+// script, not the app origin).
+//
+// Absolute filesystem paths and paths under "plugins/" are converted
+// to Tauri asset-protocol URLs. The "plugins/" prefix mirrors the
+// layout used by Rust copy_imported_asset().
+//
+// All other paths (e.g. builtin "models/...") are resolved against
+// the webview origin so the worker fetches from the correct location.
+function resolveAssetUrl(
+  manifestPath: string,
+  appDataDir: string,
+  appOrigin: string,
+): string {
+  if (manifestPath.startsWith("/")) {
+    return convertFileSrc(manifestPath);
+  }
+  if (appDataDir && manifestPath.startsWith("plugins/")) {
+    const base = appDataDir.endsWith("/") ? appDataDir : appDataDir + "/";
+    return convertFileSrc(base + manifestPath);
+  }
+  // Resolve relative paths against the app origin so they work inside
+  // the web worker, where bare relative fetches would resolve against
+  // the worker script URL instead.
+  return new URL(manifestPath, appOrigin).href;
 }
 
 export function createRuntimeAdapter(
@@ -43,24 +73,18 @@ export function createRuntimeAdapter(
   options: RuntimeFactoryOptions,
 ): RuntimeAdapter {
   if (manifest.runtime === "ort") {
-    const modelUrl = resolveAssetUrl(
-      manifest.entrypointPath,
-      options.assetBaseUrl,
-    );
-    const vocabPath = getMetadataString(manifest, "vocabPath");
-    if (!vocabPath) {
+    const vocabPath = manifest.metadata?.vocabPath;
+    if (typeof vocabPath !== "string" || !vocabPath.trim()) {
       throw new Error(
-        `ASR plugin ${manifest.pluginId} is missing metadata.vocabPath`,
+        `Plugin ${manifest.pluginId} is missing metadata.vocabPath`,
       );
     }
-    const vocabUrl = resolveAssetUrl(vocabPath, options.assetBaseUrl);
-
     return new OrtRuntimeAdapter(
       manifest,
       new AsrClient(options.workerUrl, options.events),
-      modelUrl,
-      vocabUrl,
       options.ortDir,
+      options.appDataDir,
+      options.appOrigin,
     );
   }
 
@@ -71,13 +95,24 @@ class OrtRuntimeAdapter implements RuntimeAdapter {
   constructor(
     private readonly manifest: PluginManifest,
     private readonly asrClient: AsrClient,
-    private readonly modelUrl: string,
-    private readonly vocabUrl: string,
     private readonly ortDir: string,
+    private readonly appDataDir: string,
+    private readonly appOrigin: string,
   ) {}
 
   async init(): Promise<void> {
-    await this.asrClient.load(this.modelUrl, this.vocabUrl, this.ortDir);
+    const vocabPath = this.manifest.metadata?.vocabPath as string;
+    const modelUrl = resolveAssetUrl(
+      this.manifest.entrypointPath,
+      this.appDataDir,
+      this.appOrigin,
+    );
+    const vocabUrl = resolveAssetUrl(
+      vocabPath,
+      this.appDataDir,
+      this.appOrigin,
+    );
+    await this.asrClient.load(modelUrl, vocabUrl, this.ortDir);
   }
 
   async health(): Promise<RuntimeHealth> {
@@ -147,33 +182,4 @@ class LlamafileRuntimeAdapter implements RuntimeAdapter {
       pluginId: this.pluginId,
     });
   }
-}
-
-function getMetadataString(
-  manifest: PluginManifest,
-  key: string,
-): string | null {
-  const value = manifest.metadata?.[key];
-  if (typeof value !== "string") {
-    return null;
-  }
-  const text = value.trim();
-  return text.length > 0 ? text : null;
-}
-
-function resolveAssetUrl(path: string, assetBaseUrl: string): string {
-  const trimmed = path.trim();
-  if (!trimmed) {
-    throw new Error("Asset path is required");
-  }
-
-  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
-    return trimmed;
-  }
-
-  if (/(^|[\\/])\.\.([\\/]|$)/.test(trimmed)) {
-    throw new Error(`Asset path cannot contain '..': ${path}`);
-  }
-
-  return new URL(trimmed, assetBaseUrl).href;
 }

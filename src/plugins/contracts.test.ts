@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   BUILTIN_ORT_ASR_PLUGIN,
   canProvideRole,
+  supportsFeature,
   validatePluginManifest,
   type PluginManifest,
 } from "./contracts";
@@ -35,5 +36,24 @@ describe("plugin contracts", () => {
 
     const issues = validatePluginManifest(manifest);
     expect(issues.some((issue) => issue.field === "capabilities")).toBe(true);
+  });
+
+  it("rejects asr manifest without vocab metadata", () => {
+    const manifest: PluginManifest = {
+      ...BUILTIN_ORT_ASR_PLUGIN,
+      pluginId: "bad.asr.missing-vocab",
+      metadata: {},
+    };
+
+    const issues = validatePluginManifest(manifest);
+    expect(issues.some((issue) => issue.field === "metadata.vocabPath")).toBe(
+      true,
+    );
+  });
+
+  it("maps features to role capabilities", () => {
+    expect(supportsFeature(BUILTIN_ORT_ASR_PLUGIN, "transcription")).toBe(true);
+    expect(supportsFeature(BUILTIN_ORT_ASR_PLUGIN, "transform")).toBe(false);
+    expect(supportsFeature(null, "transcription")).toBe(false);
   });
 });

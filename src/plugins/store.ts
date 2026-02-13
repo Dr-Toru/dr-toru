@@ -29,6 +29,19 @@ export interface PluginServiceHealth {
   endpoint: string | null;
 }
 
+function deriveOnnxVocabPath(sourcePath: string): string {
+  const fileName = sourcePath.split(/[\\/]/).pop() ?? "";
+  const baseName = fileName.replace(/\.onnx$/i, "");
+  const separator = sourcePath.includes("\\") ? "\\" : "/";
+  const index = Math.max(
+    sourcePath.lastIndexOf("/"),
+    sourcePath.lastIndexOf("\\"),
+  );
+  const dir = index >= 0 ? sourcePath.slice(0, index) : "";
+  const vocabName = `${baseName}_vocab.json`;
+  return dir ? `${dir}${separator}${vocabName}` : vocabName;
+}
+
 export interface PluginRegistryStore {
   init(): Promise<PluginRegistryState>;
   list(): Promise<PluginManifest[]>;
@@ -145,6 +158,18 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
       throw new Error(`Plugin already exists: ${manifest.pluginId}`);
     }
     this.state.plugins.push({ ...manifest });
+    if (
+      this.state.activeProviders.asr === null &&
+      canProvideRole(manifest, "asr")
+    ) {
+      this.state.activeProviders.asr = manifest.pluginId;
+    }
+    if (
+      this.state.activeProviders.transform === null &&
+      canProvideRole(manifest, "transform")
+    ) {
+      this.state.activeProviders.transform = manifest.pluginId;
+    }
   }
 
   async importFromPath(request: PluginImportRequest): Promise<PluginManifest> {
@@ -155,8 +180,19 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
 
     const fileName = sourcePath.split(/[\\/]/).pop() ?? "";
     const extension = fileName.toLowerCase().split(".").pop() ?? "";
-    if (extension !== "llamafile" && extension !== "onnx") {
-      throw new Error("Only .llamafile and .onnx imports are supported");
+    if (
+      extension !== "llamafile" &&
+      extension !== "onnx" &&
+      extension !== "asrpkg"
+    ) {
+      throw new Error(
+        "Only .llamafile, .onnx, and .asrpkg imports are supported",
+      );
+    }
+    if (extension === "asrpkg") {
+      throw new Error(
+        "ASR package import is only available in desktop runtime",
+      );
     }
 
     const isLlm = extension === "llamafile";
@@ -180,6 +216,12 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
         ? ["llm.transform.correct", "llm.transform.soap"]
         : ["asr.stream"],
       installedAt: new Date().toISOString(),
+      metadata: isLlm
+        ? undefined
+        : {
+            vocabPath: deriveOnnxVocabPath(sourcePath),
+            vocabSha256: "0".repeat(64),
+          },
     };
 
     await this.add(manifest);
@@ -195,7 +237,7 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
       (plugin) => plugin.pluginId !== pluginId,
     );
     if (this.state.activeProviders.asr === pluginId) {
-      this.state.activeProviders.asr = BUILTIN_ORT_ASR_PLUGIN.pluginId;
+      this.state.activeProviders.asr = null;
     }
     if (this.state.activeProviders.transform === pluginId) {
       this.state.activeProviders.transform = null;
@@ -210,10 +252,6 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
     role: ProviderRole,
     pluginId: string | null,
   ): Promise<void> {
-    if (role === "asr" && pluginId === null) {
-      throw new Error("role=asr requires a non-null pluginId");
-    }
-
     if (pluginId === null) {
       this.state.activeProviders[role] = null;
       return;
@@ -227,11 +265,6 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
     }
     if (!canProvideRole(plugin, role)) {
       throw new Error(`Plugin ${pluginId} cannot be active for role ${role}`);
-    }
-    if (role === "asr" && pluginId !== BUILTIN_ORT_ASR_PLUGIN.pluginId) {
-      throw new Error(
-        "Activating imported ONNX ASR providers is not supported yet",
-      );
     }
     this.state.activeProviders[role] = pluginId;
   }
