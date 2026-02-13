@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 
 import { AsrClient, type AsrClientEvents } from "../asr/client";
 import type { PluginCapability, PluginManifest } from "./contracts";
@@ -33,9 +33,23 @@ export interface RuntimeAdapter {
 
 export interface RuntimeFactoryOptions {
   workerUrl: URL;
-  assetBaseUrl: string;
   ortDir: string;
+  appDataDir: string;
   events: AsrClientEvents;
+}
+
+// Manifest paths that are relative to app-data need conversion to
+// asset-protocol URLs so the web worker can fetch() them. Paths
+// served from the webview origin (e.g. "models/...") work as-is.
+function resolveAssetUrl(manifestPath: string, appDataDir: string): string {
+  if (manifestPath.startsWith("/")) {
+    return convertFileSrc(manifestPath);
+  }
+  if (appDataDir && manifestPath.startsWith("plugins/")) {
+    const base = appDataDir.endsWith("/") ? appDataDir : appDataDir + "/";
+    return convertFileSrc(base + manifestPath);
+  }
+  return manifestPath;
 }
 
 export function createRuntimeAdapter(
@@ -43,24 +57,17 @@ export function createRuntimeAdapter(
   options: RuntimeFactoryOptions,
 ): RuntimeAdapter {
   if (manifest.runtime === "ort") {
-    const modelUrl = resolveAssetUrl(
-      manifest.entrypointPath,
-      options.assetBaseUrl,
-    );
-    const vocabPath = getMetadataString(manifest, "vocabPath");
-    if (!vocabPath) {
+    const vocabPath = manifest.metadata?.vocabPath;
+    if (typeof vocabPath !== "string" || !vocabPath.trim()) {
       throw new Error(
-        `ASR plugin ${manifest.pluginId} is missing metadata.vocabPath`,
+        `Plugin ${manifest.pluginId} is missing metadata.vocabPath`,
       );
     }
-    const vocabUrl = resolveAssetUrl(vocabPath, options.assetBaseUrl);
-
     return new OrtRuntimeAdapter(
       manifest,
       new AsrClient(options.workerUrl, options.events),
-      modelUrl,
-      vocabUrl,
       options.ortDir,
+      options.appDataDir,
     );
   }
 
@@ -71,13 +78,18 @@ class OrtRuntimeAdapter implements RuntimeAdapter {
   constructor(
     private readonly manifest: PluginManifest,
     private readonly asrClient: AsrClient,
-    private readonly modelUrl: string,
-    private readonly vocabUrl: string,
     private readonly ortDir: string,
+    private readonly appDataDir: string,
   ) {}
 
   async init(): Promise<void> {
-    await this.asrClient.load(this.modelUrl, this.vocabUrl, this.ortDir);
+    const vocabPath = this.manifest.metadata?.vocabPath as string;
+    const modelUrl = resolveAssetUrl(
+      this.manifest.entrypointPath,
+      this.appDataDir,
+    );
+    const vocabUrl = resolveAssetUrl(vocabPath, this.appDataDir);
+    await this.asrClient.load(modelUrl, vocabUrl, this.ortDir);
   }
 
   async health(): Promise<RuntimeHealth> {
@@ -147,33 +159,4 @@ class LlamafileRuntimeAdapter implements RuntimeAdapter {
       pluginId: this.pluginId,
     });
   }
-}
-
-function getMetadataString(
-  manifest: PluginManifest,
-  key: string,
-): string | null {
-  const value = manifest.metadata?.[key];
-  if (typeof value !== "string") {
-    return null;
-  }
-  const text = value.trim();
-  return text.length > 0 ? text : null;
-}
-
-function resolveAssetUrl(path: string, assetBaseUrl: string): string {
-  const trimmed = path.trim();
-  if (!trimmed) {
-    throw new Error("Asset path is required");
-  }
-
-  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
-    return trimmed;
-  }
-
-  if (/(^|[\\/])\.\.([\\/]|$)/.test(trimmed)) {
-    throw new Error(`Asset path cannot contain '..': ${path}`);
-  }
-
-  return new URL(trimmed, assetBaseUrl).href;
 }

@@ -208,6 +208,13 @@ export function validatePluginManifest(
         message: "asr plugins must include asr.stream",
       });
     }
+    const vocabPath = manifest.metadata?.vocabPath;
+    if (typeof vocabPath !== "string" || !vocabPath.trim()) {
+      issues.push({
+        field: "metadata.vocabPath",
+        message: "asr plugins must include metadata.vocabPath",
+      });
+    }
   }
 
   if (manifest.kind === "llm") {

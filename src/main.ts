@@ -137,7 +137,6 @@ window.addEventListener("DOMContentLoaded", () => {
 
   pluginPlatform = createPluginPlatform({
     workerUrl: new URL("./asr.worker.ts", import.meta.url),
-    assetBaseUrl: appBase.href,
     ortDir,
     asrEvents: {
       onStatus: (message) => setStatus(message),
@@ -293,14 +292,6 @@ async function persistTranscriptBundle(transcript: string): Promise<void> {
 async function initializePlugins(): Promise<void> {
   pluginState = await pluginPlatform.init();
   renderPluginStatus();
-  if (pluginState.features.transcription) {
-    if (!pluginPlatform.isAsrReady()) {
-      loadBtn.disabled = false;
-    }
-  } else {
-    loadBtn.disabled = true;
-    recordBtn.disabled = true;
-  }
   if (pluginState.error) {
     setStatus(`Plugin init failed: ${pluginState.error}`);
   }
@@ -456,10 +447,10 @@ async function loadModel(): Promise<void> {
     return;
   }
 
-  pluginState = await pluginPlatform.status();
-  renderPluginStatus();
-  if (!pluginState.features.transcription) {
-    setStatus("No ASR provider available. Import one in Settings.");
+  if (!pluginState?.features.transcription) {
+    if (!pluginState?.error) {
+      setStatus("No ASR provider available. Import one in Settings.");
+    }
     recordBtn.disabled = true;
     loadBtn.disabled = true;
     maybeExitSplash();
