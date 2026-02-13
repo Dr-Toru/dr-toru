@@ -405,7 +405,7 @@ fn sanitize_registry(mut state: PluginRegistryState) -> Result<PluginRegistrySta
         })
         .unwrap_or(false);
     if !has_asr_active {
-        state.active_providers.asr = Some(BUILTIN_ORT_ASR_PLUGIN_ID.to_string());
+        state.active_providers.asr = None;
     }
 
     let has_transform_active = state
@@ -875,6 +875,9 @@ pub fn plugin_import_from_path(
     }
 
     state.plugins.push(manifest.clone());
+    if state.active_providers.asr.is_none() && supports_role(&manifest, ProviderRole::Asr) {
+        state.active_providers.asr = Some(manifest.plugin_id.clone());
+    }
     if state.active_providers.transform.is_none() && supports_role(&manifest, ProviderRole::Transform)
     {
         state.active_providers.transform = Some(manifest.plugin_id.clone());
@@ -901,6 +904,9 @@ pub fn plugin_registry_add(app: AppHandle, manifest: PluginManifest) -> Result<(
     }
 
     state.plugins.push(manifest.clone());
+    if state.active_providers.asr.is_none() && supports_role(&manifest, ProviderRole::Asr) {
+        state.active_providers.asr = Some(manifest.plugin_id.clone());
+    }
 
     if state.active_providers.transform.is_none() && supports_role(&manifest, ProviderRole::Transform) {
         state.active_providers.transform = Some(manifest.plugin_id.clone());
@@ -933,7 +939,7 @@ pub fn plugin_registry_remove(
     };
 
     if state.active_providers.asr.as_deref() == Some(plugin_id.as_str()) {
-        state.active_providers.asr = Some(BUILTIN_ORT_ASR_PLUGIN_ID.to_string());
+        state.active_providers.asr = None;
     }
     if state.active_providers.transform.as_deref() == Some(plugin_id.as_str()) {
         state.active_providers.transform = None;
@@ -989,21 +995,17 @@ pub fn plugin_registry_set_active(
     let previous_transform = state.active_providers.transform.clone();
     match role {
         ProviderRole::Asr => {
-            let Some(plugin_id) = plugin_id else {
-                return Err("role=asr requires a non-null pluginId".to_string());
-            };
-            let Some(plugin) = resolve_plugin(&state, &plugin_id) else {
-                return Err(format!("Unknown pluginId: {plugin_id}"));
-            };
-            if !supports_role(plugin, ProviderRole::Asr) {
-                return Err(format!("Plugin {plugin_id} cannot provide role asr"));
+            if let Some(plugin_id) = plugin_id {
+                let Some(plugin) = resolve_plugin(&state, &plugin_id) else {
+                    return Err(format!("Unknown pluginId: {plugin_id}"));
+                };
+                if !supports_role(plugin, ProviderRole::Asr) {
+                    return Err(format!("Plugin {plugin_id} cannot provide role asr"));
+                }
+                state.active_providers.asr = Some(plugin_id);
+            } else {
+                state.active_providers.asr = None;
             }
-            if plugin.plugin_id != BUILTIN_ORT_ASR_PLUGIN_ID {
-                return Err(
-                    "Activating imported ONNX ASR providers is not supported yet".to_string(),
-                );
-            }
-            state.active_providers.asr = Some(plugin_id);
         }
         ProviderRole::Transform => {
             if let Some(plugin_id) = plugin_id {

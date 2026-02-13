@@ -16,6 +16,29 @@ export const PLUGIN_CAPABILITIES = [
 ] as const;
 export type PluginCapability = (typeof PLUGIN_CAPABILITIES)[number];
 
+type FeatureMatch = "all" | "any";
+
+interface FeatureRequirement {
+  role: ProviderRole;
+  capabilities: PluginCapability[];
+  match: FeatureMatch;
+}
+
+export const PLUGIN_FEATURE_REQUIREMENTS = {
+  transcription: {
+    role: "asr",
+    capabilities: ["asr.stream"],
+    match: "all",
+  },
+  transform: {
+    role: "transform",
+    capabilities: ["llm.transform.correct", "llm.transform.soap"],
+    match: "any",
+  },
+} as const satisfies Record<string, FeatureRequirement>;
+
+export type PluginFeature = keyof typeof PLUGIN_FEATURE_REQUIREMENTS;
+
 export interface PluginManifest {
   pluginId: string;
   name: string;
@@ -82,6 +105,30 @@ export function canProvideRole(
     manifest.kind === "llm" &&
     (hasCapability(manifest, "llm.transform.correct") ||
       hasCapability(manifest, "llm.transform.soap"))
+  );
+}
+
+export function supportsFeature(
+  manifest: PluginManifest | null | undefined,
+  feature: PluginFeature,
+): boolean {
+  if (!manifest) {
+    return false;
+  }
+
+  const requirement = PLUGIN_FEATURE_REQUIREMENTS[feature];
+  if (!canProvideRole(manifest, requirement.role)) {
+    return false;
+  }
+
+  if (requirement.match === "all") {
+    return requirement.capabilities.every((capability) =>
+      hasCapability(manifest, capability),
+    );
+  }
+
+  return requirement.capabilities.some((capability) =>
+    hasCapability(manifest, capability),
   );
 }
 

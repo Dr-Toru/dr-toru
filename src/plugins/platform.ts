@@ -1,7 +1,12 @@
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 
 import type { AsrClientEvents } from "../asr/client";
-import type { PluginCapability, PluginManifest } from "./contracts";
+import {
+  supportsFeature,
+  type PluginCapability,
+  type PluginFeature,
+  type PluginManifest,
+} from "./contracts";
 import { PluginService } from "./service";
 import { createRuntimeAdapter, type RuntimeAdapter } from "./runtime-adapter";
 import {
@@ -22,6 +27,7 @@ export interface PluginPlatformState {
   ready: boolean;
   error: string | null;
   canImport: boolean;
+  features: Record<PluginFeature, boolean>;
   activeAsr: PluginManifest | null;
   activeTransform: PluginManifest | null;
   transformCount: number;
@@ -84,6 +90,7 @@ export class PluginPlatform {
   private readonly service: PluginService;
   private readonly canImport = canUseTauriPluginStore();
   private initTask: Promise<PluginPlatformState> | null = null;
+  private initialized = false;
   private initError: string | null = null;
   private activeAsr: PluginManifest | null = null;
   private activeTransform: PluginManifest | null = null;
@@ -120,7 +127,7 @@ export class PluginPlatform {
   async status(): Promise<PluginPlatformState> {
     if (this.initTask) {
       await this.initTask;
-    } else if (!this.activeAsr && !this.initError) {
+    } else if (!this.initialized && !this.initError) {
       await this.init();
     } else {
       await this.refreshTransformHealth();
@@ -146,7 +153,7 @@ export class PluginPlatform {
 
   async importFromPath(request: PluginImportRequest): Promise<PluginManifest> {
     const state = await this.init();
-    if (!state.ready) {
+    if (state.error) {
       throw new Error(state.error ?? "Plugin platform is unavailable");
     }
     const imported = await this.service.importFromPath(request);
@@ -156,7 +163,7 @@ export class PluginPlatform {
 
   async loadAsr(): Promise<PluginManifest> {
     const state = await this.init();
-    if (!state.ready) {
+    if (state.error) {
       throw new Error(state.error ?? "Plugin platform is unavailable");
     }
 
@@ -186,7 +193,7 @@ export class PluginPlatform {
     running: boolean,
   ): Promise<PluginPlatformState> {
     const state = await this.init();
-    if (!state.ready) {
+    if (state.error) {
       throw new Error(state.error ?? "Plugin platform is unavailable");
     }
     if (!this.activeTransform) {
@@ -209,7 +216,7 @@ export class PluginPlatform {
 
   async runTransform(input: string, prompt?: string): Promise<string> {
     const state = await this.init();
-    if (!state.ready) {
+    if (state.error) {
       throw new Error(state.error ?? "Plugin platform is unavailable");
     }
     if (!this.activeTransform) {
@@ -272,6 +279,7 @@ export class PluginPlatform {
       this.activeTransform = nextTransform;
       this.transformCount = transforms.length;
       this.initError = null;
+      this.initialized = true;
 
       await this.refreshTransformHealth();
       return this.snapshot();
@@ -282,6 +290,7 @@ export class PluginPlatform {
       this.transformHealth = null;
       this.asrReady = false;
       this.initError = toErrorMessage(error);
+      this.initialized = true;
       return this.snapshot();
     }
   }
@@ -291,9 +300,13 @@ export class PluginPlatform {
       ? (this.transformHealth?.message ?? "Service is stopped")
       : "unavailable";
     return {
-      ready: this.initError === null && this.activeAsr !== null,
+      ready: this.initError === null,
       error: this.initError,
       canImport: this.canImport,
+      features: {
+        transcription: supportsFeature(this.activeAsr, "transcription"),
+        transform: supportsFeature(this.activeTransform, "transform"),
+      },
       activeAsr: this.activeAsr,
       activeTransform: this.activeTransform,
       transformCount: this.transformCount,

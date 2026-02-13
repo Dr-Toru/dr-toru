@@ -165,9 +165,8 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   sessionBundles = new SessionBundleService(getSessionStore());
 
-  void initializePlugins();
+  void initializePlugins().then(() => loadModel());
   void initializeStorage();
-  void loadModel();
 });
 
 function isRoute(value: string | undefined): value is RouteName {
@@ -294,13 +293,21 @@ async function persistTranscriptBundle(transcript: string): Promise<void> {
 async function initializePlugins(): Promise<void> {
   pluginState = await pluginPlatform.init();
   renderPluginStatus();
+  if (pluginState.features.transcription) {
+    if (!pluginPlatform.isAsrReady()) {
+      loadBtn.disabled = false;
+    }
+  } else {
+    loadBtn.disabled = true;
+    recordBtn.disabled = true;
+  }
   if (pluginState.error) {
     setStatus(`Plugin init failed: ${pluginState.error}`);
   }
 }
 
 function updateTransformControls(): void {
-  const hasProvider = Boolean(pluginState?.activeTransform);
+  const hasProvider = Boolean(pluginState?.features.transform);
   const canImport = pluginState?.canImport ?? false;
   const running = pluginState?.transformRunning ?? false;
   importPluginBtn.disabled = !canImport;
@@ -348,6 +355,9 @@ async function importPlugin(): Promise<void> {
     });
     setStatus(`Imported plugin: ${imported.name}`);
     await initializePlugins();
+    if (pluginState?.features.transcription && !pluginPlatform.isAsrReady()) {
+      void loadModel();
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setStatus(`Import failed: ${message}`);
@@ -441,6 +451,21 @@ function resetCrashUi(): void {
 }
 
 async function loadModel(): Promise<void> {
+  if (pluginPlatform.isAsrReady()) {
+    setStatus("Model already loaded");
+    return;
+  }
+
+  pluginState = await pluginPlatform.status();
+  renderPluginStatus();
+  if (!pluginState.features.transcription) {
+    setStatus("No ASR provider available. Import one in Settings.");
+    recordBtn.disabled = true;
+    loadBtn.disabled = true;
+    maybeExitSplash();
+    return;
+  }
+
   loadBtn.disabled = true;
   await dictation.loadModel();
   pluginState = await pluginPlatform.status();
