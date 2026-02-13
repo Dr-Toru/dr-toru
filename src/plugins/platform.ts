@@ -13,7 +13,7 @@ import {
 
 export interface PluginPlatformOptions {
   workerUrl: URL;
-  modelsDir: string;
+  assetBaseUrl: string;
   ortDir: string;
   asrEvents: AsrClientEvents;
 }
@@ -310,7 +310,7 @@ export class PluginPlatform {
     if (!this.asrRuntime) {
       this.asrRuntime = createRuntimeAdapter(this.activeAsr, {
         workerUrl: this.options.workerUrl,
-        modelsDir: this.options.modelsDir,
+        assetBaseUrl: this.options.assetBaseUrl,
         ortDir: this.options.ortDir,
         events: {
           onStatus: (message) => this.options.asrEvents.onStatus(message),
@@ -331,7 +331,7 @@ export class PluginPlatform {
     if (!this.transformRuntime) {
       this.transformRuntime = createRuntimeAdapter(this.activeTransform, {
         workerUrl: this.options.workerUrl,
-        modelsDir: this.options.modelsDir,
+        assetBaseUrl: this.options.assetBaseUrl,
         ortDir: this.options.ortDir,
         events: {
           onStatus: () => undefined,

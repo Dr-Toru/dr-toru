@@ -32,7 +32,6 @@ const capture = new AudioCapture({
   stepSamples: CHUNK_STEP_SAMPLES,
 });
 const appBase = new URL("./", window.location.href);
-const modelsDir = new URL("models/", appBase).href;
 const ortDir = new URL("ort/", appBase).href;
 
 let pluginPlatform: PluginPlatform;
@@ -136,7 +135,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   pluginPlatform = createPluginPlatform({
     workerUrl: new URL("./asr.worker.ts", import.meta.url),
-    modelsDir,
+    assetBaseUrl: appBase.href,
     ortDir,
     asrEvents: {
       onStatus: (message) => setStatus(message),
