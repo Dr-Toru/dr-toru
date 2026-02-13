@@ -42,6 +42,72 @@ Transcript data is treated as a session bundle with source and derived artifacts
 - Preserve source artifacts and avoid destructive overwrite.
 - Track provenance for derived artifacts.
 
+## Plugin Platform v1 Contracts
+
+- Chosen implementation model:
+  - Manifest and capability contract is strict and enum-backed.
+  - Registry persistence uses atomic JSON writes in app data (`plugins/registry.json`).
+  - Runtime ownership boundary:
+    - Main thread: orchestration and provider selection only.
+    - ASR worker: ORT model load and inference.
+    - Tauri backend: registry persistence and `llamafile` command execution.
+- Final manifest fields:
+  - `pluginId`, `name`, `version`, `kind`, `runtime`, `entrypointPath`, `sha256`, `capabilities`
+  - Optional: `modelFamily`, `sizeBytes`, `license`, `installedAt`, `metadata`
+- Capability taxonomy (v1):
+  - `asr.stream`
+  - `llm.transform.correct`
+  - `llm.transform.soap`
+- Compatibility rules (v1):
+  - `kind=asr` must use `runtime=ort` and include `asr.stream`.
+  - `kind=llm` must use `runtime=llamafile` and include at least one transform capability.
+- Active-provider semantics:
+  - Single active provider per role: `asr` and `transform`.
+  - `asr` role is always backed by a valid plugin.
+  - In current implementation, imported ONNX providers are stored but not yet selectable as active ASR runtime.
+  - `transform` may be unset without affecting core dictation.
+- Runtime adapter contract:
+  - Unified interface: `init`, `health`, `execute`, `shutdown`.
+  - Concrete adapters:
+    - ORT adapter for ASR worker inference.
+    - Llamafile adapter for backend-managed transform execution.
+- Session artifact provenance:
+  - Derived artifacts must include provider/plugin provenance in artifact metadata.
+
+## Plugin Decision Log
+
+- Chosen:
+  - Strict capability enum and compatibility matrix for predictable gating.
+  - JSON registry for inspectable local-first state and atomic recovery.
+  - ORT in worker and `llamafile` in backend to isolate heavy compute and process control.
+- Rejected:
+  - Free-form capabilities in v1 (too easy to drift and silently break gating).
+  - In-memory-only registry (state loss and no auditability).
+  - Backend ownership of ORT (would duplicate existing worker path and regress responsiveness).
+
+## Plugin Dependency Map
+
+- Manifest and capability contract unblocks:
+  - Import validation
+  - Feature gating
+  - Adapter selection
+- Registry and active-provider rules unblock:
+  - Settings provider controls
+  - Startup runtime resolution
+  - Safe fallback handling
+- Adapter contract and ownership map unblock:
+  - Runtime lifecycle control
+  - Shared execute flow across ORT and `llamafile`
+  - Transform pipeline handoff work
+
+## Plugin Integration Sequence
+
+1. Finalize contract and validation.
+2. Land registry persistence and discovery APIs.
+3. Wire active ASR runtime resolution from registry.
+4. Wire transform runtime execution through adapter interface.
+5. Add import UX and provider controls on settings screen.
+
 ## Installer and Platform Plan
 
 - Use standard Tauri packaging for each platform.

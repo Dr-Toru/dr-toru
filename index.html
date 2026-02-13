@@ -67,7 +67,35 @@
           aria-hidden="true"
         >
           <h2>Settings</h2>
-          <p class="placeholder">Settings screen placeholder.</p>
+          <p id="pluginSummary" class="placeholder">
+            Plugin registry loading...
+          </p>
+          <div class="actions">
+            <button id="importPluginBtn" type="button">
+              Import Model File
+            </button>
+            <button id="toggleTransformBtn" type="button" disabled>
+              Start Transform Service
+            </button>
+          </div>
+          <p id="transformServiceStatus" class="status">
+            Transform service: unavailable
+          </p>
+          <h3>Transform Test</h3>
+          <textarea
+            id="transformInput"
+            class="transcript"
+            rows="5"
+            placeholder="Paste note text to test transform output."
+          ></textarea>
+          <div class="actions">
+            <button id="runTransformBtn" type="button" disabled>
+              Run Transform Test
+            </button>
+          </div>
+          <div id="transformOutput" class="transcript">
+            (No transform output)
+          </div>
         </section>
       </div>
 
