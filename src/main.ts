@@ -1,5 +1,11 @@
-import { AsrClient } from "./asr/client";
 import { AudioCapture, isSilent } from "./audio/capture";
+import {
+  createPluginPlatform,
+  formatPluginSummary,
+  formatTransformStatus,
+  type PluginPlatform,
+  type PluginPlatformState,
+} from "./plugins";
 import { asrQueue } from "./runtime/queues";
 import { getSessionStore } from "./storage";
 
@@ -29,15 +35,23 @@ const appBase = new URL("./", window.location.href);
 const modelsDir = new URL("models/", appBase).href;
 const ortDir = new URL("ort/", appBase).href;
 
-let asr: AsrClient;
+let pluginPlatform: PluginPlatform;
+let pluginState: PluginPlatformState | null = null;
 let isRecording = false;
 let toggling = false;
 
 let statusEl: HTMLElement;
 let transcriptEl: HTMLElement;
+let pluginSummaryEl: HTMLElement;
+let transformServiceStatusEl: HTMLElement;
+let transformOutputEl: HTMLElement;
 let loadBtn: HTMLButtonElement;
 let recordBtn: HTMLButtonElement;
 let settingsBtn: HTMLButtonElement;
+let importPluginBtn: HTMLButtonElement;
+let toggleTransformBtn: HTMLButtonElement;
+let runTransformBtn: HTMLButtonElement;
+let transformInputEl: HTMLTextAreaElement;
 let navBtns: HTMLButtonElement[] = [];
 let currentRoute: RouteName | null = null;
 let screenEls: Record<RouteName, HTMLElement>;
@@ -53,15 +67,17 @@ let silentChunkSkips = 0;
 window.addEventListener("DOMContentLoaded", () => {
   statusEl = mustEl("status");
   transcriptEl = mustEl("transcript");
+  pluginSummaryEl = mustEl("pluginSummary");
+  transformServiceStatusEl = mustEl("transformServiceStatus");
+  transformOutputEl = mustEl("transformOutput");
   loadBtn = mustBtn("loadBtn");
   recordBtn = mustBtn("recordBtn");
   settingsBtn = mustBtn("settingsBtn");
+  importPluginBtn = mustBtn("importPluginBtn");
+  toggleTransformBtn = mustBtn("toggleTransformBtn");
+  runTransformBtn = mustBtn("runTransformBtn");
+  transformInputEl = mustTextarea("transformInput");
   splashEl = mustEl("screen-splash");
-
-  asr = new AsrClient(new URL("./asr.worker.ts", import.meta.url), {
-    onStatus: (message) => setStatus(message),
-    onCrash: (message) => handleAsrCrash(message),
-  });
   screenEls = {
     transcription: mustEl("screen-transcription"),
     list: mustEl("screen-list"),
@@ -108,13 +124,33 @@ window.addEventListener("DOMContentLoaded", () => {
   recordBtn.addEventListener("click", () => {
     void toggleRecording();
   });
+  importPluginBtn.addEventListener("click", () => {
+    void importPlugin();
+  });
+  toggleTransformBtn.addEventListener("click", () => {
+    void toggleTransformService();
+  });
+  runTransformBtn.addEventListener("click", () => {
+    void runTransformTest();
+  });
 
   window.addEventListener("beforeunload", () => {
     clearSplashHideTimer();
     void capture.stop();
-    asr.terminate();
+    void pluginPlatform.shutdown();
   });
 
+  pluginPlatform = createPluginPlatform({
+    workerUrl: new URL("./asr.worker.ts", import.meta.url),
+    modelsDir,
+    ortDir,
+    asrEvents: {
+      onStatus: (message) => setStatus(message),
+      onCrash: (message) => handleAsrCrash(message),
+    },
+  });
+
+  void initializePlugins();
   void initializeStorage();
   void loadModel();
 });
@@ -239,6 +275,120 @@ async function initializeStorage(): Promise<void> {
   }
 }
 
+async function initializePlugins(): Promise<void> {
+  pluginState = await pluginPlatform.init();
+  renderPluginStatus();
+  if (pluginState.error) {
+    setStatus(`Plugin init failed: ${pluginState.error}`);
+  }
+}
+
+function updateTransformControls(): void {
+  const hasProvider = Boolean(pluginState?.activeTransform);
+  const canImport = pluginState?.canImport ?? false;
+  const running = pluginState?.transformRunning ?? false;
+  importPluginBtn.disabled = !canImport;
+  toggleTransformBtn.disabled = !hasProvider;
+  runTransformBtn.disabled = !hasProvider || !running;
+  toggleTransformBtn.textContent = running
+    ? "Stop Transform Service"
+    : "Start Transform Service";
+}
+
+function renderPluginStatus(): void {
+  if (!pluginState) {
+    pluginSummaryEl.textContent = "Plugin registry loading...";
+    transformServiceStatusEl.textContent = "Transform service: unavailable";
+    updateTransformControls();
+    return;
+  }
+  pluginSummaryEl.textContent = formatPluginSummary(pluginState);
+  transformServiceStatusEl.textContent = formatTransformStatus(pluginState);
+  updateTransformControls();
+}
+
+async function importPlugin(): Promise<void> {
+  if (!pluginState?.canImport) {
+    setStatus("Import unavailable outside desktop runtime");
+    return;
+  }
+
+  importPluginBtn.disabled = true;
+  setStatus("Importing plugin...");
+  try {
+    const sourcePath = await pluginPlatform.pickImportPath();
+    if (!sourcePath) {
+      return;
+    }
+
+    const displayName = window.prompt(
+      "Optional display name for this model (leave blank to use filename):",
+      "",
+    );
+
+    const imported = await pluginPlatform.importFromPath({
+      sourcePath,
+      displayName: displayName?.trim() || undefined,
+    });
+    setStatus(`Imported plugin: ${imported.name}`);
+    await initializePlugins();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus(`Import failed: ${message}`);
+  } finally {
+    importPluginBtn.disabled = false;
+    updateTransformControls();
+  }
+}
+
+async function toggleTransformService(): Promise<void> {
+  if (!pluginState?.activeTransform) {
+    return;
+  }
+
+  toggleTransformBtn.disabled = true;
+  try {
+    const running = !(pluginState?.transformRunning ?? false);
+    pluginState = await pluginPlatform.setTransformServiceRunning(running);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    transformServiceStatusEl.textContent = `Transform service: ${message}`;
+  } finally {
+    pluginState = await pluginPlatform.status();
+    renderPluginStatus();
+  }
+}
+
+async function runTransformTest(): Promise<void> {
+  if (!pluginState?.activeTransform) {
+    transformOutputEl.textContent = "(No active transform provider)";
+    return;
+  }
+  if (!pluginState.transformRunning) {
+    transformOutputEl.textContent = "(Start the transform service first)";
+    return;
+  }
+
+  const input = transformInputEl.value.trim();
+  if (!input) {
+    transformOutputEl.textContent = "(Enter text to transform)";
+    return;
+  }
+
+  runTransformBtn.disabled = true;
+  transformOutputEl.textContent = "Running transform...";
+  try {
+    const text = await pluginPlatform.runTransform(input);
+    transformOutputEl.textContent = text || "(No output returned)";
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    transformOutputEl.textContent = `Transform failed: ${message}`;
+  } finally {
+    pluginState = await pluginPlatform.status();
+    renderPluginStatus();
+  }
+}
+
 function mustEl(id: string): HTMLElement {
   const el = document.getElementById(id);
   if (!el) {
@@ -251,6 +401,14 @@ function mustBtn(id: string): HTMLButtonElement {
   const el = mustEl(id);
   if (!(el instanceof HTMLButtonElement)) {
     throw new Error(`#${id} is not a button`);
+  }
+  return el;
+}
+
+function mustTextarea(id: string): HTMLTextAreaElement {
+  const el = mustEl(id);
+  if (!(el instanceof HTMLTextAreaElement)) {
+    throw new Error(`#${id} is not a textarea`);
   }
   return el;
 }
@@ -271,7 +429,7 @@ function handleAsrCrash(message: string): void {
 }
 
 async function loadModel(): Promise<void> {
-  if (asr.ready) {
+  if (pluginPlatform.isAsrReady()) {
     setStatus("Model already loaded");
     return;
   }
@@ -280,8 +438,10 @@ async function loadModel(): Promise<void> {
   setStatus("Loading model in background...");
 
   try {
-    await asr.load(modelsDir, ortDir);
-    setStatus("Model loaded. Ready to record.");
+    const provider = await pluginPlatform.loadAsr();
+    pluginState = await pluginPlatform.status();
+    renderPluginStatus();
+    setStatus(`${provider.name} loaded. Ready to record.`);
     transcriptEl.textContent = 'Model loaded. Click "Record" to start.';
     recordBtn.disabled = false;
     loadBtn.disabled = true;
@@ -304,7 +464,7 @@ async function toggleRecording(): Promise<void> {
   recordBtn.disabled = true;
 
   try {
-    if (!asr.ready) {
+    if (!pluginPlatform.isAsrReady()) {
       setStatus("Model still loading in background...");
       void loadModel();
       return;
@@ -354,7 +514,7 @@ async function toggleRecording(): Promise<void> {
     setStatus("Done");
   } finally {
     toggling = false;
-    recordBtn.disabled = !asr.ready;
+    recordBtn.disabled = !pluginPlatform.isAsrReady();
   }
 }
 
@@ -439,7 +599,7 @@ async function processChunk(
   metricId = -1,
   queueWaitMs = 0,
 ): Promise<void> {
-  if (!asr.ready) {
+  if (!pluginPlatform.isAsrReady()) {
     debugMetric("chunk-dropped-unready", {
       chunkSecs: roundMetric(samples.length / SAMPLE_RATE),
     });
@@ -451,7 +611,7 @@ async function processChunk(
   setStatus(`Processing chunk ${chunkIdx}...`);
 
   try {
-    const text = await asr.transcribe(samples);
+    const text = await pluginPlatform.transcribe(samples);
     const mergedText = mergeChunkText(transcriptText, text);
     if (mergedText !== transcriptText) {
       transcriptText = mergedText;
