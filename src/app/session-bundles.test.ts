@@ -19,6 +19,7 @@ describe("SessionBundleService", () => {
     expect(session?.artifacts[0]?.kind).toBe("transcript_raw");
     expect(session?.artifacts[0]?.role).toBe("source");
     expect(session?.artifacts[0]?.createdBy).toBe("asr");
+    expect(session?.artifacts[0]?.metadata).toMatchObject({ sizeBytes: 11 });
     expect(session?.artifacts[0]?.path).toContain(
       `sessions/${result.sessionId}/artifacts/`,
     );
