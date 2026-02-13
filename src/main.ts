@@ -138,6 +138,7 @@ window.addEventListener("DOMContentLoaded", () => {
   pluginPlatform = createPluginPlatform({
     workerUrl: new URL("./asr.worker.ts", import.meta.url),
     ortDir,
+    appOrigin: appBase.href,
     asrEvents: {
       onStatus: (message) => setStatus(message),
       onCrash: (message) => {
@@ -458,11 +459,11 @@ async function loadModel(): Promise<void> {
   }
 
   loadBtn.disabled = true;
-  await dictation.loadModel();
+  const loaded = await dictation.loadModel();
   pluginState = await pluginPlatform.status();
   renderPluginStatus();
-  recordBtn.disabled = !dictation.isAsrReady();
-  loadBtn.disabled = dictation.isAsrReady();
+  recordBtn.disabled = !loaded;
+  loadBtn.disabled = loaded;
   maybeExitSplash();
 }
 

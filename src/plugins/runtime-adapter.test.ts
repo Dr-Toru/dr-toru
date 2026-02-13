@@ -7,6 +7,7 @@ const OPTIONS = {
   workerUrl: new URL("http://localhost/asr.worker.ts"),
   ortDir: "ort/",
   appDataDir: "",
+  appOrigin: "http://localhost/",
   events: {
     onStatus: () => undefined,
     onCrash: () => undefined,

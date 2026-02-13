@@ -19,10 +19,13 @@ import {
 export interface PluginPlatformOptions {
   workerUrl: URL;
   ortDir: string;
+  appOrigin: string;
   asrEvents: AsrClientEvents;
 }
 
 export interface PluginPlatformState {
+  /** True when the plugin registry loaded without errors. Does not imply
+   *  any provider is active -- check `features` for capability gates. */
   ready: boolean;
   error: string | null;
   canImport: boolean;
@@ -342,6 +345,7 @@ export class PluginPlatform {
         workerUrl: this.options.workerUrl,
         ortDir: this.options.ortDir,
         appDataDir: this.resolvedDataDir,
+        appOrigin: this.options.appOrigin,
         events: {
           onStatus: (message) => this.options.asrEvents.onStatus(message),
           onCrash: (message) => {
@@ -363,6 +367,7 @@ export class PluginPlatform {
         workerUrl: this.options.workerUrl,
         ortDir: this.options.ortDir,
         appDataDir: this.resolvedDataDir,
+        appOrigin: this.options.appOrigin,
         events: {
           onStatus: () => undefined,
           onCrash: (message) => {

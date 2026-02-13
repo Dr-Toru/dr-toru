@@ -35,13 +35,26 @@ export interface RuntimeFactoryOptions {
   workerUrl: URL;
   ortDir: string;
   appDataDir: string;
+  /** Absolute URL for the webview origin (e.g. "https://tauri.localhost/"). */
+  appOrigin: string;
   events: AsrClientEvents;
 }
 
-// Manifest paths that are relative to app-data need conversion to
-// asset-protocol URLs so the web worker can fetch() them. Paths
-// served from the webview origin (e.g. "models/...") work as-is.
-function resolveAssetUrl(manifestPath: string, appDataDir: string): string {
+// Resolve manifest asset paths to absolute URLs suitable for fetch()
+// inside a web worker (where relative URLs resolve against the worker
+// script, not the app origin).
+//
+// Absolute filesystem paths and paths under "plugins/" are converted
+// to Tauri asset-protocol URLs. The "plugins/" prefix mirrors the
+// layout used by Rust copy_imported_asset().
+//
+// All other paths (e.g. builtin "models/...") are resolved against
+// the webview origin so the worker fetches from the correct location.
+function resolveAssetUrl(
+  manifestPath: string,
+  appDataDir: string,
+  appOrigin: string,
+): string {
   if (manifestPath.startsWith("/")) {
     return convertFileSrc(manifestPath);
   }
@@ -49,7 +62,10 @@ function resolveAssetUrl(manifestPath: string, appDataDir: string): string {
     const base = appDataDir.endsWith("/") ? appDataDir : appDataDir + "/";
     return convertFileSrc(base + manifestPath);
   }
-  return manifestPath;
+  // Resolve relative paths against the app origin so they work inside
+  // the web worker, where bare relative fetches would resolve against
+  // the worker script URL instead.
+  return new URL(manifestPath, appOrigin).href;
 }
 
 export function createRuntimeAdapter(
@@ -68,6 +84,7 @@ export function createRuntimeAdapter(
       new AsrClient(options.workerUrl, options.events),
       options.ortDir,
       options.appDataDir,
+      options.appOrigin,
     );
   }
 
@@ -80,6 +97,7 @@ class OrtRuntimeAdapter implements RuntimeAdapter {
     private readonly asrClient: AsrClient,
     private readonly ortDir: string,
     private readonly appDataDir: string,
+    private readonly appOrigin: string,
   ) {}
 
   async init(): Promise<void> {
@@ -87,8 +105,13 @@ class OrtRuntimeAdapter implements RuntimeAdapter {
     const modelUrl = resolveAssetUrl(
       this.manifest.entrypointPath,
       this.appDataDir,
+      this.appOrigin,
     );
-    const vocabUrl = resolveAssetUrl(vocabPath, this.appDataDir);
+    const vocabUrl = resolveAssetUrl(
+      vocabPath,
+      this.appDataDir,
+      this.appOrigin,
+    );
     await this.asrClient.load(modelUrl, vocabUrl, this.ortDir);
   }
 

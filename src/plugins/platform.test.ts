@@ -7,6 +7,7 @@ function createPlatform(store = new NoopPluginRegistryStore()): PluginPlatform {
   return new PluginPlatform(store, {
     workerUrl: new URL("http://localhost/asr.worker.ts"),
     ortDir: "ort/",
+    appOrigin: "http://localhost/",
     asrEvents: {
       onStatus: () => undefined,
       onCrash: () => undefined,
