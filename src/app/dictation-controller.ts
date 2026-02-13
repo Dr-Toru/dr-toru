@@ -14,6 +14,7 @@ export interface DictationControllerOptions {
   onStatus: (message: string) => void;
   onTranscript: (text: string) => void;
   onRecordingChange: (recording: boolean) => void;
+  onSessionComplete?: (transcript: string) => Promise<void>;
 }
 
 export class DictationController {
@@ -107,6 +108,14 @@ export class DictationController {
 
       if (!this.transcriptText) {
         this.options.onTranscript("(No speech detected)");
+      } else if (this.options.onSessionComplete) {
+        try {
+          await this.options.onSessionComplete(this.transcriptText);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          this.options.onStatus(`Session save failed: ${message}`);
+        }
       }
       this.options.onStatus("Done");
       return false;

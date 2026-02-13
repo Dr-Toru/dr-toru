@@ -1,5 +1,6 @@
 import { AudioCapture } from "./audio/capture";
 import { DictationController } from "./app/dictation-controller";
+import { SessionBundleService } from "./app/session-bundles";
 import {
   createPluginPlatform,
   formatPluginSummary,
@@ -37,6 +38,7 @@ const ortDir = new URL("ort/", appBase).href;
 let pluginPlatform: PluginPlatform;
 let pluginState: PluginPlatformState | null = null;
 let dictation: DictationController;
+let sessionBundles: SessionBundleService;
 
 let statusEl: HTMLElement;
 let transcriptEl: HTMLElement;
@@ -159,7 +161,9 @@ window.addEventListener("DOMContentLoaded", () => {
       transcriptEl.textContent = text;
     },
     onRecordingChange: (recording) => syncRecordingUi(recording),
+    onSessionComplete: (transcript) => persistTranscriptBundle(transcript),
   });
+  sessionBundles = new SessionBundleService(getSessionStore());
 
   void initializePlugins();
   void initializeStorage();
@@ -284,6 +288,10 @@ async function initializeStorage(): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     console.error("Storage init failed:", message);
   }
+}
+
+async function persistTranscriptBundle(transcript: string): Promise<void> {
+  await sessionBundles.saveTranscriptSession(transcript);
 }
 
 async function initializePlugins(): Promise<void> {
