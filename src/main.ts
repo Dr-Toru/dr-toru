@@ -188,8 +188,7 @@ function routeFromHash(hash: string): RouteName {
 }
 
 function setRoute(route: RouteName, syncHash: boolean): void {
-  const changed = route !== currentRoute;
-  if (!changed) {
+  if (route === currentRoute) {
     return;
   }
 
@@ -203,12 +202,10 @@ function setRoute(route: RouteName, syncHash: boolean): void {
     screen.setAttribute("aria-hidden", String(!isActive));
   }
 
-  if (changed) {
-    const active = screenEls[route];
-    active.classList.remove("fade-in");
-    void active.offsetWidth;
-    active.classList.add("fade-in");
-  }
+  const active = screenEls[route];
+  active.classList.remove("fade-in");
+  void active.offsetWidth;
+  active.classList.add("fade-in");
 
   for (const navBtn of navBtns) {
     const isActive = navBtn.dataset.route === route;
@@ -445,18 +442,12 @@ function resetCrashUi(): void {
 
 async function loadModel(): Promise<void> {
   loadBtn.disabled = true;
-  try {
-    await dictation.loadModel();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    setStatus(`Load failed: ${message}`);
-  } finally {
-    pluginState = await pluginPlatform.status();
-    renderPluginStatus();
-    recordBtn.disabled = !dictation.isAsrReady();
-    loadBtn.disabled = dictation.isAsrReady();
-    maybeExitSplash();
-  }
+  await dictation.loadModel();
+  pluginState = await pluginPlatform.status();
+  renderPluginStatus();
+  recordBtn.disabled = !dictation.isAsrReady();
+  loadBtn.disabled = dictation.isAsrReady();
+  maybeExitSplash();
 }
 
 async function toggleRecording(): Promise<void> {

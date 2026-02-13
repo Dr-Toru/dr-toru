@@ -55,6 +55,7 @@ export class DictationController {
     }
   }
 
+  /** Returns the recording state after the toggle attempt. */
   async toggleRecording(): Promise<boolean> {
     if (this.toggling) {
       return this.isRecordingValue;
@@ -106,6 +107,7 @@ export class DictationController {
 
       await asrQueue.waitForIdle();
 
+      let saveFailed = false;
       if (!this.transcriptText) {
         this.options.onTranscript("(No speech detected)");
       } else if (this.options.onSessionComplete) {
@@ -115,9 +117,12 @@ export class DictationController {
           const message =
             error instanceof Error ? error.message : String(error);
           this.options.onStatus(`Session save failed: ${message}`);
+          saveFailed = true;
         }
       }
-      this.options.onStatus("Done");
+      if (!saveFailed) {
+        this.options.onStatus("Done");
+      }
       return false;
     } finally {
       this.toggling = false;
@@ -228,7 +233,7 @@ export class DictationController {
   }
 }
 
-function mergeChunkText(currentText: string, nextText: string): string {
+export function mergeChunkText(currentText: string, nextText: string): string {
   const next = nextText.trim();
   if (!next) {
     return currentText;
