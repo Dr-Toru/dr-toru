@@ -29,6 +29,19 @@ export interface PluginServiceHealth {
   endpoint: string | null;
 }
 
+function deriveOnnxVocabPath(sourcePath: string): string {
+  const fileName = sourcePath.split(/[\\/]/).pop() ?? "";
+  const baseName = fileName.replace(/\.onnx$/i, "");
+  const separator = sourcePath.includes("\\") ? "\\" : "/";
+  const index = Math.max(
+    sourcePath.lastIndexOf("/"),
+    sourcePath.lastIndexOf("\\"),
+  );
+  const dir = index >= 0 ? sourcePath.slice(0, index) : "";
+  const vocabName = `${baseName}_vocab.json`;
+  return dir ? `${dir}${separator}${vocabName}` : vocabName;
+}
+
 export interface PluginRegistryStore {
   init(): Promise<PluginRegistryState>;
   list(): Promise<PluginManifest[]>;
@@ -167,8 +180,19 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
 
     const fileName = sourcePath.split(/[\\/]/).pop() ?? "";
     const extension = fileName.toLowerCase().split(".").pop() ?? "";
-    if (extension !== "llamafile" && extension !== "onnx") {
-      throw new Error("Only .llamafile and .onnx imports are supported");
+    if (
+      extension !== "llamafile" &&
+      extension !== "onnx" &&
+      extension !== "asrpkg"
+    ) {
+      throw new Error(
+        "Only .llamafile, .onnx, and .asrpkg imports are supported",
+      );
+    }
+    if (extension === "asrpkg") {
+      throw new Error(
+        "ASR package import is only available in desktop runtime",
+      );
     }
 
     const isLlm = extension === "llamafile";
@@ -192,6 +216,12 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
         ? ["llm.transform.correct", "llm.transform.soap"]
         : ["asr.stream"],
       installedAt: new Date().toISOString(),
+      metadata: isLlm
+        ? undefined
+        : {
+            vocabPath: deriveOnnxVocabPath(sourcePath),
+            vocabSha256: "0".repeat(64),
+          },
     };
 
     await this.add(manifest);

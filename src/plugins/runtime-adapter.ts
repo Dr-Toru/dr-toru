@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 
 import { AsrClient, type AsrClientEvents } from "../asr/client";
 import type { PluginCapability, PluginManifest } from "./contracts";
@@ -33,9 +33,23 @@ export interface RuntimeAdapter {
 
 export interface RuntimeFactoryOptions {
   workerUrl: URL;
-  modelsDir: string;
   ortDir: string;
+  appDataDir: string;
   events: AsrClientEvents;
+}
+
+// Manifest paths that are relative to app-data need conversion to
+// asset-protocol URLs so the web worker can fetch() them. Paths
+// served from the webview origin (e.g. "models/...") work as-is.
+function resolveAssetUrl(manifestPath: string, appDataDir: string): string {
+  if (manifestPath.startsWith("/")) {
+    return convertFileSrc(manifestPath);
+  }
+  if (appDataDir && manifestPath.startsWith("plugins/")) {
+    const base = appDataDir.endsWith("/") ? appDataDir : appDataDir + "/";
+    return convertFileSrc(base + manifestPath);
+  }
+  return manifestPath;
 }
 
 export function createRuntimeAdapter(
@@ -43,11 +57,17 @@ export function createRuntimeAdapter(
   options: RuntimeFactoryOptions,
 ): RuntimeAdapter {
   if (manifest.runtime === "ort") {
+    const vocabPath = manifest.metadata?.vocabPath;
+    if (typeof vocabPath !== "string" || !vocabPath.trim()) {
+      throw new Error(
+        `Plugin ${manifest.pluginId} is missing metadata.vocabPath`,
+      );
+    }
     return new OrtRuntimeAdapter(
       manifest,
       new AsrClient(options.workerUrl, options.events),
-      options.modelsDir,
       options.ortDir,
+      options.appDataDir,
     );
   }
 
@@ -58,12 +78,18 @@ class OrtRuntimeAdapter implements RuntimeAdapter {
   constructor(
     private readonly manifest: PluginManifest,
     private readonly asrClient: AsrClient,
-    private readonly modelsDir: string,
     private readonly ortDir: string,
+    private readonly appDataDir: string,
   ) {}
 
   async init(): Promise<void> {
-    await this.asrClient.load(this.modelsDir, this.ortDir);
+    const vocabPath = this.manifest.metadata?.vocabPath as string;
+    const modelUrl = resolveAssetUrl(
+      this.manifest.entrypointPath,
+      this.appDataDir,
+    );
+    const vocabUrl = resolveAssetUrl(vocabPath, this.appDataDir);
+    await this.asrClient.load(modelUrl, vocabUrl, this.ortDir);
   }
 
   async health(): Promise<RuntimeHealth> {

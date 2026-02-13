@@ -17,6 +17,7 @@ const BUILTIN_ORT_ASR_PLUGIN_ID: &str = "builtin.asr.ort.medasr";
 const CAP_ASR_STREAM: &str = "asr.stream";
 const CAP_LLM_TRANSFORM_CORRECT: &str = "llm.transform.correct";
 const CAP_LLM_TRANSFORM_SOAP: &str = "llm.transform.soap";
+const ASR_ORT_PACKAGE_SCHEMA: &str = "dr-toru.asr.ort-package.v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -129,6 +130,15 @@ struct RunningLlamafile {
 pub struct PluginImportRequest {
     pub source_path: String,
     pub display_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AsrOrtImportPackage {
+    schema: Option<String>,
+    name: Option<String>,
+    model_path: String,
+    vocab_path: String,
 }
 
 #[derive(Debug, Clone)]
@@ -349,6 +359,13 @@ fn validate_manifest(manifest: &PluginManifest) -> Result<(), String> {
             if !manifest.capabilities.iter().any(|item| item == CAP_ASR_STREAM) {
                 return Err("asr plugins must include asr.stream".to_string());
             }
+            if parse_string_field(&manifest.metadata, "vocabPath")
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .is_none()
+            {
+                return Err("asr plugins must include metadata.vocabPath".to_string());
+            }
         }
         PluginKind::Llm => {
             if manifest.runtime != PluginRuntime::Llamafile {
@@ -427,6 +444,15 @@ fn sanitize_registry(mut state: PluginRegistryState) -> Result<PluginRegistrySta
         plugins: valid_plugins,
         active_providers: state.active_providers,
     })
+}
+
+fn auto_activate_vacant(state: &mut PluginRegistryState, manifest: &PluginManifest) {
+    if state.active_providers.asr.is_none() && supports_role(manifest, ProviderRole::Asr) {
+        state.active_providers.asr = Some(manifest.plugin_id.clone());
+    }
+    if state.active_providers.transform.is_none() && supports_role(manifest, ProviderRole::Transform) {
+        state.active_providers.transform = Some(manifest.plugin_id.clone());
+    }
 }
 
 fn resolve_plugin<'a>(state: &'a PluginRegistryState, plugin_id: &str) -> Option<&'a PluginManifest> {
@@ -694,6 +720,99 @@ fn file_sha256(path: &Path) -> Result<String, String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+fn copy_imported_asset(
+    app: &AppHandle,
+    plugin_id: &str,
+    source: &Path,
+) -> Result<(String, String, u64), String> {
+    let file_name = source
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| format!("Invalid source file name: {}", source.display()))?;
+
+    let relative_path = format!("plugins/assets/{plugin_id}/{file_name}");
+    let app_data_dir = app.path().app_data_dir().map_err(err_to_string)?;
+    let destination = app_data_dir.join(&relative_path);
+    let Some(parent) = destination.parent() else {
+        return Err("Invalid destination path".to_string());
+    };
+    fs::create_dir_all(parent).map_err(err_to_string)?;
+    fs::copy(source, &destination).map_err(err_to_string)?;
+
+    let hash = file_sha256(&destination)?;
+    let size_bytes = fs::metadata(&destination).map_err(err_to_string)?.len();
+    Ok((relative_path, hash, size_bytes))
+}
+
+fn onnx_vocab_candidate_names(stem: &str) -> Vec<String> {
+    vec![
+        format!("{stem}_vocab.json"),
+        format!("{stem}.vocab.json"),
+        "vocab.json".to_string(),
+    ]
+}
+
+fn find_onnx_vocab_path(source: &Path) -> Option<PathBuf> {
+    let stem = source.file_stem().and_then(|value| value.to_str())?;
+    let parent = source.parent()?;
+    onnx_vocab_candidate_names(stem)
+        .into_iter()
+        .map(|name| parent.join(name))
+        .find(|candidate| candidate.exists() && candidate.is_file())
+}
+
+fn resolve_package_asset_path(package_file: &Path, value: &str) -> Result<PathBuf, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err("Package asset path cannot be empty".to_string());
+    }
+
+    let candidate = PathBuf::from(trimmed);
+    let resolved = if candidate.is_absolute() {
+        candidate
+    } else {
+        let Some(base_dir) = package_file.parent() else {
+            return Err("Package file has no parent directory".to_string());
+        };
+        base_dir.join(candidate)
+    };
+
+    if !resolved.exists() || !resolved.is_file() {
+        return Err(format!("Package asset not found: {}", resolved.display()));
+    }
+    Ok(resolved)
+}
+
+fn load_asr_ort_package(source: &Path) -> Result<(Option<String>, PathBuf, PathBuf), String> {
+    let raw = fs::read_to_string(source).map_err(err_to_string)?;
+    let package: AsrOrtImportPackage = serde_json::from_str(&raw).map_err(err_to_string)?;
+
+    if let Some(schema) = package.schema.as_ref() {
+        if schema != ASR_ORT_PACKAGE_SCHEMA {
+            return Err(format!(
+                "Unsupported ASR package schema: {schema} (expected {ASR_ORT_PACKAGE_SCHEMA})"
+            ));
+        }
+    }
+
+    let model_path = resolve_package_asset_path(source, &package.model_path)?;
+    let model_ext = model_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .ok_or_else(|| "Package modelPath must reference a .onnx file".to_string())?;
+    if model_ext != "onnx" {
+        return Err("Package modelPath must reference a .onnx file".to_string());
+    }
+    let vocab_path = resolve_package_asset_path(source, &package.vocab_path)?;
+
+    Ok((
+        package.name.filter(|value| !value.trim().is_empty()),
+        model_path,
+        vocab_path,
+    ))
+}
+
 fn imported_plugin_manifest(
     app: &AppHandle,
     request: &PluginImportRequest,
@@ -712,53 +831,76 @@ fn imported_plugin_manifest(
         .map(|value| value.to_ascii_lowercase())
         .ok_or_else(|| "Imported file must have a valid extension".to_string())?;
 
-    let (kind, runtime, capabilities, prefix) = if extension == "llamafile" {
-        (
-            PluginKind::Llm,
-            PluginRuntime::Llamafile,
-            vec![
-                CAP_LLM_TRANSFORM_CORRECT.to_string(),
-                CAP_LLM_TRANSFORM_SOAP.to_string(),
-            ],
-            "import.llm",
-        )
-    } else if extension == "onnx" {
-        (
-            PluginKind::Asr,
-            PluginRuntime::Ort,
-            vec![CAP_ASR_STREAM.to_string()],
-            "import.asr",
-        )
-    } else {
-        return Err("Only .llamafile and .onnx imports are supported".to_string());
-    };
-
-    let stem = source
+    let source_stem = source
         .file_stem()
         .and_then(|value| value.to_str())
-        .unwrap_or("model");
-    let slug = sanitize_slug(stem);
+        .unwrap_or("model")
+        .to_string();
+
+    let mut kind = PluginKind::Asr;
+    let mut runtime = PluginRuntime::Ort;
+    let mut capabilities = vec![CAP_ASR_STREAM.to_string()];
+    let mut prefix = "import.asr";
+    let mut display_name_fallback = source_stem.clone();
+    let mut entrypoint_source = source.clone();
+    let mut vocab_source: Option<PathBuf> = None;
+    let mut metadata = None;
+
+    if extension == "llamafile" {
+        kind = PluginKind::Llm;
+        runtime = PluginRuntime::Llamafile;
+        capabilities = vec![
+            CAP_LLM_TRANSFORM_CORRECT.to_string(),
+            CAP_LLM_TRANSFORM_SOAP.to_string(),
+        ];
+        prefix = "import.llm";
+        metadata = Some(json!({
+            "serviceStartArgs": ["--server", "--port", "{port}", "--nobrowser"],
+            "serviceHealthPath": "/health",
+            "serviceCompletionPath": "/completion"
+        }));
+    } else if extension == "onnx" {
+        let Some(found_vocab) = find_onnx_vocab_path(&source) else {
+            let expected = onnx_vocab_candidate_names(&source_stem).join(", ");
+            return Err(format!(
+                "Missing vocab file for ONNX import. Expected one of: {expected}"
+            ));
+        };
+        vocab_source = Some(found_vocab);
+    } else if extension == "asrpkg" {
+        let (package_name, model_path, package_vocab_path) = load_asr_ort_package(&source)?;
+        entrypoint_source = model_path;
+        vocab_source = Some(package_vocab_path);
+        if let Some(name) = package_name {
+            display_name_fallback = name;
+        } else if let Some(stem) = entrypoint_source.file_stem().and_then(|value| value.to_str()) {
+            display_name_fallback = stem.to_string();
+        }
+    } else {
+        return Err("Only .llamafile, .onnx, and .asrpkg imports are supported".to_string());
+    }
+
+    let slug = sanitize_slug(&source_stem);
     let slug = if slug.is_empty() {
         "model".to_string()
     } else {
         slug
     };
     let plugin_id = format!("{prefix}.{}.{}", slug, now_suffix());
-    let file_name = source
-        .file_name()
-        .and_then(|value| value.to_str())
-        .ok_or_else(|| "Invalid source file name".to_string())?;
+    let (relative_entrypoint, file_hash, entrypoint_size_bytes) =
+        copy_imported_asset(app, &plugin_id, &entrypoint_source)?;
 
-    let relative_entrypoint = format!("plugins/assets/{plugin_id}/{file_name}");
-    let app_data_dir = app.path().app_data_dir().map_err(err_to_string)?;
-    let destination = app_data_dir.join(&relative_entrypoint);
-    let Some(parent) = destination.parent() else {
-        return Err("Invalid destination path".to_string());
-    };
-    fs::create_dir_all(parent).map_err(err_to_string)?;
-    fs::copy(&source, &destination).map_err(err_to_string)?;
+    if kind == PluginKind::Asr {
+        let vocab = vocab_source
+            .as_ref()
+            .ok_or_else(|| "ASR import requires a vocab file".to_string())?;
+        let (relative_vocab_path, vocab_hash, _) = copy_imported_asset(app, &plugin_id, vocab)?;
+        metadata = Some(json!({
+            "vocabPath": relative_vocab_path,
+            "vocabSha256": vocab_hash
+        }));
+    }
 
-    let file_hash = file_sha256(&destination)?;
     let installed_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -771,7 +913,7 @@ fn imported_plugin_manifest(
             .display_name
             .clone()
             .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| stem.to_string()),
+            .unwrap_or(display_name_fallback),
         version: "1.0.0".to_string(),
         kind,
         runtime,
@@ -779,18 +921,10 @@ fn imported_plugin_manifest(
         sha256: file_hash,
         capabilities,
         model_family: None,
-        size_bytes: Some(fs::metadata(&destination).map_err(err_to_string)?.len()),
+        size_bytes: Some(entrypoint_size_bytes),
         license: None,
         installed_at: Some(installed_at),
-        metadata: if extension == "llamafile" {
-            Some(json!({
-                "serviceStartArgs": ["--server", "--port", "{port}", "--nobrowser"],
-                "serviceHealthPath": "/health",
-                "serviceCompletionPath": "/completion"
-            }))
-        } else {
-            None
-        },
+        metadata,
     })
 }
 
@@ -875,13 +1009,7 @@ pub fn plugin_import_from_path(
     }
 
     state.plugins.push(manifest.clone());
-    if state.active_providers.asr.is_none() && supports_role(&manifest, ProviderRole::Asr) {
-        state.active_providers.asr = Some(manifest.plugin_id.clone());
-    }
-    if state.active_providers.transform.is_none() && supports_role(&manifest, ProviderRole::Transform)
-    {
-        state.active_providers.transform = Some(manifest.plugin_id.clone());
-    }
+    auto_activate_vacant(&mut state, &manifest);
 
     save_registry(&paths, &state)?;
     Ok(manifest)
@@ -904,13 +1032,7 @@ pub fn plugin_registry_add(app: AppHandle, manifest: PluginManifest) -> Result<(
     }
 
     state.plugins.push(manifest.clone());
-    if state.active_providers.asr.is_none() && supports_role(&manifest, ProviderRole::Asr) {
-        state.active_providers.asr = Some(manifest.plugin_id.clone());
-    }
-
-    if state.active_providers.transform.is_none() && supports_role(&manifest, ProviderRole::Transform) {
-        state.active_providers.transform = Some(manifest.plugin_id.clone());
-    }
+    auto_activate_vacant(&mut state, &manifest);
 
     save_registry(&paths, &state)
 }

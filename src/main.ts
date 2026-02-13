@@ -32,7 +32,6 @@ const capture = new AudioCapture({
   stepSamples: CHUNK_STEP_SAMPLES,
 });
 const appBase = new URL("./", window.location.href);
-const modelsDir = new URL("models/", appBase).href;
 const ortDir = new URL("ort/", appBase).href;
 
 let pluginPlatform: PluginPlatform;
@@ -142,7 +141,6 @@ window.addEventListener("DOMContentLoaded", () => {
 
   pluginPlatform = createPluginPlatform({
     workerUrl: new URL("./asr.worker.ts", import.meta.url),
-    modelsDir,
     ortDir,
     asrEvents: {
       onStatus: (message) => setStatus(message),
@@ -150,9 +148,8 @@ window.addEventListener("DOMContentLoaded", () => {
     },
   });
 
-  void initializePlugins();
+  void initializePlugins().then(() => loadModel());
   void initializeStorage();
-  void loadModel();
 });
 
 function isRoute(value: string | undefined): value is RouteName {
@@ -278,14 +275,6 @@ async function initializeStorage(): Promise<void> {
 async function initializePlugins(): Promise<void> {
   pluginState = await pluginPlatform.init();
   renderPluginStatus();
-  if (pluginState.features.transcription) {
-    if (!pluginPlatform.isAsrReady()) {
-      loadBtn.disabled = false;
-    }
-  } else {
-    loadBtn.disabled = true;
-    recordBtn.disabled = true;
-  }
   if (pluginState.error) {
     setStatus(`Plugin init failed: ${pluginState.error}`);
   }
@@ -340,6 +329,9 @@ async function importPlugin(): Promise<void> {
     });
     setStatus(`Imported plugin: ${imported.name}`);
     await initializePlugins();
+    if (pluginState?.features.transcription && !pluginPlatform.isAsrReady()) {
+      void loadModel();
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setStatus(`Import failed: ${message}`);
@@ -442,10 +434,10 @@ async function loadModel(): Promise<void> {
     return;
   }
 
-  pluginState = await pluginPlatform.status();
-  renderPluginStatus();
-  if (!pluginState.features.transcription) {
-    setStatus("No ASR provider available. Import one in Settings.");
+  if (!pluginState?.features.transcription) {
+    if (!pluginState?.error) {
+      setStatus("No ASR provider available. Import one in Settings.");
+    }
     recordBtn.disabled = true;
     loadBtn.disabled = true;
     maybeExitSplash();
