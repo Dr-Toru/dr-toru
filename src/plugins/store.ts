@@ -145,6 +145,18 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
       throw new Error(`Plugin already exists: ${manifest.pluginId}`);
     }
     this.state.plugins.push({ ...manifest });
+    if (
+      this.state.activeProviders.asr === null &&
+      canProvideRole(manifest, "asr")
+    ) {
+      this.state.activeProviders.asr = manifest.pluginId;
+    }
+    if (
+      this.state.activeProviders.transform === null &&
+      canProvideRole(manifest, "transform")
+    ) {
+      this.state.activeProviders.transform = manifest.pluginId;
+    }
   }
 
   async importFromPath(request: PluginImportRequest): Promise<PluginManifest> {
@@ -195,7 +207,7 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
       (plugin) => plugin.pluginId !== pluginId,
     );
     if (this.state.activeProviders.asr === pluginId) {
-      this.state.activeProviders.asr = BUILTIN_ORT_ASR_PLUGIN.pluginId;
+      this.state.activeProviders.asr = null;
     }
     if (this.state.activeProviders.transform === pluginId) {
       this.state.activeProviders.transform = null;
@@ -210,10 +222,6 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
     role: ProviderRole,
     pluginId: string | null,
   ): Promise<void> {
-    if (role === "asr" && pluginId === null) {
-      throw new Error("role=asr requires a non-null pluginId");
-    }
-
     if (pluginId === null) {
       this.state.activeProviders[role] = null;
       return;
@@ -227,11 +235,6 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
     }
     if (!canProvideRole(plugin, role)) {
       throw new Error(`Plugin ${pluginId} cannot be active for role ${role}`);
-    }
-    if (role === "asr" && pluginId !== BUILTIN_ORT_ASR_PLUGIN.pluginId) {
-      throw new Error(
-        "Activating imported ONNX ASR providers is not supported yet",
-      );
     }
     this.state.activeProviders[role] = pluginId;
   }
