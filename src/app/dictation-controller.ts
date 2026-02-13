@@ -64,7 +64,6 @@ export class DictationController {
     try {
       if (!this.options.pluginPlatform.isAsrReady()) {
         this.options.onStatus("Model still loading in background...");
-        void this.loadModel();
         return false;
       }
 

@@ -162,8 +162,18 @@ function getMetadataString(
 }
 
 function resolveAssetUrl(path: string, assetBaseUrl: string): string {
-  if (/^[a-z][a-z0-9+.-]*:/i.test(path)) {
-    return path;
+  const trimmed = path.trim();
+  if (!trimmed) {
+    throw new Error("Asset path is required");
   }
-  return new URL(path, assetBaseUrl).href;
+
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/(^|[\\/])\.\.([\\/]|$)/.test(trimmed)) {
+    throw new Error(`Asset path cannot contain '..': ${path}`);
+  }
+
+  return new URL(trimmed, assetBaseUrl).href;
 }

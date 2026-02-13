@@ -141,7 +141,7 @@ window.addEventListener("DOMContentLoaded", () => {
       onStatus: (message) => setStatus(message),
       onCrash: (message) => {
         dictation.handleAsrCrash(message);
-        handleAsrCrash();
+        resetCrashUi();
       },
     },
   });
@@ -428,7 +428,7 @@ function setStatus(message: string): void {
   statusEl.textContent = `Status: ${message}`;
 }
 
-function handleAsrCrash(): void {
+function resetCrashUi(): void {
   maybeExitSplash();
   loadBtn.disabled = false;
   recordBtn.disabled = true;
@@ -437,15 +437,26 @@ function handleAsrCrash(): void {
 
 async function loadModel(): Promise<void> {
   loadBtn.disabled = true;
-  const loaded = await dictation.loadModel();
-  pluginState = await pluginPlatform.status();
-  renderPluginStatus();
-  recordBtn.disabled = !dictation.isAsrReady();
-  loadBtn.disabled = loaded && dictation.isAsrReady();
-  maybeExitSplash();
+  try {
+    await dictation.loadModel();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus(`Load failed: ${message}`);
+  } finally {
+    pluginState = await pluginPlatform.status();
+    renderPluginStatus();
+    recordBtn.disabled = !dictation.isAsrReady();
+    loadBtn.disabled = dictation.isAsrReady();
+    maybeExitSplash();
+  }
 }
 
 async function toggleRecording(): Promise<void> {
+  if (!dictation.isAsrReady()) {
+    void loadModel();
+    return;
+  }
+
   recordBtn.disabled = true;
   await dictation.toggleRecording();
   recordBtn.disabled = !dictation.isAsrReady();
