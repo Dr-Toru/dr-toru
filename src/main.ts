@@ -457,8 +457,11 @@ async function toggleRecording(): Promise<void> {
   }
 
   recordBtn.disabled = true;
-  await dictation.toggleRecording();
-  recordBtn.disabled = !dictation.isAsrReady();
+  try {
+    await dictation.toggleRecording();
+  } finally {
+    recordBtn.disabled = !dictation.isAsrReady();
+  }
 }
 
 function syncRecordingUi(recording: boolean): void {
