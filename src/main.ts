@@ -370,8 +370,8 @@ function mergeChunkText(currentText: string, nextText: string): string {
   const currentWords = currentText.split(/\s+/);
   const nextWords = next.split(/\s+/);
   const maxOverlap = Math.min(currentWords.length, nextWords.length, 20);
-  let overlapCount = 0;
 
+  // 1. Try exact word-level overlap matching
   for (let size = maxOverlap; size > 0; size -= 1) {
     let match = true;
     for (let idx = 0; idx < size; idx += 1) {
@@ -384,12 +384,28 @@ function mergeChunkText(currentText: string, nextText: string): string {
     }
 
     if (match) {
-      overlapCount = size;
-      break;
+      const suffix = nextWords.slice(size).join(" ");
+      return suffix ? `${currentText} ${suffix}` : currentText;
     }
   }
 
-  const suffix = nextWords.slice(overlapCount).join(" ");
+  // 2. Character-level suffix-prefix matching (catches partial-word overlaps)
+  const tailLen = 60;
+  const normTail = currentText.slice(-tailLen).toLowerCase();
+  const normHead = next.slice(0, tailLen).toLowerCase();
+  const maxCharOverlap = Math.min(normTail.length, normHead.length);
+
+  for (let len = maxCharOverlap; len >= 4; len -= 1) {
+    if (normTail.endsWith(normHead.slice(0, len))) {
+      return currentText + next.slice(len);
+    }
+  }
+
+  // 3. Estimate overlap words and skip them from the new chunk
+  //    ~2.5 words/sec average speaking rate × stride duration
+  const estimatedOverlapWords = Math.ceil(STRIDE_SECS * 2.5);
+  const skipCount = Math.min(estimatedOverlapWords, Math.floor(nextWords.length / 3));
+  const suffix = nextWords.slice(skipCount).join(" ");
   return suffix ? `${currentText} ${suffix}` : currentText;
 }
 
