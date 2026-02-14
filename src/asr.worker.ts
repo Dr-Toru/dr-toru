@@ -32,7 +32,6 @@ const N_MELS = 128;
 const MEL_LOWER = 125;
 const MEL_UPPER = 7500;
 const MODEL_CACHE_NAME = "asr-model-cache-v1";
-const LM_FILE = "lm_6.kenlm";
 const LM_MEMFS_PATH = "/lm.kenlm";
 
 // Beam search configuration
@@ -112,10 +111,9 @@ async function loadModel(message: LoadRequest): Promise<void> {
     });
 
     // Load KenLM language model (optional — graceful fallback to greedy)
-    const modelsBase = message.modelUrl.replace(/[^/]+$/, "");
-    const kenlmDir = message.kenlmDir ?? new URL("../kenlm/", modelsBase).href;
-    const lmUrl = message.lmUrl ?? `${modelsBase}${LM_FILE}`;
-    await loadKenLM(kenlmDir, lmUrl);
+    if (message.lmUrl && message.kenlmDir) {
+      await loadKenLM(message.kenlmDir, message.lmUrl);
+    }
 
     send({ type: "load-success" });
   })()
