@@ -31,7 +31,9 @@ export class NoopSessionStore implements SessionStore {
         artifactCount: session.artifacts.length,
       });
     }
-    return items.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    return items.sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt),
+    );
   }
 
   async getSession(sessionId: string): Promise<SessionRecord | null> {
@@ -42,7 +44,9 @@ export class NoopSessionStore implements SessionStore {
     this.sessions.set(session.sessionId, session);
   }
 
-  async writeArtifactText(input: WriteArtifactTextInput): Promise<WriteArtifactTextResult> {
+  async writeArtifactText(
+    input: WriteArtifactTextInput,
+  ): Promise<WriteArtifactTextResult> {
     return {
       path: `sessions/${input.sessionId}/artifacts/${input.artifactId}.${input.extension}`,
       sizeBytes: input.text.length,

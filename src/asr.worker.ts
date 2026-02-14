@@ -21,7 +21,8 @@ interface FeatureTensor {
   shape: [number, number, number];
 }
 
-const workerScope: DedicatedWorkerGlobalScope = self as DedicatedWorkerGlobalScope;
+const workerScope: DedicatedWorkerGlobalScope =
+  self as DedicatedWorkerGlobalScope;
 
 const SAMPLE_RATE = 16000;
 const FRAME_LEN = 400;
@@ -31,8 +32,6 @@ const N_MELS = 128;
 const MEL_LOWER = 125;
 const MEL_UPPER = 7500;
 const MODEL_CACHE_NAME = "asr-model-cache-v1";
-const MODEL_FILE = "medasr_lasr_ctc.onnx";
-const VOCAB_FILE = "medasr_lasr_vocab.json";
 const LM_FILE = "lm_6.kenlm";
 const LM_MEMFS_PATH = "/lm.kenlm";
 
@@ -84,18 +83,22 @@ async function loadModel(message: LoadRequest): Promise<void> {
     ort.env.wasm.wasmPaths = message.ortDir;
     ort.env.wasm.numThreads = 2;
 
-    const vocabUrl = `${message.modelsDir}${VOCAB_FILE}`;
-    const vocabResult = await loadJsonWithCache<MedasrVocab>(vocabUrl, "vocab");
+    const vocabResult = await loadJsonWithCache<MedasrVocab>(
+      message.vocabUrl,
+      "vocab",
+    );
     vocab = vocabResult.data;
 
-    const modelUrl = `${message.modelsDir}${MODEL_FILE}`;
     send({
       type: "status",
       message: vocabResult.fromCache
         ? "Loaded cached vocab. Loading ONNX model..."
         : "Vocab fetched. Loading ONNX model...",
     });
-    const modelResult = await loadBinaryWithCache(modelUrl, "ONNX model");
+    const modelResult = await loadBinaryWithCache(
+      message.modelUrl,
+      "ONNX model",
+    );
 
     send({
       type: "status",
@@ -109,8 +112,10 @@ async function loadModel(message: LoadRequest): Promise<void> {
     });
 
     // Load KenLM language model (optional — graceful fallback to greedy)
-    const kenlmDir = message.kenlmDir ?? new URL("kenlm/", message.modelsDir.replace(/models\/$/, "")).href;
-    await loadKenLM(kenlmDir, message.modelsDir);
+    const modelsBase = message.modelUrl.replace(/[^/]+$/, "");
+    const kenlmDir = message.kenlmDir ?? new URL("../kenlm/", modelsBase).href;
+    const lmUrl = message.lmUrl ?? `${modelsBase}${LM_FILE}`;
+    await loadKenLM(kenlmDir, lmUrl);
 
     send({ type: "load-success" });
   })()
@@ -159,7 +164,10 @@ interface CacheFetchResult {
   fromCache: boolean;
 }
 
-async function fetchWithCache(url: string, label: string): Promise<CacheFetchResult> {
+async function fetchWithCache(
+  url: string,
+  label: string,
+): Promise<CacheFetchResult> {
   const fetchFromNetwork = async (): Promise<CacheFetchResult> => ({
     response: await fetchRequired(url, label),
     fromCache: false,
@@ -192,7 +200,7 @@ async function fetchRequired(url: string, label: string): Promise<Response> {
   return response;
 }
 
-async function loadKenLM(kenlmDir: string, modelsDir: string): Promise<void> {
+async function loadKenLM(kenlmDir: string, lmUrl: string): Promise<void> {
   try {
     send({ type: "status", message: "Loading language model..." });
 
@@ -203,7 +211,7 @@ async function loadKenLM(kenlmDir: string, modelsDir: string): Promise<void> {
     const mod = await factory.default();
 
     // Load the .kenlm binary into MEMFS
-    const lmResult = await loadBinaryWithCache(`${modelsDir}${LM_FILE}`, "KenLM model");
+    const lmResult = await loadBinaryWithCache(lmUrl, "KenLM model");
     mod.FS.writeFile(LM_MEMFS_PATH, lmResult.data);
 
     // Allocate a C string for the path and call kenlm_load
@@ -255,7 +263,11 @@ async function transcribe(message: TranscribeRequest): Promise<void> {
 
   try {
     const features = extractMelFeatures(message.samples);
-    const inputTensor = new ort.Tensor("float32", features.data, features.shape);
+    const inputTensor = new ort.Tensor(
+      "float32",
+      features.data,
+      features.shape,
+    );
     const maskTensor = new ort.Tensor(
       "bool",
       new Uint8Array(features.shape[1]).fill(1),

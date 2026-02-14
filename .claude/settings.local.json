@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": ["Bash(pnpm check:*)"]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "output=$(pnpm check:fix 2>&1) || { printf '{\"decision\":\"block\",\"reason\":\"check:fix failed:\\n%s\"}' \"$output\"; exit 0; }"
+          }
+        ]
+      }
+    ]
+  }
+}

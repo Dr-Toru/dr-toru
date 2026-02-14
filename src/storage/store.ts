@@ -24,5 +24,7 @@ export interface SessionStore {
   listSessions(): Promise<SessionSummary[]>;
   getSession(sessionId: string): Promise<SessionRecord | null>;
   saveSession(session: SessionRecord): Promise<void>;
-  writeArtifactText(input: WriteArtifactTextInput): Promise<WriteArtifactTextResult>;
+  writeArtifactText(
+    input: WriteArtifactTextInput,
+  ): Promise<WriteArtifactTextResult>;
 }

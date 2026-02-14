@@ -5,8 +5,14 @@ export const SESSION_FORMAT = 1 as const;
 export type ArtifactRole = "source" | "derived";
 export type ArtifactCreator = "asr" | "transform" | "user" | "system";
 export type ArtifactMetaValue = string | number | boolean | null;
-export type ArtifactKind = "transcript_raw" | "transcript_corrected" | "audio_capture";
-export type TextArtifactKind = Extract<ArtifactKind, "transcript_raw" | "transcript_corrected">;
+export type ArtifactKind =
+  | "transcript_raw"
+  | "transcript_corrected"
+  | "audio_capture";
+export type TextArtifactKind = Extract<
+  ArtifactKind,
+  "transcript_raw" | "transcript_corrected"
+>;
 
 export interface ArtifactRecord {
   artifactId: string;
@@ -65,7 +71,9 @@ export function createSession(input: NewSessionInput = {}): SessionRecord {
   };
 }
 
-export function createTextArtifact(input: NewTextArtifactInput): ArtifactRecord {
+export function createTextArtifact(
+  input: NewTextArtifactInput,
+): ArtifactRecord {
   return {
     artifactId: input.artifactId ?? createUlid(),
     kind: input.kind,

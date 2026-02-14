@@ -29,7 +29,11 @@ export class TauriSessionStore implements SessionStore {
     return invoke<void>("storage_save_session", { session });
   }
 
-  writeArtifactText(input: WriteArtifactTextInput): Promise<WriteArtifactTextResult> {
-    return invoke<WriteArtifactTextResult>("storage_write_artifact_text", { request: input });
+  writeArtifactText(
+    input: WriteArtifactTextInput,
+  ): Promise<WriteArtifactTextResult> {
+    return invoke<WriteArtifactTextResult>("storage_write_artifact_text", {
+      request: input,
+    });
   }
 }

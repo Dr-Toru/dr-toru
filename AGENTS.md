@@ -3,24 +3,35 @@
 Dr. Toru is a local-first medical dictation app built with Tauri. The app uses medical ASR for baseline transcription and an optional local LLM pass for various text transforms.
 
 # Stack
+
 - Frontend: Vite + TypeScript (`/src`)
 - Desktop shell: Tauri (`/src-tauri`)
 - ASR runtime: `onnxruntime-web` with local model assets
 
 # Key Architecture
+
 - `/src/main.ts`
-  - Owns UI state, mic capture, chunking, and queueing.
-  - Should stay lightweight and responsive.
+  - Owns DOM wiring, routes, and UI state updates.
+  - Should stay thin. Dictation orchestration should live outside this file.
+- `/src/app/dictation-controller.ts`
+  - Owns mic session flow, ASR queue orchestration, chunk processing, and transcript merge behavior.
+- `/src/app/session-bundles.ts`
+  - Persists completed transcript sessions as bundle artifacts.
+  - Session bundles are the atomic transcript unit.
 - `/src/asr.worker.ts`
-  - Owns model loading, feature extraction, inference, and decode.
+  - Owns ORT model loading, feature extraction, inference, and decode.
   - Heavy compute belongs here, not on main thread.
 - `/src/asr-messages.ts`
   - Single source of truth for main-thread and worker message contracts.
   - Do not duplicate message types elsewhere.
-- `/public/models` and `/public/ort`
-  - Bundled ASR model + ORT wasm assets.
+- `/src/plugins`
+  - Owns plugin manifests, provider selection, and runtime adapter boundary.
+  - ASR runtime should resolve model and vocab assets from plugin manifests.
+- `/src/storage` and `/src-tauri/src/storage.rs`
+  - Owns session bundle persistence contracts and filesystem writes.
 
 # GitHub Issues Cheatsheet (requires sandbox escalation)
+
 - Find ready issues:
   - `gh issue list --search "status:ready [query]"`
 - Read issue:

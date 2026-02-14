@@ -163,6 +163,12 @@ button {
   color: #111827;
 }
 
+textarea.transcript {
+  width: 100%;
+  font: inherit;
+  resize: vertical;
+}
+
 .placeholder {
   margin: 10px 0 0;
   color: #4b5563;

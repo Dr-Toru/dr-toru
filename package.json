@@ -7,16 +7,27 @@
     "dev": "kill -9 $(lsof -ti :1420) 2>/dev/null; sleep 0.5; vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "check": "tsc --noEmit && eslint . && prettier --check .",
+    "check:fix": "tsc --noEmit && eslint --fix . && prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
     "@tauri-apps/plugin-opener": "^2",
     "onnxruntime-web": "^1.24.1"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@tauri-apps/cli": "^2",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.1",
     "typescript": "~5.6.2",
-    "vite": "^6.0.3"
+    "typescript-eslint": "^8.55.0",
+    "vite": "^6.0.3",
+    "vitest": "^4.0.18"
   }
 }

@@ -1,6 +1,13 @@
-import { AsrClient } from "./asr/client";
-import { AudioCapture, isSilent } from "./audio/capture";
-import { asrQueue } from "./runtime/queues";
+import { AudioCapture } from "./audio/capture";
+import { DictationController } from "./app/dictation-controller";
+import { SessionBundleService } from "./app/session-bundles";
+import {
+  createPluginPlatform,
+  formatPluginSummary,
+  formatTransformStatus,
+  type PluginPlatform,
+  type PluginPlatformState,
+} from "./plugins";
 import { getSessionStore } from "./storage";
 
 const ROUTES = ["transcription", "list", "settings"] as const;
@@ -26,18 +33,25 @@ const capture = new AudioCapture({
   stepSamples: CHUNK_STEP_SAMPLES,
 });
 const appBase = new URL("./", window.location.href);
-const modelsDir = new URL("models/", appBase).href;
 const ortDir = new URL("ort/", appBase).href;
 
-let asr: AsrClient;
-let isRecording = false;
-let toggling = false;
+let pluginPlatform: PluginPlatform;
+let pluginState: PluginPlatformState | null = null;
+let dictation: DictationController;
+let sessionBundles: SessionBundleService;
 
 let statusEl: HTMLElement;
 let transcriptEl: HTMLElement;
+let pluginSummaryEl: HTMLElement;
+let transformServiceStatusEl: HTMLElement;
+let transformOutputEl: HTMLElement;
 let loadBtn: HTMLButtonElement;
 let recordBtn: HTMLButtonElement;
 let settingsBtn: HTMLButtonElement;
+let importPluginBtn: HTMLButtonElement;
+let toggleTransformBtn: HTMLButtonElement;
+let runTransformBtn: HTMLButtonElement;
+let transformInputEl: HTMLTextAreaElement;
 let navBtns: HTMLButtonElement[] = [];
 let currentRoute: RouteName | null = null;
 let screenEls: Record<RouteName, HTMLElement>;
@@ -45,32 +59,28 @@ let lastMainRoute: TabRoute = DEFAULT_ROUTE;
 let splashEl: HTMLElement;
 let splashHideTimer: number | null = null;
 
-let chunkIdx = 0;
-let transcriptText = "";
-let metricChunkId = 0;
-let silentChunkSkips = 0;
-
 window.addEventListener("DOMContentLoaded", () => {
   statusEl = mustEl("status");
   transcriptEl = mustEl("transcript");
+  pluginSummaryEl = mustEl("pluginSummary");
+  transformServiceStatusEl = mustEl("transformServiceStatus");
+  transformOutputEl = mustEl("transformOutput");
   loadBtn = mustBtn("loadBtn");
   recordBtn = mustBtn("recordBtn");
   settingsBtn = mustBtn("settingsBtn");
+  importPluginBtn = mustBtn("importPluginBtn");
+  toggleTransformBtn = mustBtn("toggleTransformBtn");
+  runTransformBtn = mustBtn("runTransformBtn");
+  transformInputEl = mustTextarea("transformInput");
   splashEl = mustEl("screen-splash");
-
-  asr = new AsrClient(
-    new URL("./asr.worker.ts", import.meta.url),
-    {
-      onStatus: (message) => setStatus(message),
-      onCrash: (message) => handleAsrCrash(message),
-    },
-  );
   screenEls = {
     transcription: mustEl("screen-transcription"),
     list: mustEl("screen-list"),
     settings: mustEl("screen-settings"),
   };
-  navBtns = Array.from(document.querySelectorAll<HTMLButtonElement>(".nav-btn[data-route]"));
+  navBtns = Array.from(
+    document.querySelectorAll<HTMLButtonElement>(".nav-btn[data-route]"),
+  );
 
   for (const navBtn of navBtns) {
     navBtn.addEventListener("click", () => {
@@ -109,15 +119,54 @@ window.addEventListener("DOMContentLoaded", () => {
   recordBtn.addEventListener("click", () => {
     void toggleRecording();
   });
+  importPluginBtn.addEventListener("click", () => {
+    void importPlugin();
+  });
+  toggleTransformBtn.addEventListener("click", () => {
+    void toggleTransformService();
+  });
+  runTransformBtn.addEventListener("click", () => {
+    void runTransformTest();
+  });
 
   window.addEventListener("beforeunload", () => {
     clearSplashHideTimer();
-    void capture.stop();
-    asr.terminate();
+    void dictation.shutdown();
+    void pluginPlatform.shutdown();
   });
 
+  pluginPlatform = createPluginPlatform({
+    workerUrl: new URL("./asr.worker.ts", import.meta.url),
+    ortDir,
+    appOrigin: appBase.href,
+    asrEvents: {
+      onStatus: (message) => setStatus(message),
+      onCrash: (message) => {
+        dictation.handleAsrCrash(message);
+        resetCrashUi();
+      },
+    },
+  });
+  dictation = new DictationController({
+    pluginPlatform,
+    capture,
+    sampleRate: SAMPLE_RATE,
+    chunkSecs: CHUNK_SECS,
+    strideSecs: STRIDE_SECS,
+    silenceRms: SILENCE_RMS,
+    silencePeak: SILENCE_PEAK,
+    debugMetrics: DEBUG_METRICS,
+    onStatus: (message) => setStatus(message),
+    onTranscript: (text) => {
+      transcriptEl.textContent = text;
+    },
+    onRecordingChange: (recording) => syncRecordingUi(recording),
+    onSessionComplete: (transcript) => persistTranscriptBundle(transcript),
+  });
+  sessionBundles = new SessionBundleService(getSessionStore());
+
+  void initializePlugins().then(() => loadModel());
   void initializeStorage();
-  void loadModel();
 });
 
 function isRoute(value: string | undefined): value is RouteName {
@@ -138,8 +187,7 @@ function routeFromHash(hash: string): RouteName {
 }
 
 function setRoute(route: RouteName, syncHash: boolean): void {
-  const changed = route !== currentRoute;
-  if (!changed) {
+  if (route === currentRoute) {
     return;
   }
 
@@ -153,12 +201,10 @@ function setRoute(route: RouteName, syncHash: boolean): void {
     screen.setAttribute("aria-hidden", String(!isActive));
   }
 
-  if (changed) {
-    const active = screenEls[route];
-    active.classList.remove("fade-in");
-    void active.offsetWidth;
-    active.classList.add("fade-in");
-  }
+  const active = screenEls[route];
+  active.classList.remove("fade-in");
+  void active.offsetWidth;
+  active.classList.add("fade-in");
 
   for (const navBtn of navBtns) {
     const isActive = navBtn.dataset.route === route;
@@ -231,13 +277,133 @@ function clearSplashHideTimer(): void {
   }
 }
 
-
 async function initializeStorage(): Promise<void> {
   try {
     await getSessionStore().init();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("Storage init failed:", message);
+  }
+}
+
+async function persistTranscriptBundle(transcript: string): Promise<void> {
+  await sessionBundles.saveTranscriptSession(transcript);
+}
+
+async function initializePlugins(): Promise<void> {
+  pluginState = await pluginPlatform.init();
+  renderPluginStatus();
+  if (pluginState.error) {
+    setStatus(`Plugin init failed: ${pluginState.error}`);
+  }
+}
+
+function updateTransformControls(): void {
+  const hasProvider = Boolean(pluginState?.features.transform);
+  const canImport = pluginState?.canImport ?? false;
+  const running = pluginState?.transformRunning ?? false;
+  importPluginBtn.disabled = !canImport;
+  toggleTransformBtn.disabled = !hasProvider;
+  runTransformBtn.disabled = !hasProvider || !running;
+  toggleTransformBtn.textContent = running
+    ? "Stop Transform Service"
+    : "Start Transform Service";
+}
+
+function renderPluginStatus(): void {
+  if (!pluginState) {
+    pluginSummaryEl.textContent = "Plugin registry loading...";
+    transformServiceStatusEl.textContent = "Transform service: unavailable";
+    updateTransformControls();
+    return;
+  }
+  pluginSummaryEl.textContent = formatPluginSummary(pluginState);
+  transformServiceStatusEl.textContent = formatTransformStatus(pluginState);
+  updateTransformControls();
+}
+
+async function importPlugin(): Promise<void> {
+  if (!pluginState?.canImport) {
+    setStatus("Import unavailable outside desktop runtime");
+    return;
+  }
+
+  importPluginBtn.disabled = true;
+  setStatus("Importing plugin...");
+  try {
+    const sourcePath = await pluginPlatform.pickImportPath();
+    if (!sourcePath) {
+      return;
+    }
+
+    const displayName = window.prompt(
+      "Optional display name for this model (leave blank to use filename):",
+      "",
+    );
+
+    const imported = await pluginPlatform.importFromPath({
+      sourcePath,
+      displayName: displayName?.trim() || undefined,
+    });
+    setStatus(`Imported plugin: ${imported.name}`);
+    await initializePlugins();
+    if (pluginState?.features.transcription && !pluginPlatform.isAsrReady()) {
+      void loadModel();
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus(`Import failed: ${message}`);
+  } finally {
+    importPluginBtn.disabled = false;
+    updateTransformControls();
+  }
+}
+
+async function toggleTransformService(): Promise<void> {
+  if (!pluginState?.activeTransform) {
+    return;
+  }
+
+  toggleTransformBtn.disabled = true;
+  try {
+    const running = !(pluginState?.transformRunning ?? false);
+    pluginState = await pluginPlatform.setTransformServiceRunning(running);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    transformServiceStatusEl.textContent = `Transform service: ${message}`;
+  } finally {
+    pluginState = await pluginPlatform.status();
+    renderPluginStatus();
+  }
+}
+
+async function runTransformTest(): Promise<void> {
+  if (!pluginState?.activeTransform) {
+    transformOutputEl.textContent = "(No active transform provider)";
+    return;
+  }
+  if (!pluginState.transformRunning) {
+    transformOutputEl.textContent = "(Start the transform service first)";
+    return;
+  }
+
+  const input = transformInputEl.value.trim();
+  if (!input) {
+    transformOutputEl.textContent = "(Enter text to transform)";
+    return;
+  }
+
+  runTransformBtn.disabled = true;
+  transformOutputEl.textContent = "Running transform...";
+  try {
+    const text = await pluginPlatform.runTransform(input);
+    transformOutputEl.textContent = text || "(No output returned)";
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    transformOutputEl.textContent = `Transform failed: ${message}`;
+  } finally {
+    pluginState = await pluginPlatform.status();
+    renderPluginStatus();
   }
 }
 
@@ -257,256 +423,67 @@ function mustBtn(id: string): HTMLButtonElement {
   return el;
 }
 
+function mustTextarea(id: string): HTMLTextAreaElement {
+  const el = mustEl(id);
+  if (!(el instanceof HTMLTextAreaElement)) {
+    throw new Error(`#${id} is not a textarea`);
+  }
+  return el;
+}
+
 function setStatus(message: string): void {
   statusEl.textContent = `Status: ${message}`;
 }
 
-function handleAsrCrash(message: string): void {
-  setStatus(`Worker error: ${message}`);
+function resetCrashUi(): void {
   maybeExitSplash();
-  isRecording = false;
   loadBtn.disabled = false;
   recordBtn.disabled = true;
-  recordBtn.textContent = "Record";
-  recordBtn.classList.remove("recording");
-  void capture.stop();
+  syncRecordingUi(false);
 }
 
 async function loadModel(): Promise<void> {
-  if (asr.ready) {
+  if (pluginPlatform.isAsrReady()) {
     setStatus("Model already loaded");
     return;
   }
 
-  loadBtn.disabled = true;
-  setStatus("Loading model in background...");
-
-  try {
-    await asr.load(modelsDir, ortDir);
-    setStatus("Model loaded. Ready to record.");
-    transcriptEl.textContent = 'Model loaded. Click "Record" to start.';
-    recordBtn.disabled = false;
+  if (!pluginState?.features.transcription) {
+    if (!pluginState?.error) {
+      setStatus("No ASR provider available. Import one in Settings.");
+    }
+    recordBtn.disabled = true;
     loadBtn.disabled = true;
     maybeExitSplash();
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    setStatus(`Load failed: ${msg}`);
-    recordBtn.disabled = true;
-    loadBtn.disabled = false;
-    maybeExitSplash();
+    return;
   }
+
+  loadBtn.disabled = true;
+  const loaded = await dictation.loadModel();
+  pluginState = await pluginPlatform.status();
+  renderPluginStatus();
+  recordBtn.disabled = !loaded;
+  loadBtn.disabled = loaded;
+  maybeExitSplash();
 }
 
 async function toggleRecording(): Promise<void> {
-  if (toggling) {
+  if (!dictation.isAsrReady()) {
+    void loadModel();
     return;
   }
 
-  toggling = true;
   recordBtn.disabled = true;
-
   try {
-    if (!asr.ready) {
-      setStatus("Model still loading in background...");
-      void loadModel();
-      return;
-    }
-
-    if (!isRecording) {
-      try {
-        chunkIdx = 0;
-        transcriptText = "";
-        metricChunkId = 0;
-        silentChunkSkips = 0;
-        debugMetric("session-start", { chunkSecs: CHUNK_SECS, strideSecs: STRIDE_SECS });
-
-        await capture.start((chunk) => void queueChunk(chunk));
-
-        transcriptEl.textContent = "";
-        isRecording = true;
-        recordBtn.textContent = "Stop";
-        recordBtn.classList.add("recording");
-        setStatus("Recording...");
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        setStatus(`Microphone error: ${msg}`);
-      }
-      return;
-    }
-
-    isRecording = false;
-    await capture.stop();
-
-    recordBtn.textContent = "Record";
-    recordBtn.classList.remove("recording");
-
-    const tail = capture.drain();
-    if (tail) {
-      void queueChunk(tail);
-    }
-
-    await waitForChunks();
-
-    if (!transcriptText) {
-      transcriptEl.textContent = "(No speech detected)";
-    }
-    setStatus("Done");
+    await dictation.toggleRecording();
   } finally {
-    toggling = false;
-    recordBtn.disabled = !asr.ready;
+    recordBtn.disabled = !dictation.isAsrReady();
   }
 }
 
-
-function mergeChunkText(currentText: string, nextText: string): string {
-  const next = nextText.trim();
-  if (!next) {
-    return currentText;
-  }
-  if (!currentText) {
-    return next;
-  }
-
-  const currentWords = currentText.split(/\s+/);
-  const nextWords = next.split(/\s+/);
-  const maxOverlap = Math.min(currentWords.length, nextWords.length, 20);
-
-  // 1. Try exact word-level overlap matching
-  for (let size = maxOverlap; size > 0; size -= 1) {
-    let match = true;
-    for (let idx = 0; idx < size; idx += 1) {
-      const left = normalizeMergeToken(currentWords[currentWords.length - size + idx]);
-      const right = normalizeMergeToken(nextWords[idx]);
-      if (left !== right) {
-        match = false;
-        break;
-      }
-    }
-
-    if (match) {
-      const suffix = nextWords.slice(size).join(" ");
-      return suffix ? `${currentText} ${suffix}` : currentText;
-    }
-  }
-
-  // 2. Character-level suffix-prefix matching (catches partial-word overlaps)
-  const tailLen = 60;
-  const normTail = currentText.slice(-tailLen).toLowerCase();
-  const normHead = next.slice(0, tailLen).toLowerCase();
-  const maxCharOverlap = Math.min(normTail.length, normHead.length);
-
-  for (let len = maxCharOverlap; len >= 4; len -= 1) {
-    if (normTail.endsWith(normHead.slice(0, len))) {
-      return currentText + next.slice(len);
-    }
-  }
-
-  // 3. Estimate overlap words and skip them from the new chunk
-  //    ~2.5 words/sec average speaking rate × stride duration
-  const estimatedOverlapWords = Math.ceil(STRIDE_SECS * 2.5);
-  const skipCount = Math.min(estimatedOverlapWords, Math.floor(nextWords.length / 3));
-  const suffix = nextWords.slice(skipCount).join(" ");
-  return suffix ? `${currentText} ${suffix}` : currentText;
-}
-
-function normalizeMergeToken(token: string): string {
-  return token
-    .toLowerCase()
-    .replace(/^[^\w]+|[^\w]+$/g, "")
-    .trim();
-}
-
-function queueChunk(samples: Float32Array): Promise<void> {
-  if (isSilent(samples, SILENCE_RMS, SILENCE_PEAK)) {
-    silentChunkSkips += 1;
-    if (silentChunkSkips === 1 || silentChunkSkips % 10 === 0) {
-      debugMetric("chunk-silent-skip", {
-        count: silentChunkSkips,
-        chunkSecs: roundMetric(samples.length / SAMPLE_RATE),
-      });
-    }
-    return asrQueue.waitForIdle();
-  }
-
-  const metricId = ++metricChunkId;
-  const queuedAt = performance.now();
-
-  const task = asrQueue.enqueue(async () => {
-    const queueWaitMs = performance.now() - queuedAt;
-    await processChunk(samples, metricId, queueWaitMs);
-  });
-
-  debugMetric("chunk-queued", {
-    id: metricId,
-    queueDepth: asrQueue.pendingCount,
-    chunkSecs: roundMetric(samples.length / SAMPLE_RATE),
-  });
-  return task;
-}
-
-async function waitForChunks(): Promise<void> {
-  await asrQueue.waitForIdle();
-}
-
-async function processChunk(
-  samples: Float32Array,
-  metricId = -1,
-  queueWaitMs = 0,
-): Promise<void> {
-  if (!asr.ready) {
-    debugMetric("chunk-dropped-unready", { chunkSecs: roundMetric(samples.length / SAMPLE_RATE) });
-    return;
-  }
-
-  const inferStartedAt = performance.now();
-  chunkIdx += 1;
-  setStatus(`Processing chunk ${chunkIdx}...`);
-
-  try {
-    const text = await asr.transcribe(samples);
-    const mergedText = mergeChunkText(transcriptText, text);
-    if (mergedText !== transcriptText) {
-      transcriptText = mergedText;
-      transcriptEl.textContent = transcriptText;
-    }
-
-    if (isRecording) {
-      setStatus("Recording...");
-    }
-    debugMetric("chunk-complete", {
-      id: metricId,
-      chunkIdx,
-      queueWaitMs: roundMetric(queueWaitMs),
-      inferMs: roundMetric(performance.now() - inferStartedAt),
-      queueDepth: asrQueue.pendingCount,
-      active: asrQueue.activeCount,
-      textChars: text.length,
-    });
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    setStatus(`Inference error: ${msg}`);
-    debugMetric("chunk-error", {
-      id: metricId,
-      chunkIdx,
-      queueWaitMs: roundMetric(queueWaitMs),
-      inferMs: roundMetric(performance.now() - inferStartedAt),
-      queueDepth: asrQueue.pendingCount,
-      active: asrQueue.activeCount,
-      message: msg,
-    });
-  }
-
-}
-
-function debugMetric(event: string, values: Record<string, number | string>): void {
-  if (!DEBUG_METRICS) {
-    return;
-  }
-  console.debug(`[asr-metrics] ${event}`, values);
-}
-
-function roundMetric(value: number): number {
-  return Math.round(value * 10) / 10;
+function syncRecordingUi(recording: boolean): void {
+  recordBtn.textContent = recording ? "Stop" : "Record";
+  recordBtn.classList.toggle("recording", recording);
 }
 
 function isDebugMetricsEnabled(): boolean {
