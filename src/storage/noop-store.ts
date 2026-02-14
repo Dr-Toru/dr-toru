@@ -1,34 +1,34 @@
-import type { SessionRecord, SessionSummary } from "../domain/session";
+import type { Recording, RecordingSummary } from "../domain/recording";
 import type {
-  SessionStore,
+  RecordingStore,
   StorageInitResult,
-  WriteArtifactTextInput,
-  WriteArtifactTextResult,
+  WriteAttachmentTextInput,
+  WriteAttachmentTextResult,
 } from "./store";
 
 const EMPTY_INIT_RESULT: StorageInitResult = {
   appDataDir: "",
   removedTempFiles: 0,
-  skippedInvalidSessions: 0,
-  missingArtifacts: 0,
+  skippedInvalidRecordings: 0,
+  missingAttachments: 0,
 };
 
-export class NoopSessionStore implements SessionStore {
-  private readonly sessions = new Map<string, SessionRecord>();
+export class NoopRecordingStore implements RecordingStore {
+  private readonly recordings = new Map<string, Recording>();
 
   async init(): Promise<StorageInitResult> {
     return EMPTY_INIT_RESULT;
   }
 
-  async listSessions(): Promise<SessionSummary[]> {
-    const items: SessionSummary[] = [];
-    for (const session of this.sessions.values()) {
+  async listRecordings(): Promise<RecordingSummary[]> {
+    const items: RecordingSummary[] = [];
+    for (const recording of this.recordings.values()) {
       items.push({
-        sessionId: session.sessionId,
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-        activeArtifactId: session.activeArtifactId,
-        artifactCount: session.artifacts.length,
+        recordingId: recording.recordingId,
+        createdAt: recording.createdAt,
+        updatedAt: recording.updatedAt,
+        activeAttachmentId: recording.activeAttachmentId,
+        attachmentCount: recording.attachments.length,
       });
     }
     return items.sort((left, right) =>
@@ -36,19 +36,19 @@ export class NoopSessionStore implements SessionStore {
     );
   }
 
-  async getSession(sessionId: string): Promise<SessionRecord | null> {
-    return this.sessions.get(sessionId) ?? null;
+  async getRecording(recordingId: string): Promise<Recording | null> {
+    return this.recordings.get(recordingId) ?? null;
   }
 
-  async saveSession(session: SessionRecord): Promise<void> {
-    this.sessions.set(session.sessionId, session);
+  async saveRecording(recording: Recording): Promise<void> {
+    this.recordings.set(recording.recordingId, recording);
   }
 
-  async writeArtifactText(
-    input: WriteArtifactTextInput,
-  ): Promise<WriteArtifactTextResult> {
+  async writeAttachmentText(
+    input: WriteAttachmentTextInput,
+  ): Promise<WriteAttachmentTextResult> {
     return {
-      path: `sessions/${input.sessionId}/artifacts/${input.artifactId}.${input.extension}`,
+      path: `recordings/${input.recordingId}/attachments/${input.attachmentId}.${input.extension}`,
       sizeBytes: input.text.length,
     };
   }

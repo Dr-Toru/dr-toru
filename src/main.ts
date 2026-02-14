@@ -1,6 +1,6 @@
 import { AudioCapture } from "./audio/capture";
 import { DictationController } from "./app/dictation-controller";
-import { SessionBundleService } from "./app/session-bundles";
+import { RecordingService } from "./app/recording-service";
 import {
   createPluginPlatform,
   formatPluginSummary,
@@ -8,7 +8,7 @@ import {
   type PluginPlatform,
   type PluginPlatformState,
 } from "./plugins";
-import { getSessionStore } from "./storage";
+import { getRecordingStore } from "./storage";
 
 const ROUTES = ["transcription", "list", "settings"] as const;
 type RouteName = (typeof ROUTES)[number];
@@ -38,7 +38,7 @@ const ortDir = new URL("ort/", appBase).href;
 let pluginPlatform: PluginPlatform;
 let pluginState: PluginPlatformState | null = null;
 let dictation: DictationController;
-let sessionBundles: SessionBundleService;
+let recordingService: RecordingService;
 
 let statusEl: HTMLElement;
 let transcriptEl: HTMLElement;
@@ -161,9 +161,9 @@ window.addEventListener("DOMContentLoaded", () => {
       transcriptEl.textContent = text;
     },
     onRecordingChange: (recording) => syncRecordingUi(recording),
-    onSessionComplete: (transcript) => persistTranscriptBundle(transcript),
+    onRecordingComplete: (transcript) => persistTranscript(transcript),
   });
-  sessionBundles = new SessionBundleService(getSessionStore());
+  recordingService = new RecordingService(getRecordingStore());
 
   void initializePlugins().then(() => loadModel());
   void initializeStorage();
@@ -279,15 +279,15 @@ function clearSplashHideTimer(): void {
 
 async function initializeStorage(): Promise<void> {
   try {
-    await getSessionStore().init();
+    await getRecordingStore().init();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("Storage init failed:", message);
   }
 }
 
-async function persistTranscriptBundle(transcript: string): Promise<void> {
-  await sessionBundles.saveTranscriptSession(transcript);
+async function persistTranscript(transcript: string): Promise<void> {
+  await recordingService.persistTranscript(transcript);
 }
 
 async function initializePlugins(): Promise<void> {

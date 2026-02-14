@@ -1,30 +1,30 @@
-import type { SessionRecord, SessionSummary } from "../domain/session";
+import type { Recording, RecordingSummary } from "../domain/recording";
 
 export interface StorageInitResult {
   appDataDir: string;
   removedTempFiles: number;
-  skippedInvalidSessions: number;
-  missingArtifacts: number;
+  skippedInvalidRecordings: number;
+  missingAttachments: number;
 }
 
-export interface WriteArtifactTextInput {
-  sessionId: string;
-  artifactId: string;
+export interface WriteAttachmentTextInput {
+  recordingId: string;
+  attachmentId: string;
   extension: string;
   text: string;
 }
 
-export interface WriteArtifactTextResult {
+export interface WriteAttachmentTextResult {
   path: string;
   sizeBytes: number;
 }
 
-export interface SessionStore {
+export interface RecordingStore {
   init(): Promise<StorageInitResult>;
-  listSessions(): Promise<SessionSummary[]>;
-  getSession(sessionId: string): Promise<SessionRecord | null>;
-  saveSession(session: SessionRecord): Promise<void>;
-  writeArtifactText(
-    input: WriteArtifactTextInput,
-  ): Promise<WriteArtifactTextResult>;
+  listRecordings(): Promise<RecordingSummary[]>;
+  getRecording(recordingId: string): Promise<Recording | null>;
+  saveRecording(recording: Recording): Promise<void>;
+  writeAttachmentText(
+    input: WriteAttachmentTextInput,
+  ): Promise<WriteAttachmentTextResult>;
 }

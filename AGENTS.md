@@ -62,5 +62,5 @@ runnable without the Rust backend.
 | UI shell and routing | `src/main.ts` | -- |
 | Dictation orchestration | `src/app/dictation-controller.ts` | -- |
 | Plugin system | `src/plugins/` | `src-tauri/src/plugins.rs` |
-| Recording storage | `src/app/session-bundles.ts` | `src-tauri/src/storage.rs` |
+| Recording storage | `src/app/recording-service.ts` | `src-tauri/src/storage.rs` |
 | ASR inference | `src/asr.worker.ts` | -- |
