@@ -2,6 +2,7 @@ export interface LoadRequest {
   type: "load";
   modelsDir: string;
   ortDir: string;
+  kenlmDir?: string;
 }
 
 export interface TranscribeRequest {
