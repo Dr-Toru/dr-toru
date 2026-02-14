@@ -72,23 +72,29 @@ export function createRuntimeAdapter(
   manifest: PluginManifest,
   options: RuntimeFactoryOptions,
 ): RuntimeAdapter {
-  if (manifest.kind === "asr") {
-    const vocabPath = manifest.metadata?.vocabPath;
-    if (typeof vocabPath !== "string" || !vocabPath.trim()) {
-      throw new Error(
-        `Plugin ${manifest.pluginId} is missing metadata.vocabPath`,
+  switch (manifest.kind) {
+    case "asr": {
+      const vocabPath = manifest.metadata?.vocabPath;
+      if (typeof vocabPath !== "string" || !vocabPath.trim()) {
+        throw new Error(
+          `Plugin ${manifest.pluginId} is missing metadata.vocabPath`,
+        );
+      }
+      return new OrtRuntimeAdapter(
+        manifest,
+        new AsrClient(options.workerUrl, options.events),
+        options.ortDir,
+        options.appDataDir,
+        options.appOrigin,
       );
     }
-    return new OrtRuntimeAdapter(
-      manifest,
-      new AsrClient(options.workerUrl, options.events),
-      options.ortDir,
-      options.appDataDir,
-      options.appOrigin,
-    );
+    case "llm":
+      return new LlamafileRuntimeAdapter(manifest.pluginId);
+    default:
+      throw new Error(
+        `Unsupported plugin kind "${manifest.kind}" for ${manifest.pluginId}`,
+      );
   }
-
-  return new LlamafileRuntimeAdapter(manifest.pluginId);
 }
 
 class OrtRuntimeAdapter implements RuntimeAdapter {

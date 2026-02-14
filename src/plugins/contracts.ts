@@ -1,4 +1,4 @@
-export const PLUGIN_REGISTRY_FORMAT = 2 as const;
+export const PLUGIN_REGISTRY_FORMAT = 1 as const;
 
 export const PLUGIN_KINDS = ["asr", "llm"] as const;
 export type PluginKind = (typeof PLUGIN_KINDS)[number];

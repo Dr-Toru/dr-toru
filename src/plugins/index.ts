@@ -8,7 +8,7 @@ import {
   PluginPlatform,
   type PluginPlatformOptions,
   formatPluginSummary,
-  formatTransformStatus,
+  formatLlmStatus,
 } from "./platform";
 
 let registryStore: PluginRegistryStore | null = null;
@@ -40,4 +40,4 @@ export function createPluginPlatform(
 
 export { PluginPlatform };
 export type { PluginPlatformOptions, PluginPlatformState } from "./platform";
-export { formatPluginSummary, formatTransformStatus };
+export { formatPluginSummary, formatLlmStatus };

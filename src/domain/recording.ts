@@ -3,7 +3,7 @@ import { createUlid } from "./ulid";
 export const RECORDING_FORMAT = 1 as const;
 
 export type AttachmentRole = "source" | "derived";
-export type AttachmentCreator = "asr" | "transform" | "user" | "system";
+export type AttachmentCreator = "asr" | "llm" | "user" | "system";
 export type AttachmentMetaValue = string | number | boolean | null;
 export type AttachmentKind =
   | "transcript_raw"

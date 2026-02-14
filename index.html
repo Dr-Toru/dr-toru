@@ -74,27 +74,27 @@
             <button id="importPluginBtn" type="button">
               Import Model File
             </button>
-            <button id="toggleTransformBtn" type="button" disabled>
-              Start Transform Service
+            <button id="toggleLlmBtn" type="button" disabled>
+              Start LLM Service
             </button>
           </div>
-          <p id="transformServiceStatus" class="status">
-            Transform service: unavailable
+          <p id="llmServiceStatus" class="status">
+            LLM service: unavailable
           </p>
-          <h3>Transform Test</h3>
+          <h3>LLM Test</h3>
           <textarea
-            id="transformInput"
+            id="llmInput"
             class="transcript"
             rows="5"
-            placeholder="Paste note text to test transform output."
+            placeholder="Paste note text to test LLM output."
           ></textarea>
           <div class="actions">
-            <button id="runTransformBtn" type="button" disabled>
-              Run Transform Test
+            <button id="runLlmBtn" type="button" disabled>
+              Run LLM Test
             </button>
           </div>
-          <div id="transformOutput" class="transcript">
-            (No transform output)
+          <div id="llmOutput" class="transcript">
+            (No LLM output)
           </div>
         </section>
       </div>

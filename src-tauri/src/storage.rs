@@ -18,15 +18,31 @@ pub enum AttachmentKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AttachmentRole {
+    Source,
+    Derived,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AttachmentCreator {
+    Asr,
+    Llm,
+    User,
+    System,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Attachment {
     pub attachment_id: String,
     pub kind: AttachmentKind,
-    pub role: String,
+    pub role: AttachmentRole,
     pub content_type: String,
     pub path: String,
     pub created_at: String,
-    pub created_by: String,
+    pub created_by: AttachmentCreator,
     pub source_attachment_id: Option<String>,
     #[serde(default)]
     pub metadata: Value,
