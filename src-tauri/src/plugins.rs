@@ -11,33 +11,16 @@ use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, State};
 
-const REGISTRY_FORMAT: u8 = 1;
+const REGISTRY_FORMAT: u8 = 2;
 const REGISTRY_FILE_NAME: &str = "registry.json";
 const BUILTIN_ORT_ASR_PLUGIN_ID: &str = "builtin.asr.ort.medasr";
-const CAP_ASR_STREAM: &str = "asr.stream";
-const CAP_LLM_TRANSFORM_CORRECT: &str = "llm.transform.correct";
-const CAP_LLM_TRANSFORM_SOAP: &str = "llm.transform.soap";
 const ASR_ORT_PACKAGE_SCHEMA: &str = "dr-toru.asr.ort-package.v1";
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum PluginKind {
     Asr,
     Llm,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum PluginRuntime {
-    Ort,
-    Llamafile,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum ProviderRole {
-    Asr,
-    Transform,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,10 +30,8 @@ pub struct PluginManifest {
     pub name: String,
     pub version: String,
     pub kind: PluginKind,
-    pub runtime: PluginRuntime,
     pub entrypoint_path: String,
     pub sha256: String,
-    pub capabilities: Vec<String>,
     pub model_family: Option<String>,
     pub size_bytes: Option<u64>,
     pub license: Option<String>,
@@ -60,9 +41,9 @@ pub struct PluginManifest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ActiveProviders {
+pub struct ActivePlugins {
     pub asr: Option<String>,
-    pub transform: Option<String>,
+    pub llm: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,7 +51,7 @@ pub struct ActiveProviders {
 pub struct PluginRegistryState {
     pub format: u8,
     pub plugins: Vec<PluginManifest>,
-    pub active_providers: ActiveProviders,
+    pub active_plugins: ActivePlugins,
 }
 
 impl Default for PluginRegistryState {
@@ -78,9 +59,9 @@ impl Default for PluginRegistryState {
         Self {
             format: REGISTRY_FORMAT,
             plugins: vec![builtin_ort_asr_plugin()],
-            active_providers: ActiveProviders {
+            active_plugins: ActivePlugins {
                 asr: Some(BUILTIN_ORT_ASR_PLUGIN_ID.to_string()),
-                transform: None,
+                llm: None,
             },
         }
     }
@@ -89,8 +70,7 @@ impl Default for PluginRegistryState {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginDiscoveryRequest {
-    pub role: Option<ProviderRole>,
-    pub required_capabilities: Option<Vec<String>>,
+    pub kind: Option<PluginKind>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -221,11 +201,76 @@ fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
     write_bytes_atomic(path, &encoded)
 }
 
+// Intermediate struct for deserializing format 1 registries during migration.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyRegistryState {
+    format: u8,
+    plugins: Vec<Value>,
+    #[serde(default)]
+    active_providers: Option<LegacyActiveProviders>,
+    #[serde(default)]
+    active_plugins: Option<ActivePlugins>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyActiveProviders {
+    asr: Option<String>,
+    transform: Option<String>,
+}
+
 fn load_registry(paths: &PluginPaths) -> Result<PluginRegistryState, String> {
     let raw = fs::read_to_string(&paths.registry_file).map_err(err_to_string)?;
+    let legacy: LegacyRegistryState = serde_json::from_str(&raw).map_err(err_to_string)?;
+
+    if legacy.format == 1 {
+        return migrate_v1_to_v2(legacy);
+    }
+
     let state = serde_json::from_str::<PluginRegistryState>(&raw).map_err(err_to_string)?;
     let sanitized = sanitize_registry(state)?;
     Ok(sanitized)
+}
+
+fn migrate_v1_to_v2(legacy: LegacyRegistryState) -> Result<PluginRegistryState, String> {
+    let mut plugins: Vec<PluginManifest> = Vec::new();
+    for mut val in legacy.plugins {
+        // Strip v1-only fields
+        if let Some(obj) = val.as_object_mut() {
+            obj.remove("runtime");
+            obj.remove("capabilities");
+        }
+        match serde_json::from_value::<PluginManifest>(val) {
+            Ok(manifest) => plugins.push(manifest),
+            Err(err) => {
+                eprintln!("Migration: dropping plugin that failed to deserialize: {err}");
+                continue;
+            }
+        }
+    }
+
+    // Convert activeProviders -> activePlugins, transform -> llm
+    let active_plugins = if let Some(providers) = legacy.active_providers {
+        ActivePlugins {
+            asr: providers.asr,
+            llm: providers.transform,
+        }
+    } else if let Some(active) = legacy.active_plugins {
+        active
+    } else {
+        ActivePlugins {
+            asr: None,
+            llm: None,
+        }
+    };
+
+    let state = PluginRegistryState {
+        format: REGISTRY_FORMAT,
+        plugins,
+        active_plugins,
+    };
+    sanitize_registry(state)
 }
 
 fn save_registry(paths: &PluginPaths, state: &PluginRegistryState) -> Result<(), String> {
@@ -238,10 +283,8 @@ fn builtin_ort_asr_plugin() -> PluginManifest {
         name: "Built-in Medical ASR".to_string(),
         version: "1.0.0".to_string(),
         kind: PluginKind::Asr,
-        runtime: PluginRuntime::Ort,
         entrypoint_path: "models/medasr_lasr_ctc.onnx".to_string(),
         sha256: "f1d2ea1680bfa2a8adc76b80403b1edce20a6f1681bde1a20cc42ab59136d971".to_string(),
-        capabilities: vec![CAP_ASR_STREAM.to_string()],
         model_family: Some("medasr_lasr".to_string()),
         size_bytes: None,
         license: None,
@@ -298,29 +341,6 @@ fn is_valid_semver(value: &str) -> bool {
         && patch.bytes().all(|byte| byte.is_ascii_digit())
 }
 
-fn is_known_capability(capability: &str) -> bool {
-    matches!(
-        capability,
-        CAP_ASR_STREAM | CAP_LLM_TRANSFORM_CORRECT | CAP_LLM_TRANSFORM_SOAP
-    )
-}
-
-fn supports_role(manifest: &PluginManifest, role: ProviderRole) -> bool {
-    match role {
-        ProviderRole::Asr => {
-            manifest.kind == PluginKind::Asr
-                && manifest.capabilities.iter().any(|item| item == CAP_ASR_STREAM)
-        }
-        ProviderRole::Transform => {
-            manifest.kind == PluginKind::Llm
-                && manifest
-                    .capabilities
-                    .iter()
-                    .any(|item| item == CAP_LLM_TRANSFORM_CORRECT || item == CAP_LLM_TRANSFORM_SOAP)
-        }
-    }
-}
-
 fn validate_manifest(manifest: &PluginManifest) -> Result<(), String> {
     if !is_valid_plugin_id(&manifest.plugin_id) {
         return Err("pluginId must be 3-128 chars and use [A-Za-z0-9._-]".to_string());
@@ -337,47 +357,14 @@ fn validate_manifest(manifest: &PluginManifest) -> Result<(), String> {
     if !is_valid_sha256(&manifest.sha256) {
         return Err("sha256 must be 64 lowercase hex chars".to_string());
     }
-    if manifest.capabilities.is_empty() {
-        return Err("at least one capability is required".to_string());
-    }
 
-    let mut seen = HashSet::new();
-    for capability in &manifest.capabilities {
-        if !is_known_capability(capability) {
-            return Err(format!("unsupported capability: {capability}"));
-        }
-        if !seen.insert(capability) {
-            return Err(format!("duplicate capability: {capability}"));
-        }
-    }
-
-    match manifest.kind {
-        PluginKind::Asr => {
-            if manifest.runtime != PluginRuntime::Ort {
-                return Err("asr plugins must use ort runtime in v1".to_string());
-            }
-            if !manifest.capabilities.iter().any(|item| item == CAP_ASR_STREAM) {
-                return Err("asr plugins must include asr.stream".to_string());
-            }
-            if parse_string_field(&manifest.metadata, "vocabPath")
-                .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty())
-                .is_none()
-            {
-                return Err("asr plugins must include metadata.vocabPath".to_string());
-            }
-        }
-        PluginKind::Llm => {
-            if manifest.runtime != PluginRuntime::Llamafile {
-                return Err("llm plugins must use llamafile runtime in v1".to_string());
-            }
-            if !manifest
-                .capabilities
-                .iter()
-                .any(|item| item == CAP_LLM_TRANSFORM_CORRECT || item == CAP_LLM_TRANSFORM_SOAP)
-            {
-                return Err("llm plugins must include a transform capability".to_string());
-            }
+    if manifest.kind == PluginKind::Asr {
+        if parse_string_field(&manifest.metadata, "vocabPath")
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .is_none()
+        {
+            return Err("asr plugins must include metadata.vocabPath".to_string());
         }
     }
 
@@ -412,46 +399,52 @@ fn sanitize_registry(mut state: PluginRegistryState) -> Result<PluginRegistrySta
     }
 
     let has_asr_active = state
-        .active_providers
+        .active_plugins
         .asr
         .as_ref()
         .map(|plugin_id| {
             valid_plugins
                 .iter()
-                .any(|plugin| plugin.plugin_id == *plugin_id && supports_role(plugin, ProviderRole::Asr))
+                .any(|plugin| plugin.plugin_id == *plugin_id && plugin.kind == PluginKind::Asr)
         })
         .unwrap_or(false);
     if !has_asr_active {
-        state.active_providers.asr = None;
+        state.active_plugins.asr = None;
     }
 
-    let has_transform_active = state
-        .active_providers
-        .transform
+    let has_llm_active = state
+        .active_plugins
+        .llm
         .as_ref()
         .map(|plugin_id| {
             valid_plugins.iter().any(|plugin| {
-                plugin.plugin_id == *plugin_id && supports_role(plugin, ProviderRole::Transform)
+                plugin.plugin_id == *plugin_id && plugin.kind == PluginKind::Llm
             })
         })
         .unwrap_or(false);
-    if !has_transform_active {
-        state.active_providers.transform = None;
+    if !has_llm_active {
+        state.active_plugins.llm = None;
     }
 
     Ok(PluginRegistryState {
         format: REGISTRY_FORMAT,
         plugins: valid_plugins,
-        active_providers: state.active_providers,
+        active_plugins: state.active_plugins,
     })
 }
 
 fn auto_activate_vacant(state: &mut PluginRegistryState, manifest: &PluginManifest) {
-    if state.active_providers.asr.is_none() && supports_role(manifest, ProviderRole::Asr) {
-        state.active_providers.asr = Some(manifest.plugin_id.clone());
-    }
-    if state.active_providers.transform.is_none() && supports_role(manifest, ProviderRole::Transform) {
-        state.active_providers.transform = Some(manifest.plugin_id.clone());
+    match manifest.kind {
+        PluginKind::Asr => {
+            if state.active_plugins.asr.is_none() {
+                state.active_plugins.asr = Some(manifest.plugin_id.clone());
+            }
+        }
+        PluginKind::Llm => {
+            if state.active_plugins.llm.is_none() {
+                state.active_plugins.llm = Some(manifest.plugin_id.clone());
+            }
+        }
     }
 }
 
@@ -474,8 +467,8 @@ fn resolve_entrypoint(app: &AppHandle, entrypoint_path: &str) -> Result<PathBuf,
     Ok(app_data.join(candidate))
 }
 
-fn default_llamafile_prompt(capability: &str) -> String {
-    if capability == CAP_LLM_TRANSFORM_SOAP {
+fn default_llamafile_prompt(action: &str) -> String {
+    if action == "soap" {
         return "Convert the note into SOAP format.".to_string();
     }
     "Correct grammar and punctuation while preserving clinical meaning.".to_string()
@@ -838,8 +831,6 @@ fn imported_plugin_manifest(
         .to_string();
 
     let mut kind = PluginKind::Asr;
-    let mut runtime = PluginRuntime::Ort;
-    let mut capabilities = vec![CAP_ASR_STREAM.to_string()];
     let mut prefix = "import.asr";
     let mut display_name_fallback = source_stem.clone();
     let mut entrypoint_source = source.clone();
@@ -848,11 +839,6 @@ fn imported_plugin_manifest(
 
     if extension == "llamafile" {
         kind = PluginKind::Llm;
-        runtime = PluginRuntime::Llamafile;
-        capabilities = vec![
-            CAP_LLM_TRANSFORM_CORRECT.to_string(),
-            CAP_LLM_TRANSFORM_SOAP.to_string(),
-        ];
         prefix = "import.llm";
         metadata = Some(json!({
             "serviceStartArgs": ["--server", "--port", "{port}", "--nobrowser"],
@@ -916,10 +902,8 @@ fn imported_plugin_manifest(
             .unwrap_or(display_name_fallback),
         version: "1.0.0".to_string(),
         kind,
-        runtime,
         entrypoint_path: relative_entrypoint,
         sha256: file_hash,
-        capabilities,
         model_family: None,
         size_bytes: Some(entrypoint_size_bytes),
         license: None,
@@ -969,19 +953,12 @@ pub fn plugin_registry_discover(
     ensure_registry(&paths)?;
     let state = load_registry(&paths)?;
 
-    let required = request.required_capabilities.unwrap_or_default();
     let mut discovered = Vec::new();
     for plugin in state.plugins {
-        if let Some(role) = request.role.as_ref() {
-            if !supports_role(&plugin, role.clone()) {
+        if let Some(ref kind) = request.kind {
+            if plugin.kind != *kind {
                 continue;
             }
-        }
-        if !required
-            .iter()
-            .all(|capability| plugin.capabilities.iter().any(|item| item == capability))
-        {
-            continue;
         }
         discovered.push(plugin);
     }
@@ -1060,11 +1037,11 @@ pub fn plugin_registry_remove(
         return Err(format!("Unknown pluginId: {plugin_id}"));
     };
 
-    if state.active_providers.asr.as_deref() == Some(plugin_id.as_str()) {
-        state.active_providers.asr = None;
+    if state.active_plugins.asr.as_deref() == Some(plugin_id.as_str()) {
+        state.active_plugins.asr = None;
     }
-    if state.active_providers.transform.as_deref() == Some(plugin_id.as_str()) {
-        state.active_providers.transform = None;
+    if state.active_plugins.llm.as_deref() == Some(plugin_id.as_str()) {
+        state.active_plugins.llm = None;
     }
 
     save_registry(&paths, &state)?;
@@ -1096,17 +1073,17 @@ pub fn plugin_registry_remove(
 }
 
 #[tauri::command]
-pub fn plugin_registry_active(app: AppHandle) -> Result<ActiveProviders, String> {
+pub fn plugin_registry_active(app: AppHandle) -> Result<ActivePlugins, String> {
     let paths = plugin_paths(&app)?;
     ensure_registry(&paths)?;
     let state = load_registry(&paths)?;
-    Ok(state.active_providers)
+    Ok(state.active_plugins)
 }
 
 #[tauri::command]
 pub fn plugin_registry_set_active(
     app: AppHandle,
-    role: ProviderRole,
+    kind: PluginKind,
     plugin_id: Option<String>,
     runtime_state: State<'_, PluginRuntimeState>,
 ) -> Result<(), String> {
@@ -1114,41 +1091,41 @@ pub fn plugin_registry_set_active(
     ensure_registry(&paths)?;
     let mut state = load_registry(&paths)?;
 
-    let previous_transform = state.active_providers.transform.clone();
-    match role {
-        ProviderRole::Asr => {
+    let previous_llm = state.active_plugins.llm.clone();
+    match kind {
+        PluginKind::Asr => {
             if let Some(plugin_id) = plugin_id {
                 let Some(plugin) = resolve_plugin(&state, &plugin_id) else {
                     return Err(format!("Unknown pluginId: {plugin_id}"));
                 };
-                if !supports_role(plugin, ProviderRole::Asr) {
-                    return Err(format!("Plugin {plugin_id} cannot provide role asr"));
+                if plugin.kind != PluginKind::Asr {
+                    return Err(format!("Plugin {plugin_id} is not of kind asr"));
                 }
-                state.active_providers.asr = Some(plugin_id);
+                state.active_plugins.asr = Some(plugin_id);
             } else {
-                state.active_providers.asr = None;
+                state.active_plugins.asr = None;
             }
         }
-        ProviderRole::Transform => {
+        PluginKind::Llm => {
             if let Some(plugin_id) = plugin_id {
                 let Some(plugin) = resolve_plugin(&state, &plugin_id) else {
                     return Err(format!("Unknown pluginId: {plugin_id}"));
                 };
-                if !supports_role(plugin, ProviderRole::Transform) {
-                    return Err(format!("Plugin {plugin_id} cannot provide role transform"));
+                if plugin.kind != PluginKind::Llm {
+                    return Err(format!("Plugin {plugin_id} is not of kind llm"));
                 }
-                state.active_providers.transform = Some(plugin_id);
+                state.active_plugins.llm = Some(plugin_id);
             } else {
-                state.active_providers.transform = None;
+                state.active_plugins.llm = None;
             }
         }
     }
 
-    let next_transform = state.active_providers.transform.clone();
+    let next_llm = state.active_plugins.llm.clone();
     save_registry(&paths, &state)?;
 
-    if previous_transform != next_transform {
-        if let Some(previous_id) = previous_transform {
+    if previous_llm != next_llm {
+        if let Some(previous_id) = previous_llm {
             let mut running = runtime_state.lock_running();
             stop_service(&mut running, &previous_id)?;
         }
@@ -1165,8 +1142,8 @@ fn service_start_blocking(app: &AppHandle, plugin_id: &str) -> Result<RuntimeHea
     let Some(plugin) = resolve_plugin(&state, plugin_id) else {
         return Err(format!("Unknown pluginId: {plugin_id}"));
     };
-    if plugin.runtime != PluginRuntime::Llamafile || plugin.kind != PluginKind::Llm {
-        return Err(format!("Plugin {plugin_id} is not a llamafile LLM provider"));
+    if plugin.kind != PluginKind::Llm {
+        return Err(format!("Plugin {plugin_id} is not an LLM plugin"));
     }
 
     let entrypoint = resolve_entrypoint(app, &plugin.entrypoint_path)?;
@@ -1322,7 +1299,7 @@ pub fn plugin_service_stop(
 fn llamafile_execute_blocking(
     app: &AppHandle,
     plugin_id: &str,
-    capability: &str,
+    action: &str,
     input: &str,
     prompt: Option<String>,
 ) -> Result<RuntimeExecuteResult, String> {
@@ -1333,13 +1310,8 @@ fn llamafile_execute_blocking(
     let Some(plugin) = resolve_plugin(&state, plugin_id) else {
         return Err(format!("Unknown pluginId: {plugin_id}"));
     };
-    if plugin.runtime != PluginRuntime::Llamafile || plugin.kind != PluginKind::Llm {
-        return Err(format!("Plugin {plugin_id} is not a llamafile LLM provider"));
-    }
-    if !plugin.capabilities.iter().any(|item| item == capability) {
-        return Err(format!(
-            "Plugin {plugin_id} does not support capability {capability}"
-        ));
+    if plugin.kind != PluginKind::Llm {
+        return Err(format!("Plugin {plugin_id} is not an LLM plugin"));
     }
 
     let endpoint = {
@@ -1355,7 +1327,7 @@ fn llamafile_execute_blocking(
     };
 
     let completion_path = service_completion_path(&plugin.metadata);
-    let prompt = prompt.unwrap_or_else(|| default_llamafile_prompt(capability));
+    let prompt = prompt.unwrap_or_else(|| default_llamafile_prompt(action));
     let full_prompt = format!("{prompt}\n\n{input}");
     let payload = if completion_path.starts_with("/v1/") {
         json!({
@@ -1399,12 +1371,12 @@ fn llamafile_execute_blocking(
 pub async fn plugin_runtime_llamafile_execute(
     app: AppHandle,
     plugin_id: String,
-    capability: String,
+    action: String,
     input: String,
     prompt: Option<String>,
 ) -> Result<RuntimeExecuteResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        llamafile_execute_blocking(&app, &plugin_id, &capability, &input, prompt)
+        llamafile_execute_blocking(&app, &plugin_id, &action, &input, prompt)
     })
     .await
     .map_err(err_to_string)?

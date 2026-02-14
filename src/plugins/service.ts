@@ -1,8 +1,6 @@
 import {
-  canProvideRole,
-  type PluginCapability,
+  type PluginKind,
   type PluginManifest,
-  type ProviderRole,
   validatePluginManifest,
 } from "./contracts";
 import type {
@@ -35,12 +33,12 @@ export class PluginService {
     return plugins.filter(isManifestValid);
   }
 
-  async activePlugin(role: ProviderRole): Promise<PluginManifest | null> {
+  async activePlugin(kind: PluginKind): Promise<PluginManifest | null> {
     const [plugins, active] = await Promise.all([
       this.listValid(),
-      this.store.getActiveProviders(),
+      this.store.getActivePlugins(),
     ]);
-    const pluginId = active[role];
+    const pluginId = active[kind];
     if (!pluginId) {
       return null;
     }
@@ -48,17 +46,17 @@ export class PluginService {
     if (!plugin) {
       return null;
     }
-    if (!canProvideRole(plugin, role)) {
+    if (plugin.kind !== kind) {
       return null;
     }
     return plugin;
   }
 
-  async setActiveProvider(
-    role: ProviderRole,
+  async setActivePlugin(
+    kind: PluginKind,
     pluginId: string | null,
   ): Promise<void> {
-    await this.store.setActiveProvider(role, pluginId);
+    await this.store.setActivePlugin(kind, pluginId);
   }
 
   importFromPath(request: PluginImportRequest): Promise<PluginManifest> {
@@ -75,16 +73,5 @@ export class PluginService {
 
   stopService(pluginId: string): Promise<PluginServiceHealth> {
     return this.store.stopService(pluginId);
-  }
-
-  async hasCapability(
-    role: ProviderRole,
-    capability: PluginCapability,
-  ): Promise<boolean> {
-    const plugin = await this.activePlugin(role);
-    if (!plugin) {
-      return false;
-    }
-    return plugin.capabilities.includes(capability);
   }
 }

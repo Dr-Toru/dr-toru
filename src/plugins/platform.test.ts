@@ -38,7 +38,7 @@ describe("PluginPlatform", () => {
 
   it("stays initialized when no ASR provider is active", async () => {
     const store = new NoopPluginRegistryStore();
-    await store.setActiveProvider("asr", null);
+    await store.setActivePlugin("asr", null);
     const platform = createPlatform(store);
     const state = await platform.init();
 

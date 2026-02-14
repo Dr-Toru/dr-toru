@@ -396,7 +396,7 @@ async function runTransformTest(): Promise<void> {
   runTransformBtn.disabled = true;
   transformOutputEl.textContent = "Running transform...";
   try {
-    const text = await pluginPlatform.runTransform(input);
+    const text = await pluginPlatform.runTransform("correct", input);
     transformOutputEl.textContent = text || "(No output returned)";
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

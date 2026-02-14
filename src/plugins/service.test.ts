@@ -13,15 +13,12 @@ describe("PluginService", () => {
     expect(activeAsr?.pluginId).toBe("builtin.asr.ort.medasr");
   });
 
-  it("reports transform capability as unavailable by default", async () => {
+  it("reports no active llm by default", async () => {
     const service = new PluginService(new NoopPluginRegistryStore());
     await service.init();
 
-    const hasSoap = await service.hasCapability(
-      "transform",
-      "llm.transform.soap",
-    );
-    expect(hasSoap).toBe(false);
+    const activeLlm = await service.activePlugin("llm");
+    expect(activeLlm).toBeNull();
   });
 
   it("allows imported ONNX provider to become active ASR", async () => {
@@ -37,7 +34,7 @@ describe("PluginService", () => {
       sha256: "1".repeat(64),
     });
 
-    await service.setActiveProvider("asr", "import.asr.ort.test");
+    await service.setActivePlugin("asr", "import.asr.ort.test");
 
     const activeAsr = await service.activePlugin("asr");
     expect(activeAsr?.pluginId).toBe("import.asr.ort.test");
@@ -47,7 +44,7 @@ describe("PluginService", () => {
     const service = new PluginService(new NoopPluginRegistryStore());
     await service.init();
 
-    await service.setActiveProvider("asr", null);
+    await service.setActivePlugin("asr", null);
 
     const activeAsr = await service.activePlugin("asr");
     expect(activeAsr).toBeNull();

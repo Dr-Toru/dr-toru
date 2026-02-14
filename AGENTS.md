@@ -1,45 +1,66 @@
-# Overview
+# Dr. Toru
 
-Dr. Toru is a local-first medical dictation app built with Tauri. The app uses medical ASR for baseline transcription and an optional local LLM pass for various text transforms.
+Offline-first medical dictation app built on Tauri + Vite/TypeScript.
 
-# Stack
+## Concept
 
-- Frontend: Vite + TypeScript (`/src`)
-- Desktop shell: Tauri (`/src-tauri`)
-- ASR runtime: `onnxruntime-web` with local model assets
+Dr. Toru is a modular shell. The core provides a recording-oriented UI,
+audio capture, and local storage. All other capabilities -- ASR, language
+models, OCR -- are imported by the user as **plugins**. The app ships with
+a built-in ASR plugin (MedASR) so transcription works out of the box.
 
-# Key Architecture
+### Plugins
 
-- `/src/main.ts`
-  - Owns DOM wiring, routes, and UI state updates.
-  - Should stay thin. Dictation orchestration should live outside this file.
-- `/src/app/dictation-controller.ts`
-  - Owns mic session flow, ASR queue orchestration, chunk processing, and transcript merge behavior.
-- `/src/app/session-bundles.ts`
-  - Persists completed transcript sessions as bundle artifacts.
-  - Session bundles are the atomic transcript unit.
-- `/src/asr.worker.ts`
-  - Owns ORT model loading, feature extraction, inference, and decode.
-  - Heavy compute belongs here, not on main thread.
-- `/src/asr-messages.ts`
-  - Single source of truth for main-thread and worker message contracts.
-  - Do not duplicate message types elsewhere.
-- `/src/plugins`
-  - Owns plugin manifests, provider selection, and runtime adapter boundary.
-  - ASR runtime should resolve model and vocab assets from plugin manifests.
-- `/src/storage` and `/src-tauri/src/storage.rs`
-  - Owns session bundle persistence contracts and filesystem writes.
+A plugin is a directory containing a manifest and one or more asset files
+(model weights, a llamafile binary, etc.). The manifest declares a **kind**
+that tells the shell what the plugin does and how to run it:
 
-# GitHub Issues Cheatsheet (requires sandbox escalation)
+- `asr` -- speech recognition (currently via onnxruntime-web in a Web Worker)
+- `llm` -- text transforms such as SOAP conversion (currently via llamafile
+  as a Rust-managed child process)
+- Future kinds: `ocr`, etc.
 
-- Find ready issues:
-  - `gh issue list --search "status:ready [query]"`
-- Read issue:
-  - `gh issue view {<number> | <url>}`
-- Set exactly one status label:
-  - Clear all labels shortcut: `gh api -X DELETE repos/spicyneuron/dr-toru/issues/<number>/labels`
-  - Add new status label: `gh issue edit <number> --add-label "<ready|wip|blocked|review|done>"`
-- Proactively manage assigned issues:
-  - Set `wip` when work starts.
-  - Set `blocked` immediately when unable to finish.
-  - Set `review` when implementation/tests are complete.
+Only one plugin per kind is active at a time.
+
+Plugins can span both sides of the stack. Web-side code (`src/plugins`)
+owns manifest loading, provider selection, and runtime adapters. Rust-side
+code (`src-tauri/src/plugins.rs`) owns persistent storage, file import,
+and process-managed runtimes like llamafile.
+
+### Recordings
+
+A **recording** is the atomic unit of data -- one dictation event and
+everything derived from it. Each recording is a directory containing
+**attachments**:
+
+| Attachment | Source |
+|---|---|
+| Captured audio | mic |
+| Raw transcript | ASR plugin |
+| Revised transcript, SOAP note, etc. | LLM plugin |
+
+Attachments track provenance so the UI can show the chain from raw audio
+to final clinical note. New attachment types follow the same pattern.
+
+### Platform
+
+Tauri is the primary target. Storage and plugin import go through Rust
+invoke commands. For web-only dev, noop/in-memory stores keep the frontend
+runnable without the Rust backend.
+
+## Stack
+
+- Frontend: Vite + TypeScript (vanilla, no framework)
+- Desktop shell: Tauri 2
+- ASR runtime: onnxruntime-web (WASM, Web Worker)
+- LLM runtime: llamafile (child process, HTTP)
+
+## Key entry points
+
+| Area | Web | Rust |
+|---|---|---|
+| UI shell and routing | `src/main.ts` | -- |
+| Dictation orchestration | `src/app/dictation-controller.ts` | -- |
+| Plugin system | `src/plugins/` | `src-tauri/src/plugins.rs` |
+| Recording storage | `src/app/session-bundles.ts` | `src-tauri/src/storage.rs` |
+| ASR inference | `src/asr.worker.ts` | -- |

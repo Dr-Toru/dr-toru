@@ -3,17 +3,14 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   BUILTIN_ORT_ASR_PLUGIN,
   PLUGIN_REGISTRY_FORMAT,
-  canProvideRole,
-  type PluginCapability,
+  type PluginKind,
   type PluginManifest,
   type PluginRegistryState,
-  type ProviderRole,
   validatePluginManifest,
 } from "./contracts";
 
 export interface DiscoverPluginsRequest {
-  role?: ProviderRole;
-  requiredCapabilities?: PluginCapability[];
+  kind?: PluginKind;
 }
 
 export interface PluginImportRequest {
@@ -49,8 +46,8 @@ export interface PluginRegistryStore {
   importFromPath(request: PluginImportRequest): Promise<PluginManifest>;
   add(manifest: PluginManifest): Promise<void>;
   remove(pluginId: string): Promise<void>;
-  getActiveProviders(): Promise<Record<ProviderRole, string | null>>;
-  setActiveProvider(role: ProviderRole, pluginId: string | null): Promise<void>;
+  getActivePlugins(): Promise<Record<PluginKind, string | null>>;
+  setActivePlugin(kind: PluginKind, pluginId: string | null): Promise<void>;
   startService(pluginId: string): Promise<PluginServiceHealth>;
   getServiceStatus(pluginId: string): Promise<PluginServiceHealth>;
   stopService(pluginId: string): Promise<PluginServiceHealth>;
@@ -85,17 +82,17 @@ export class TauriPluginRegistryStore implements PluginRegistryStore {
     return invoke<void>("plugin_registry_remove", { pluginId });
   }
 
-  getActiveProviders(): Promise<Record<ProviderRole, string | null>> {
-    return invoke<Record<ProviderRole, string | null>>(
+  getActivePlugins(): Promise<Record<PluginKind, string | null>> {
+    return invoke<Record<PluginKind, string | null>>(
       "plugin_registry_active",
     );
   }
 
-  setActiveProvider(
-    role: ProviderRole,
+  setActivePlugin(
+    kind: PluginKind,
     pluginId: string | null,
   ): Promise<void> {
-    return invoke<void>("plugin_registry_set_active", { role, pluginId });
+    return invoke<void>("plugin_registry_set_active", { kind, pluginId });
   }
 
   startService(pluginId: string): Promise<PluginServiceHealth> {
@@ -115,9 +112,9 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
   private state: PluginRegistryState = {
     format: PLUGIN_REGISTRY_FORMAT,
     plugins: [{ ...BUILTIN_ORT_ASR_PLUGIN }],
-    activeProviders: {
+    activePlugins: {
       asr: BUILTIN_ORT_ASR_PLUGIN.pluginId,
-      transform: null,
+      llm: null,
     },
   };
 
@@ -132,15 +129,9 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
   async discover(
     request: DiscoverPluginsRequest = {},
   ): Promise<PluginManifest[]> {
-    const required = request.requiredCapabilities ?? [];
     return this.state.plugins
       .filter((plugin) =>
-        request.role ? canProvideRole(plugin, request.role) : true,
-      )
-      .filter((plugin) =>
-        required.every((capability) =>
-          plugin.capabilities.includes(capability),
-        ),
+        request.kind ? plugin.kind === request.kind : true,
       )
       .map((plugin) => ({ ...plugin }));
   }
@@ -158,17 +149,8 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
       throw new Error(`Plugin already exists: ${manifest.pluginId}`);
     }
     this.state.plugins.push({ ...manifest });
-    if (
-      this.state.activeProviders.asr === null &&
-      canProvideRole(manifest, "asr")
-    ) {
-      this.state.activeProviders.asr = manifest.pluginId;
-    }
-    if (
-      this.state.activeProviders.transform === null &&
-      canProvideRole(manifest, "transform")
-    ) {
-      this.state.activeProviders.transform = manifest.pluginId;
+    if (this.state.activePlugins[manifest.kind] === null) {
+      this.state.activePlugins[manifest.kind] = manifest.pluginId;
     }
   }
 
@@ -209,12 +191,8 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
       name: baseName,
       version: "1.0.0",
       kind: isLlm ? "llm" : "asr",
-      runtime: isLlm ? "llamafile" : "ort",
       entrypointPath: sourcePath,
       sha256: "0".repeat(64),
-      capabilities: isLlm
-        ? ["llm.transform.correct", "llm.transform.soap"]
-        : ["asr.stream"],
       installedAt: new Date().toISOString(),
       metadata: isLlm
         ? undefined
@@ -236,24 +214,24 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
     this.state.plugins = this.state.plugins.filter(
       (plugin) => plugin.pluginId !== pluginId,
     );
-    if (this.state.activeProviders.asr === pluginId) {
-      this.state.activeProviders.asr = null;
+    if (this.state.activePlugins.asr === pluginId) {
+      this.state.activePlugins.asr = null;
     }
-    if (this.state.activeProviders.transform === pluginId) {
-      this.state.activeProviders.transform = null;
+    if (this.state.activePlugins.llm === pluginId) {
+      this.state.activePlugins.llm = null;
     }
   }
 
-  async getActiveProviders(): Promise<Record<ProviderRole, string | null>> {
-    return { ...this.state.activeProviders };
+  async getActivePlugins(): Promise<Record<PluginKind, string | null>> {
+    return { ...this.state.activePlugins };
   }
 
-  async setActiveProvider(
-    role: ProviderRole,
+  async setActivePlugin(
+    kind: PluginKind,
     pluginId: string | null,
   ): Promise<void> {
     if (pluginId === null) {
-      this.state.activeProviders[role] = null;
+      this.state.activePlugins[kind] = null;
       return;
     }
 
@@ -263,10 +241,10 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
     if (!plugin) {
       throw new Error(`Unknown pluginId: ${pluginId}`);
     }
-    if (!canProvideRole(plugin, role)) {
-      throw new Error(`Plugin ${pluginId} cannot be active for role ${role}`);
+    if (plugin.kind !== kind) {
+      throw new Error(`Plugin ${pluginId} is not of kind ${kind}`);
     }
-    this.state.activeProviders[role] = pluginId;
+    this.state.activePlugins[kind] = pluginId;
   }
 
   async startService(pluginId: string): Promise<PluginServiceHealth> {

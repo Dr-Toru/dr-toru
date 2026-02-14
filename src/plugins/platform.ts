@@ -1,12 +1,7 @@
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 
 import type { AsrClientEvents } from "../asr/client";
-import {
-  supportsFeature,
-  type PluginCapability,
-  type PluginFeature,
-  type PluginManifest,
-} from "./contracts";
+import type { PluginManifest } from "./contracts";
 import { PluginService } from "./service";
 import { createRuntimeAdapter, type RuntimeAdapter } from "./runtime-adapter";
 import {
@@ -29,7 +24,7 @@ export interface PluginPlatformState {
   ready: boolean;
   error: string | null;
   canImport: boolean;
-  features: Record<PluginFeature, boolean>;
+  features: { transcription: boolean; transform: boolean };
   activeAsr: PluginManifest | null;
   activeTransform: PluginManifest | null;
   transformCount: number;
@@ -42,18 +37,6 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function pickTransformCapability(
-  plugin: PluginManifest,
-): PluginCapability | null {
-  if (plugin.capabilities.includes("llm.transform.correct")) {
-    return "llm.transform.correct";
-  }
-  if (plugin.capabilities.includes("llm.transform.soap")) {
-    return "llm.transform.soap";
-  }
-  return null;
-}
-
 export function formatPluginSummary(state: PluginPlatformState): string {
   if (state.error) {
     return `Plugin platform error: ${state.error}`;
@@ -61,15 +44,13 @@ export function formatPluginSummary(state: PluginPlatformState): string {
 
   const lines: string[] = [];
   if (state.activeAsr) {
-    lines.push(`ASR: ${state.activeAsr.name} (${state.activeAsr.runtime})`);
+    lines.push(`ASR: ${state.activeAsr.name}`);
   } else {
     lines.push("ASR: none configured");
   }
 
   if (state.activeTransform) {
-    lines.push(
-      `Transform: ${state.activeTransform.name} (${state.activeTransform.runtime})`,
-    );
+    lines.push(`Transform: ${state.activeTransform.name}`);
   } else if (state.transformCount > 0) {
     lines.push(`Transform: ${state.transformCount} installed, none active`);
   } else {
@@ -231,18 +212,17 @@ export class PluginPlatform {
     return this.snapshot();
   }
 
-  async runTransform(input: string, prompt?: string): Promise<string> {
+  async runTransform(
+    action: string,
+    input: string,
+    prompt?: string,
+  ): Promise<string> {
     const state = await this.init();
     if (state.error) {
       throw new Error(state.error);
     }
     if (!this.activeTransform) {
       throw new Error("No active transform provider configured");
-    }
-
-    const capability = pickTransformCapability(this.activeTransform);
-    if (!capability) {
-      throw new Error("Active transform plugin has no supported capability");
     }
     if (!this.transformHealth?.running) {
       throw new Error("Start the transform service first");
@@ -252,7 +232,7 @@ export class PluginPlatform {
       const runtime = await this.ensureTransformRuntime();
       const result = await runtime.execute({
         type: "llm.transform",
-        capability,
+        action,
         input,
         prompt,
       });
@@ -279,8 +259,8 @@ export class PluginPlatform {
       }
       await this.service.init();
       const nextAsr = await this.service.activePlugin("asr");
-      const transforms = await this.service.discover({ role: "transform" });
-      const nextTransform = await this.service.activePlugin("transform");
+      const transforms = await this.service.discover({ kind: "llm" });
+      const nextTransform = await this.service.activePlugin("llm");
 
       if (this.activeAsr?.pluginId !== nextAsr?.pluginId && this.asrRuntime) {
         await this.asrRuntime.shutdown().catch(() => undefined);
@@ -324,8 +304,8 @@ export class PluginPlatform {
       error: this.initError,
       canImport: this.canImport,
       features: {
-        transcription: supportsFeature(this.activeAsr, "transcription"),
-        transform: supportsFeature(this.activeTransform, "transform"),
+        transcription: this.activeAsr != null,
+        transform: this.activeTransform != null,
       },
       activeAsr: this.activeAsr,
       activeTransform: this.activeTransform,

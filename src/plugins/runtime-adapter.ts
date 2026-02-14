@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 
 import { AsrClient, type AsrClientEvents } from "../asr/client";
-import type { PluginCapability, PluginManifest } from "./contracts";
+import type { PluginManifest } from "./contracts";
 
 export interface RuntimeHealth {
   ready: boolean;
@@ -15,7 +15,7 @@ export type RuntimeExecuteRequest =
     }
   | {
       type: "llm.transform";
-      capability: PluginCapability;
+      action: string;
       input: string;
       prompt?: string;
     };
@@ -72,7 +72,7 @@ export function createRuntimeAdapter(
   manifest: PluginManifest,
   options: RuntimeFactoryOptions,
 ): RuntimeAdapter {
-  if (manifest.runtime === "ort") {
+  if (manifest.kind === "asr") {
     const vocabPath = manifest.metadata?.vocabPath;
     if (typeof vocabPath !== "string" || !vocabPath.trim()) {
       throw new Error(
@@ -171,7 +171,7 @@ class LlamafileRuntimeAdapter implements RuntimeAdapter {
     }
     return invoke<LlamafileExecuteResult>("plugin_runtime_llamafile_execute", {
       pluginId: this.pluginId,
-      capability: request.capability,
+      action: request.action,
       input: request.input,
       prompt: request.prompt ?? null,
     });
