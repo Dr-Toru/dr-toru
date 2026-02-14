@@ -1,5 +1,3 @@
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-
 import type { AsrClientEvents } from "../asr/client";
 import type { PluginManifest } from "./contracts";
 import { PluginService } from "./service";
@@ -133,7 +131,8 @@ export class PluginPlatform {
       return null;
     }
 
-    const sourcePath = await openFileDialog({
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const sourcePath = await open({
       title: "Import Model File or Package",
       multiple: false,
       filters: [
