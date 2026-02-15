@@ -29,6 +29,10 @@ export class TauriRecordingStore implements RecordingStore {
     return invoke<void>("storage_save_recording", { recording });
   }
 
+  readText(path: string): Promise<string> {
+    return invoke<string>("storage_read_text", { path });
+  }
+
   writeAttachmentText(
     input: WriteAttachmentTextInput,
   ): Promise<WriteAttachmentTextResult> {

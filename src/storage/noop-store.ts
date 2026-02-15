@@ -15,6 +15,7 @@ const EMPTY_INIT_RESULT: StorageInitResult = {
 
 export class NoopRecordingStore implements RecordingStore {
   private readonly recordings = new Map<string, Recording>();
+  private readonly textByPath = new Map<string, string>();
 
   async init(): Promise<StorageInitResult> {
     return EMPTY_INIT_RESULT;
@@ -44,11 +45,21 @@ export class NoopRecordingStore implements RecordingStore {
     this.recordings.set(recording.recordingId, recording);
   }
 
+  async readText(path: string): Promise<string> {
+    const text = this.textByPath.get(path);
+    if (text === undefined) {
+      throw new Error(`text not found: ${path}`);
+    }
+    return text;
+  }
+
   async writeAttachmentText(
     input: WriteAttachmentTextInput,
   ): Promise<WriteAttachmentTextResult> {
+    const path = `recordings/${input.recordingId}/attachments/${input.attachmentId}.${input.extension}`;
+    this.textByPath.set(path, input.text);
     return {
-      path: `recordings/${input.recordingId}/attachments/${input.attachmentId}.${input.extension}`,
+      path,
       sizeBytes: input.text.length,
     };
   }

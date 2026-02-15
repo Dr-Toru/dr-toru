@@ -46,7 +46,6 @@ export class DictationController {
     try {
       const provider = await this.options.pluginPlatform.loadAsr();
       this.options.onStatus(`${provider.name} loaded. Ready to record.`);
-      this.options.onTranscript('Model loaded. Click "Record" to start.');
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -108,9 +107,7 @@ export class DictationController {
       await asrQueue.waitForIdle();
 
       let saveFailed = false;
-      if (!this.transcriptText) {
-        this.options.onTranscript("(No speech detected)");
-      } else if (this.options.onRecordingComplete) {
+      if (this.transcriptText && this.options.onRecordingComplete) {
         try {
           await this.options.onRecordingComplete(this.transcriptText);
         } catch (error) {

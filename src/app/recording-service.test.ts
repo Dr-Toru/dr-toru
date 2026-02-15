@@ -1,38 +1,80 @@
 import { describe, expect, it } from "vitest";
 
+import { createRecording, createTextAttachment } from "../domain/recording";
 import { NoopRecordingStore } from "../storage/noop-store";
 import { RecordingService } from "./recording-service";
 
 describe("RecordingService", () => {
-  it("persists transcript text as source attachment in a new recording", async () => {
+  it("reuses the same transcript attachment within a recording context", async () => {
     const store = new NoopRecordingStore();
     const service = new RecordingService(store);
+    const recordingId = service.createDraftRecordingId();
 
-    const result = await service.persistTranscript("Hello world");
-    const recording = await store.getRecording(result.recordingId);
+    const first = await service.saveTranscript({
+      recordingId,
+      transcript: "Hello world",
+    });
+    const second = await service.saveTranscript({
+      recordingId,
+      attachmentId: first.attachmentId,
+      transcript: "Hello world\nSecond line",
+    });
+    const recording = await store.getRecording(recordingId);
 
     expect(recording).not.toBeNull();
-    expect(recording?.recordingId).toBe(result.recordingId);
-    expect(recording?.activeAttachmentId).toBe(result.attachmentId);
+    expect(recording?.recordingId).toBe(recordingId);
+    expect(second.recordingId).toBe(recordingId);
+    expect(second.attachmentId).toBe(first.attachmentId);
+    expect(recording?.activeAttachmentId).toBe(first.attachmentId);
     expect(recording?.attachments).toHaveLength(1);
-    expect(recording?.attachments[0]?.attachmentId).toBe(result.attachmentId);
+    expect(recording?.attachments[0]?.attachmentId).toBe(first.attachmentId);
     expect(recording?.attachments[0]?.kind).toBe("transcript_raw");
     expect(recording?.attachments[0]?.role).toBe("source");
     expect(recording?.attachments[0]?.createdBy).toBe("asr");
     expect(recording?.attachments[0]?.metadata).toMatchObject({
-      sizeBytes: 11,
+      sizeBytes: "Hello world\nSecond line".length,
     });
     expect(recording?.attachments[0]?.path).toContain(
-      `recordings/${result.recordingId}/attachments/`,
+      `recordings/${recordingId}/attachments/`,
     );
+
+    const loaded = await service.loadTranscript(recordingId);
+    expect(loaded?.attachmentId).toBe(first.attachmentId);
+    expect(loaded?.transcript).toBe("Hello world\nSecond line");
   });
 
   it("rejects empty transcript input", async () => {
     const store = new NoopRecordingStore();
     const service = new RecordingService(store);
+    const recordingId = service.createDraftRecordingId();
 
-    await expect(service.persistTranscript("   ")).rejects.toThrow(
-      "transcript is required",
-    );
+    await expect(
+      service.saveTranscript({ recordingId, transcript: "   " }),
+    ).rejects.toThrow("transcript is required");
+  });
+
+  it("drops attachment binding when transcript read fails", async () => {
+    const store = new NoopRecordingStore();
+    const service = new RecordingService(store);
+    const recordingId = service.createDraftRecordingId();
+    const createdAt = new Date().toISOString();
+    const recording = createRecording({ recordingId, createdAt });
+    const attachment = createTextAttachment({
+      attachmentId: "att-read-fail",
+      kind: "transcript_raw",
+      role: "source",
+      createdAt,
+      createdBy: "asr",
+      path: `recordings/${recordingId}/attachments/missing.txt`,
+      metadata: {},
+    });
+    recording.attachments.push(attachment);
+    recording.activeAttachmentId = attachment.attachmentId;
+    await store.saveRecording(recording);
+
+    const loaded = await service.loadTranscript(recordingId);
+    expect(loaded).not.toBeNull();
+    expect(loaded?.attachmentId).toBeNull();
+    expect(loaded?.transcript).toBe("");
   });
 });
