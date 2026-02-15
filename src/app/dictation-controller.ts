@@ -266,8 +266,9 @@ export function mergeChunkText(currentText: string, nextText: string): string {
     }
   }
 
+  const separator = overlapCount > 0 ? " " : "\n";
   const suffix = nextWords.slice(overlapCount).join(" ");
-  return suffix ? `${currentText} ${suffix}` : currentText;
+  return suffix ? `${currentText}${separator}${suffix}` : currentText;
 }
 
 function normalizeMergeToken(token: string): string {

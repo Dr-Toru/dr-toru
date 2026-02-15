@@ -203,7 +203,9 @@ async function loadKenLM(kenlmDir: string, lmUrl: string): Promise<void> {
     send({ type: "status", message: "Loading language model..." });
 
     // Dynamic import of the Emscripten glue module
-    const factory = (await import(/* @vite-ignore */ `${kenlmDir}kenlm.js`)) as {
+    const factory = (await import(
+      /* @vite-ignore */ `${kenlmDir}kenlm.js`
+    )) as {
       default: () => Promise<KenLMModule>;
     };
     const mod = await factory.default();
@@ -245,7 +247,10 @@ async function loadKenLM(kenlmDir: string, lmUrl: string): Promise<void> {
     console.warn("KenLM load failed, using greedy fallback:", msg);
     kenlmModule = null;
     kenlmStateSize = 0;
-    send({ type: "status", message: "Language model unavailable — using basic decoding" });
+    send({
+      type: "status",
+      message: "Language model unavailable — using basic decoding",
+    });
   }
 }
 
@@ -296,7 +301,13 @@ async function transcribe(message: TranscribeRequest): Promise<void> {
     if (kenlmModule && kenlmStateSize > 0) {
       try {
         const logProbs = logSoftmax(rawLogits, frames, vocabSize);
-        text = decodeBeamSearchLM(logProbs, frames, vocabSize, vocab, kenlmModule);
+        text = decodeBeamSearchLM(
+          logProbs,
+          frames,
+          vocabSize,
+          vocab,
+          kenlmModule,
+        );
         if (!text) {
           text = decodeCTC(rawLogits, logits.dims, vocab);
         }
@@ -633,7 +644,8 @@ function decodeBeamSearchLM(
           // Blank: prefix stays the same, transitions to blank-ending
           const key = beamKey(beam);
           const existing = nextMap.get(key);
-          const newBlank = logsumexp(beam.logProbBlank, beam.logProbNonBlank) + logP;
+          const newBlank =
+            logsumexp(beam.logProbBlank, beam.logProbNonBlank) + logP;
           if (existing) {
             existing.logProbBlank = logsumexp(existing.logProbBlank, newBlank);
           } else {
@@ -661,8 +673,11 @@ function decodeBeamSearchLM(
           // 1. Extend from blank-ending → new character (l + c)
           if (beam.logProbBlank > -Infinity) {
             const extended = extendBeam(
-              beam, c, tokenStr,
-              beam.logProbBlank + logP, mod,
+              beam,
+              c,
+              tokenStr,
+              beam.logProbBlank + logP,
+              mod,
             );
             mergeInto(nextMap, extended, mod);
           }
@@ -672,7 +687,10 @@ function decodeBeamSearchLM(
             const existing = nextMap.get(key);
             const newNb = beam.logProbNonBlank + logP;
             if (existing) {
-              existing.logProbNonBlank = logsumexp(existing.logProbNonBlank, newNb);
+              existing.logProbNonBlank = logsumexp(
+                existing.logProbNonBlank,
+                newNb,
+              );
             } else {
               nextMap.set(key, {
                 ...beam,
@@ -687,8 +705,11 @@ function decodeBeamSearchLM(
           const prevTotal = logsumexp(beam.logProbBlank, beam.logProbNonBlank);
           if (prevTotal > -Infinity) {
             const extended = extendBeam(
-              beam, c, tokenStr,
-              prevTotal + logP, mod,
+              beam,
+              c,
+              tokenStr,
+              prevTotal + logP,
+              mod,
             );
             mergeInto(nextMap, extended, mod);
           }
@@ -762,14 +783,19 @@ function extendBeam(
   mod: KenLMModule,
 ): Beam {
   // Score this token with KenLM
-  const { logProb, newStatePtr } = scoreTokenKenLM(mod, parent.lmStatePtr, tokenStr);
+  const { logProb, newStatePtr } = scoreTokenKenLM(
+    mod,
+    parent.lmStatePtr,
+    tokenStr,
+  );
 
   // Build readable text: ▁ prefix → space-separated word boundary
   const isWordBoundary = tokenStr.startsWith("▁");
   const textPart = isWordBoundary ? tokenStr.slice(1) : tokenStr;
-  const text = isWordBoundary && parent.text
-    ? parent.text + " " + textPart
-    : parent.text + textPart;
+  const text =
+    isWordBoundary && parent.text
+      ? parent.text + " " + textPart
+      : parent.text + textPart;
 
   return {
     text,
@@ -783,16 +809,15 @@ function extendBeam(
 }
 
 /** Merge a new beam into the next-frame beam map. */
-function mergeInto(
-  map: Map<string, Beam>,
-  beam: Beam,
-  mod: KenLMModule,
-): void {
+function mergeInto(map: Map<string, Beam>, beam: Beam, mod: KenLMModule): void {
   const key = beamKey(beam);
   const existing = map.get(key);
   if (existing) {
     existing.logProbBlank = logsumexp(existing.logProbBlank, beam.logProbBlank);
-    existing.logProbNonBlank = logsumexp(existing.logProbNonBlank, beam.logProbNonBlank);
+    existing.logProbNonBlank = logsumexp(
+      existing.logProbNonBlank,
+      beam.logProbNonBlank,
+    );
     // Free the duplicate state
     mod._free(beam.lmStatePtr);
   } else {

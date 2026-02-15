@@ -130,7 +130,9 @@ All new code lives in the web worker per AGENTS.md. The main thread and message 
     try {
       const createKenLM = await import("../public/kenlm/kenlm.js");
       kenlmModule = await createKenLM();
-      const lmData = await loadBinaryWithCache(message.modelsDir + "lm_6.kenlm");
+      const lmData = await loadBinaryWithCache(
+        message.modelsDir + "lm_6.kenlm",
+      );
       kenlmModule.FS.writeFile("/model.kenlm", new Uint8Array(lmData));
       kenlmModel = new kenlmModule.KenLMScorer();
       kenlmModel.loadModel("/model.kenlm", 6);
@@ -145,6 +147,7 @@ All new code lives in the web worker per AGENTS.md. The main thread and message 
 - [ ] Write a smoke test: load KenLM in a test harness, score "the patient presented with chest pain", verify a finite log-probability is returned
 
 **Success criteria for Phase 1:**
+
 - KenLM WASM loads in a web worker without crashing
 - `scoreWord()` returns valid log-probabilities for English words
 - Total load time increase is measurable and documented
@@ -204,14 +207,14 @@ All new code lives in the web worker per AGENTS.md. The main thread and message 
 
   ```typescript
   interface Beam {
-    text: string;           // Completed, LM-scored words
-    partialWord: string;    // Subword tokens accumulated, not yet a complete word
-    lastTokenId: number;    // Last emitted token ID (for repeat detection)
-    logProbBlank: number;   // log P_b(t, prefix) — ends in blank
+    text: string; // Completed, LM-scored words
+    partialWord: string; // Subword tokens accumulated, not yet a complete word
+    lastTokenId: number; // Last emitted token ID (for repeat detection)
+    logProbBlank: number; // log P_b(t, prefix) — ends in blank
     logProbNonBlank: number; // log P_nb(t, prefix) — ends in non-blank
-    lmScore: number;        // Accumulated LM log-probability
-    lmStatePtr: number;     // KenLM state pointer (WASM heap)
-    wordCount: number;      // For word insertion bonus (beta)
+    lmScore: number; // Accumulated LM log-probability
+    lmStatePtr: number; // KenLM state pointer (WASM heap)
+    wordCount: number; // For word insertion bonus (beta)
   }
   ```
 
@@ -235,6 +238,7 @@ All new code lives in the web worker per AGENTS.md. The main thread and message 
   - Return best beam's `text + partialWord`
 
 - [x] Implement `logsumexp()` helper
+
   ```typescript
   function logsumexp(a: number, b: number): number {
     if (a === -Infinity) return b;
@@ -266,6 +270,7 @@ All new code lives in the web worker per AGENTS.md. The main thread and message 
   - Clear cache per `transcribe()` call
 
 - [x] Wire decoder selection in `transcribe()`
+
   ```typescript
   // src/asr.worker.ts transcribe()
   const logits = outputs.logits;
@@ -286,13 +291,14 @@ All new code lives in the web worker per AGENTS.md. The main thread and message 
 - [x] Add decoder configuration constants
   ```typescript
   const BEAM_WIDTH = 8;
-  const LM_ALPHA = 0.5;      // LM weight
-  const LM_BETA = 1.5;       // Word insertion bonus
+  const LM_ALPHA = 0.5; // LM weight
+  const LM_BETA = 1.5; // Word insertion bonus
   const MIN_TOKEN_LOGP = -5.0; // Token pruning threshold
   const BEAM_PRUNE_LOGP = -10.0; // Beam score pruning threshold
   ```
 
 **Success criteria for Phase 2:**
+
 - Beam search produces text output for all test inputs without errors
 - Output quality is subjectively better than greedy on sample medical dictation
 - Greedy decoder still works when KenLM is unavailable (fallback path)
@@ -380,16 +386,16 @@ All new code lives in the web worker per AGENTS.md. The main thread and message 
 
 ## Dependencies & Risks
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| KenLM WASM build fails / too complex | **High** | Spike Phase 1 first. If blocked, evaluate Rust WASM alternative or pure TS n-gram scorer. |
-| `lm_6.kenlm` is too large (>200MB) | **High** | Measure immediately. If too large, investigate quantized/pruned LM or request smaller model from google/medasr. |
-| KenLM binary format incompatible with WASM (endianness) | **Medium** | Test early. If incompatible, rebuild binary using Emscripten-compiled `build_binary`. |
-| Beam search too slow for real-time on target hardware | **Medium** | Start with beam_width=8, reduce if needed. Token pruning (-5.0 threshold) limits candidates to ~5-20 per frame. |
-| LM penalizes correct medical terminology | **Medium** | Tune alpha down. The `lm_6.kenlm` from google/medasr should be trained on medical text — verify. |
-| `mergeChunkText` breaks with LM-rescored output | **Medium** | Test early in Phase 3. May need to redesign merge strategy or reduce overlap. |
-| WASM memory limit hit (ONNX 402MB + KenLM model + beam buffers) | **Low** | Monitor with `performance.memory`. Set `MAXIMUM_MEMORY=512MB` for KenLM WASM. |
-| Boost dependency makes Emscripten build painful | **Low** | Modern KenLM has reduced Boost deps. For library-only build (no executables), Boost may be eliminable. |
+| Risk                                                            | Severity   | Mitigation                                                                                                      |
+| --------------------------------------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------- |
+| KenLM WASM build fails / too complex                            | **High**   | Spike Phase 1 first. If blocked, evaluate Rust WASM alternative or pure TS n-gram scorer.                       |
+| `lm_6.kenlm` is too large (>200MB)                              | **High**   | Measure immediately. If too large, investigate quantized/pruned LM or request smaller model from google/medasr. |
+| KenLM binary format incompatible with WASM (endianness)         | **Medium** | Test early. If incompatible, rebuild binary using Emscripten-compiled `build_binary`.                           |
+| Beam search too slow for real-time on target hardware           | **Medium** | Start with beam_width=8, reduce if needed. Token pruning (-5.0 threshold) limits candidates to ~5-20 per frame. |
+| LM penalizes correct medical terminology                        | **Medium** | Tune alpha down. The `lm_6.kenlm` from google/medasr should be trained on medical text — verify.                |
+| `mergeChunkText` breaks with LM-rescored output                 | **Medium** | Test early in Phase 3. May need to redesign merge strategy or reduce overlap.                                   |
+| WASM memory limit hit (ONNX 402MB + KenLM model + beam buffers) | **Low**    | Monitor with `performance.memory`. Set `MAXIMUM_MEMORY=512MB` for KenLM WASM.                                   |
+| Boost dependency makes Emscripten build painful                 | **Low**    | Modern KenLM has reduced Boost deps. For library-only build (no executables), Boost may be eliminable.          |
 
 ## Alternative Approaches Considered
 

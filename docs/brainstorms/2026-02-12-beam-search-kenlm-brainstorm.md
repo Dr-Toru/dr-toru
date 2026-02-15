@@ -9,6 +9,7 @@
 Replace the current greedy CTC decoder (`decodeCTC` in `asr.worker.ts`) with a CTC prefix beam search decoder that uses a 6-gram KenLM language model for rescoring. This targets a ~25% WER improvement (matching results from the Python/Transformers reference implementation).
 
 **Components:**
+
 1. **KenLM compiled to WASM** — loaded in the web worker alongside the ONNX model
 2. **Minimal CTC prefix beam search** — ~150-200 lines of TypeScript in the worker
 3. **`lm_6.kenlm` from `google/medasr`** — the official pre-trained 6-gram LM, bundled in `public/models/`
@@ -19,6 +20,7 @@ Replace the current greedy CTC decoder (`decodeCTC` in `asr.worker.ts`) with a C
 **KenLM WASM + minimal TS beam search** was chosen over pure-TS n-gram scoring (too slow, subtle to implement correctly) and Rust/Tauri sidecar (breaks the web-worker architecture).
 
 Rationale:
+
 - KenLM is battle-tested and fast even when compiled to WASM via Emscripten
 - Keeps all heavy compute in `asr.worker.ts` per AGENTS.md guidance
 - The `decodeCTC` function is an isolated replacement target — same inputs (logits, dims, vocab), same output (string)
@@ -69,10 +71,12 @@ Rationale:
 ## SentencePiece Vocab Considerations
 
 The MedASR vocab uses `▁` (U+2581) as word-boundary markers. The Python reference handled this by:
+
 - Replacing `▁` with `#` for pyctcdecode compatibility
 - Prefixing tokens so pyctcdecode treats them as "words"
 
 For our minimal implementation, we need to:
+
 - Map SentencePiece tokens to word boundaries for KenLM word-level scoring
 - Handle the blank token (`<epsilon>`, id=0) and special tokens correctly in beam expansion
 - Apply log-softmax to raw logits before beam scoring (currently not done in greedy)
@@ -89,6 +93,7 @@ For our minimal implementation, we need to:
 ## Reference Implementation
 
 The Python/Transformers version (separate repo) achieved ~25% WER improvement using:
+
 - `pyctcdecode` wrapping a custom `LasrCtcBeamSearchDecoder`
 - Beam width of 8
 - `lm_6.kenlm` 6-gram language model

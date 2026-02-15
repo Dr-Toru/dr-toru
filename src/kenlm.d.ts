@@ -31,7 +31,11 @@ export interface KenLMModule {
    * Writes the new state to |outStatePtr|.
    * Returns log10 probability.
    */
-  _kenlm_score_word(inStatePtr: WasmPtr, wordPtr: WasmPtr, outStatePtr: WasmPtr): number;
+  _kenlm_score_word(
+    inStatePtr: WasmPtr,
+    wordPtr: WasmPtr,
+    outStatePtr: WasmPtr,
+  ): number;
 
   /** Returns 1 if word is out-of-vocabulary, 0 otherwise. */
   _kenlm_is_oov(wordPtr: WasmPtr): number;
