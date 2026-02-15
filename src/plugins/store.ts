@@ -83,15 +83,10 @@ export class TauriPluginRegistryStore implements PluginRegistryStore {
   }
 
   getActivePlugins(): Promise<Record<PluginKind, string | null>> {
-    return invoke<Record<PluginKind, string | null>>(
-      "plugin_registry_active",
-    );
+    return invoke<Record<PluginKind, string | null>>("plugin_registry_active");
   }
 
-  setActivePlugin(
-    kind: PluginKind,
-    pluginId: string | null,
-  ): Promise<void> {
+  setActivePlugin(kind: PluginKind, pluginId: string | null): Promise<void> {
     return invoke<void>("plugin_registry_set_active", { kind, pluginId });
   }
 
@@ -130,9 +125,7 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
     request: DiscoverPluginsRequest = {},
   ): Promise<PluginManifest[]> {
     return this.state.plugins
-      .filter((plugin) =>
-        request.kind ? plugin.kind === request.kind : true,
-      )
+      .filter((plugin) => (request.kind ? plugin.kind === request.kind : true))
       .map((plugin) => ({ ...plugin }));
   }
 

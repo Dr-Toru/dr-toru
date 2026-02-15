@@ -186,9 +186,7 @@ export class PluginPlatform {
     return result.text;
   }
 
-  async setLlmServiceRunning(
-    running: boolean,
-  ): Promise<PluginPlatformState> {
+  async setLlmServiceRunning(running: boolean): Promise<PluginPlatformState> {
     const state = await this.init();
     if (state.error) {
       throw new Error(state.error);
@@ -266,10 +264,7 @@ export class PluginPlatform {
         this.asrRuntime = null;
         this.asrReady = false;
       }
-      if (
-        this.activeLlm?.pluginId !== nextLlm?.pluginId &&
-        this.llmRuntime
-      ) {
+      if (this.activeLlm?.pluginId !== nextLlm?.pluginId && this.llmRuntime) {
         await this.llmRuntime.shutdown().catch(() => undefined);
         this.llmRuntime = null;
       }

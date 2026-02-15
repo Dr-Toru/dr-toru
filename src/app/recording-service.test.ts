@@ -19,7 +19,9 @@ describe("RecordingService", () => {
     expect(recording?.attachments[0]?.kind).toBe("transcript_raw");
     expect(recording?.attachments[0]?.role).toBe("source");
     expect(recording?.attachments[0]?.createdBy).toBe("asr");
-    expect(recording?.attachments[0]?.metadata).toMatchObject({ sizeBytes: 11 });
+    expect(recording?.attachments[0]?.metadata).toMatchObject({
+      sizeBytes: 11,
+    });
     expect(recording?.attachments[0]?.path).toContain(
       `recordings/${result.recordingId}/attachments/`,
     );

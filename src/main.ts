@@ -321,9 +321,7 @@ function updateLlmControls(): void {
   importPluginBtn.disabled = !canImport;
   toggleLlmBtn.disabled = !hasProvider;
   runLlmBtn.disabled = !hasProvider || !running;
-  toggleLlmBtn.textContent = running
-    ? "Stop LLM Service"
-    : "Start LLM Service";
+  toggleLlmBtn.textContent = running ? "Stop LLM Service" : "Start LLM Service";
 }
 
 function renderPluginStatus(): void {
