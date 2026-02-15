@@ -6,11 +6,13 @@ export const RECORDINGS_CHANGED_EVENT = "toru:recordings-changed";
 export interface ListControllerOptions {
   container: HTMLElement;
   store: RecordingStore;
+  onSelect?: (recordingId: string) => void;
 }
 
 export class ListController {
   private readonly container: HTMLElement;
   private readonly store: RecordingStore;
+  private readonly onSelect: (recordingId: string) => void;
   private listening = false;
   private refreshSeq = 0;
   private readonly onChanged = (): void => {
@@ -20,6 +22,7 @@ export class ListController {
   constructor(options: ListControllerOptions) {
     this.container = options.container;
     this.store = options.store;
+    this.onSelect = options.onSelect ?? (() => undefined);
   }
 
   mount(): void {
@@ -57,14 +60,23 @@ export class ListController {
       return;
     }
 
-    this.container.replaceChildren(...summaries.map(renderItem));
+    this.container.replaceChildren(
+      ...summaries.map((summary) => renderItem(summary, this.onSelect)),
+    );
   }
 }
 
-function renderItem(summary: RecordingSummary): HTMLElement {
-  const el = document.createElement("div");
+function renderItem(
+  summary: RecordingSummary,
+  onSelect: (recordingId: string) => void,
+): HTMLElement {
+  const el = document.createElement("button");
+  el.type = "button";
   el.className = "recording-item";
   el.dataset.recordingId = summary.recordingId;
+  el.addEventListener("click", () => {
+    onSelect(summary.recordingId);
+  });
 
   const date = document.createElement("span");
   date.className = "recording-date";

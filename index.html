@@ -8,43 +8,33 @@
     <script type="module" src="/src/main.ts" defer></script>
   </head>
   <body>
-    <section id="screen-splash" class="splash-screen" aria-hidden="false">
-      <p class="splash-title">Dr. Toru</p>
-      <p class="splash-subtitle">Preparing local workspace...</p>
-    </section>
-
     <main id="app-shell" class="app-shell">
       <header class="app-header">
         <h1>Dr. Toru</h1>
-        <button
-          id="settingsBtn"
-          class="header-btn"
-          type="button"
-          aria-label="Open settings"
-        >
-          Settings
-        </button>
+        <div class="header-tools">
+          <span id="asrLoading" class="asr-loading" hidden>Loading ASR...</span>
+          <button
+            id="settingsBtn"
+            class="header-btn"
+            type="button"
+            aria-label="Open settings"
+          >
+            Settings
+          </button>
+        </div>
       </header>
+      <p id="appError" class="app-error" hidden></p>
 
       <div class="screen-stack">
-        <section
-          id="screen-transcription"
-          class="screen"
-          data-screen="transcription"
-        >
-          <h2>Transcription</h2>
-          <div class="actions">
-            <button id="loadBtn" type="button">Load Model</button>
-            <button id="recordBtn" type="button" disabled>Record</button>
-          </div>
-
-          <div id="status" class="status">
-            Status: Loading model in background...
-          </div>
-
-          <h3>Transcript</h3>
-          <div id="transcript" class="transcript">
-            Model is loading in the background.
+        <section id="screen-recording" class="screen" data-screen="recording">
+          <textarea
+            id="transcript"
+            class="transcript recording-transcript"
+            readonly
+            aria-label="Running transcript"
+          ></textarea>
+          <div class="recording-actions">
+            <button id="recordBtn" type="button" disabled>Transcribe</button>
           </div>
         </section>
 
@@ -95,8 +85,8 @@
 
       <nav class="shell-nav" aria-label="Primary">
         <button type="button" class="nav-btn" data-route="list">List</button>
-        <button type="button" class="nav-btn" data-route="transcription">
-          Transcribe
+        <button type="button" class="nav-btn" data-route="recording">
+          Record
         </button>
       </nav>
     </main>

@@ -39,6 +39,26 @@ body {
   background: #ffffff;
 }
 
+.header-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.asr-loading {
+  font-size: 0.84rem;
+  color: #4b5563;
+}
+
+.app-error {
+  margin: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 0.9rem;
+}
+
 h1,
 h2,
 h3 {
@@ -55,8 +75,7 @@ h1 {
 .screen-stack {
   position: relative;
   flex: 1;
-  overflow: auto;
-  padding: 16px;
+  min-height: 0;
 }
 
 .shell-nav {
@@ -105,6 +124,7 @@ button {
   background: #2563eb;
   border-color: #2563eb;
   color: #ffffff;
+  width: 100%;
 }
 
 .header-btn {
@@ -123,6 +143,9 @@ button {
 
 .screen {
   min-height: 100%;
+  height: 100%;
+  overflow: auto;
+  padding: 16px;
 }
 
 .screen.fade-in {
@@ -148,21 +171,36 @@ button {
   font-size: 0.92rem;
 }
 
+.screen[data-screen="recording"] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
 .transcript {
-  min-height: 120px;
-  margin-top: 8px;
   padding: 14px;
   border-radius: 10px;
   border: 1px solid #d1d5db;
   background: #ffffff;
-  white-space: pre-wrap;
   color: #111827;
 }
 
 textarea.transcript {
   width: 100%;
   font: inherit;
-  resize: vertical;
+  resize: none;
+}
+
+.recording-transcript {
+  flex: 1;
+  min-height: 0;
+  white-space: pre-wrap;
+}
+
+.recording-actions {
+  margin-top: auto;
+  padding-top: 4px;
 }
 
 .placeholder {
@@ -174,8 +212,15 @@ textarea.transcript {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  width: 100%;
   padding: 12px 14px;
   border-bottom: 1px solid #e5e7eb;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  border-radius: 0;
+  background: #ffffff;
+  text-align: left;
 }
 
 .recording-item:last-child {
@@ -190,37 +235,6 @@ textarea.transcript {
 .recording-attachment-count {
   color: #6b7280;
   font-size: 0.86rem;
-}
-
-.splash-screen {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: grid;
-  place-content: center;
-  gap: 8px;
-  margin: 0;
-  background: #ffffff;
-  text-align: center;
-  opacity: 1;
-  transition: opacity 280ms ease;
-}
-
-.splash-screen.is-fading {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.splash-title {
-  margin: 0;
-  color: #111827;
-  font-size: 1.1rem;
-  font-weight: 600;
-}
-
-.splash-subtitle {
-  margin: 0;
-  color: #6b7280;
 }
 
 button:disabled {

@@ -365,6 +365,18 @@ pub fn storage_save_recording(app: AppHandle, recording: Recording) -> Result<()
 }
 
 #[tauri::command]
+pub fn storage_read_text(app: AppHandle, path: String) -> Result<String, String> {
+    if !is_safe_relative_path(&path) || !path.starts_with("recordings/") {
+        return Err("Invalid path".to_string());
+    }
+
+    let paths = storage_paths(&app)?;
+    ensure_storage(&paths)?;
+    let full_path = paths.root.join(&path);
+    fs::read_to_string(full_path).map_err(err_to_string)
+}
+
+#[tauri::command]
 pub fn storage_write_attachment_text(
     app: AppHandle,
     request: WriteAttachmentTextRequest,

@@ -1,23 +1,25 @@
 import { AudioCapture } from "./audio/capture";
 import { DictationController } from "./app/dictation-controller";
-import { LlmController } from "./app/llm-controller";
 import { ListController, fireRecordingsChanged } from "./app/list";
+import { LlmController } from "./app/llm-controller";
 import { RecordingService } from "./app/recording-service";
+import { RecordingViewController } from "./app/recording-view-controller";
+import {
+  isTabRouteName,
+  parseRoute,
+  routeKey,
+  routeToHash,
+  type AppRoute,
+  type RouteName,
+} from "./app/router";
 import {
   createPluginPlatform,
-  formatPluginSummary,
   formatLlmStatus,
+  formatPluginSummary,
   type PluginPlatform,
   type PluginPlatformState,
 } from "./plugins";
 import { getRecordingStore } from "./storage";
-
-const ROUTES = ["transcription", "list", "settings"] as const;
-type RouteName = (typeof ROUTES)[number];
-const TAB_ROUTES = ["list", "transcription"] as const;
-type TabRoute = (typeof TAB_ROUTES)[number];
-const DEFAULT_ROUTE: TabRoute = "transcription";
-const SPLASH_FADE_MS = 280;
 
 const CHUNK_SECS = 4;
 const STRIDE_SECS = 1;
@@ -41,47 +43,44 @@ let pluginPlatform: PluginPlatform;
 let pluginState: PluginPlatformState | null = null;
 let dictation: DictationController;
 let llm: LlmController;
-let recordingService: RecordingService;
+let recordingView: RecordingViewController;
 let listController: ListController;
 
-let statusEl: HTMLElement;
-let transcriptEl: HTMLElement;
 let pluginSummaryEl: HTMLElement;
 let llmStatusEl: HTMLElement;
 let llmOutputEl: HTMLElement;
-let loadBtn: HTMLButtonElement;
-let recordBtn: HTMLButtonElement;
+let appErrorEl: HTMLElement;
+let asrLoadingEl: HTMLElement;
 let settingsBtn: HTMLButtonElement;
 let importPluginBtn: HTMLButtonElement;
 let toggleLlmBtn: HTMLButtonElement;
 let runLlmBtn: HTMLButtonElement;
 let llmInputEl: HTMLTextAreaElement;
 let navBtns: HTMLButtonElement[] = [];
-let currentRoute: RouteName | null = null;
 let screenEls: Record<RouteName, HTMLElement>;
-let lastMainRoute: TabRoute = DEFAULT_ROUTE;
-let splashEl: HTMLElement;
-let splashHideTimer: number | null = null;
+let currentRoute: AppRoute | null = null;
+let currentRouteStateKey = "";
+let lastMainRoute: AppRoute = { name: "list" };
+let routeSeq = 0;
+let asrLoadTask: Promise<boolean> | null = null;
 
 window.addEventListener("DOMContentLoaded", () => {
-  statusEl = mustEl("status");
-  transcriptEl = mustEl("transcript");
   pluginSummaryEl = mustEl("pluginSummary");
   llmStatusEl = mustEl("llmServiceStatus");
   llmOutputEl = mustEl("llmOutput");
-  loadBtn = mustBtn("loadBtn");
-  recordBtn = mustBtn("recordBtn");
+  appErrorEl = mustEl("appError");
+  asrLoadingEl = mustEl("asrLoading");
   settingsBtn = mustBtn("settingsBtn");
   importPluginBtn = mustBtn("importPluginBtn");
   toggleLlmBtn = mustBtn("toggleLlmBtn");
   runLlmBtn = mustBtn("runLlmBtn");
   llmInputEl = mustTextarea("llmInput");
-  splashEl = mustEl("screen-splash");
   screenEls = {
-    transcription: mustEl("screen-transcription"),
+    recording: mustEl("screen-recording"),
     list: mustEl("screen-list"),
     settings: mustEl("screen-settings"),
   };
+
   navBtns = Array.from(
     document.querySelectorAll<HTMLButtonElement>(".nav-btn[data-route]"),
   );
@@ -89,51 +88,49 @@ window.addEventListener("DOMContentLoaded", () => {
   for (const navBtn of navBtns) {
     navBtn.addEventListener("click", () => {
       const route = navBtn.dataset.route;
-      if (!isTabRoute(route)) {
+      if (!isTabRouteName(route)) {
         return;
       }
-      setRoute(route, true);
+      const nextRoute: AppRoute =
+        route === "recording"
+          ? { name: "recording", recordingId: null }
+          : { name: "list" };
+      void setRoute(nextRoute, true);
     });
   }
 
   settingsBtn.addEventListener("click", () => {
-    if (currentRoute === "settings") {
-      setRoute(lastMainRoute, true);
+    if (currentRoute?.name === "settings") {
+      void setRoute(lastMainRoute, true);
       return;
     }
-    setRoute("settings", true);
+    void setRoute({ name: "settings" }, true);
   });
 
   const store = getRecordingStore();
-  recordingService = new RecordingService(store);
+  const recordingService = new RecordingService(store);
+
+  recordingView = new RecordingViewController({
+    transcriptEl: mustTextarea("transcript"),
+    transcribeBtn: mustBtn("recordBtn"),
+    recordingService,
+    onToggleRecording: () => toggleRecording(),
+    onRecordingsChanged: () => fireRecordingsChanged(),
+    onError: (error, context) => reportUnexpectedError(error, context),
+  });
+
   listController = new ListController({
     container: mustEl("recording-list"),
     store,
+    onSelect: (recordingId) => {
+      void setRoute({ name: "recording", recordingId }, true);
+    },
   });
 
   window.addEventListener("hashchange", () => {
-    setRoute(routeFromHash(window.location.hash), false);
+    void setRoute(parseRoute(window.location.hash), false);
   });
 
-  const initialHash = hashValue(window.location.hash);
-  if (initialHash) {
-    hideSplash(false);
-    setRoute(routeFromHash(window.location.hash), true);
-  } else {
-    setRoute(DEFAULT_ROUTE, true);
-    showSplash();
-  }
-
-  loadBtn.addEventListener("click", () => {
-    void loadModel().catch((error) =>
-      reportUnexpectedError(error, "Load model failed"),
-    );
-  });
-  recordBtn.addEventListener("click", () => {
-    void toggleRecording().catch((error) =>
-      reportUnexpectedError(error, "Recording failed"),
-    );
-  });
   importPluginBtn.addEventListener("click", () => {
     void importPlugin().catch((error) =>
       reportUnexpectedError(error, "Plugin import failed"),
@@ -159,9 +156,9 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   window.addEventListener("beforeunload", () => {
-    clearSplashHideTimer();
     void dictation.shutdown();
     void pluginPlatform.shutdown();
+    listController.unmount();
   });
 
   pluginPlatform = createPluginPlatform({
@@ -169,10 +166,12 @@ window.addEventListener("DOMContentLoaded", () => {
     ortDir,
     appOrigin: appBase.href,
     asrEvents: {
-      onStatus: (message) => setStatus(message),
+      onStatus: () => undefined,
       onCrash: (message) => {
         dictation.handleAsrCrash(message);
-        resetCrashUi();
+        recordingView.setTranscribeAvailable(
+          Boolean(pluginState?.features.transcription),
+        );
       },
     },
   });
@@ -198,132 +197,103 @@ window.addEventListener("DOMContentLoaded", () => {
     silenceRms: SILENCE_RMS,
     silencePeak: SILENCE_PEAK,
     debugMetrics: DEBUG_METRICS,
-    onStatus: (message) => setStatus(message),
+    onStatus: () => undefined,
     onTranscript: (text) => {
-      transcriptEl.textContent = text;
+      recordingView.setLiveTranscript(text);
     },
-    onRecordingChange: (recording) => syncRecordingUi(recording),
-    onRecordingComplete: (transcript) => persistTranscript(transcript),
+    onRecordingChange: (recording) => recordingView.setRecording(recording),
+    onRecordingComplete: (transcript) =>
+      recordingView.onRecordingComplete(transcript),
   });
 
-  void initializePlugins()
-    .then(() => loadModel())
-    .catch((error) => reportUnexpectedError(error, "Startup failed"));
   void initializeStorage();
+  void setRoute(parseRoute(window.location.hash), true);
+  void initializePlugins()
+    .then(() => {
+      void loadModel();
+    })
+    .catch((error) => reportUnexpectedError(error, "Startup failed"));
 });
 
-function isRoute(value: string | undefined): value is RouteName {
-  return value !== undefined && ROUTES.includes(value as RouteName);
-}
-
-function isTabRoute(value: string | undefined): value is TabRoute {
-  return value !== undefined && TAB_ROUTES.includes(value as TabRoute);
-}
-
-function hashValue(hash: string): string {
-  return hash.replace(/^#/, "");
-}
-
-function routeFromHash(hash: string): RouteName {
-  const route = hashValue(hash);
-  return isRoute(route) ? route : DEFAULT_ROUTE;
-}
-
-function setRoute(route: RouteName, syncHash: boolean): void {
-  if (route === currentRoute) {
-    return;
-  }
-
-  if (currentRoute === "list") {
-    listController.unmount();
-  }
-
-  currentRoute = route;
-
-  if (route === "list") {
-    listController.mount();
-  }
-
-  for (const name of ROUTES) {
-    const isActive = name === route;
-    const screen = screenEls[name];
-    screen.hidden = !isActive;
-    screen.setAttribute("aria-hidden", String(!isActive));
-  }
-
-  const active = screenEls[route];
-  active.classList.remove("fade-in");
-  void active.offsetWidth;
-  active.classList.add("fade-in");
-
-  for (const navBtn of navBtns) {
-    const isActive = navBtn.dataset.route === route;
-    navBtn.classList.toggle("is-active", isActive);
-    if (isActive) {
-      navBtn.setAttribute("aria-current", "page");
-    } else {
-      navBtn.removeAttribute("aria-current");
+async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
+  try {
+    const seq = ++routeSeq;
+    const key = routeKey(route);
+    if (key === currentRouteStateKey) {
+      if (syncHash) {
+        syncRouteHash(route);
+      }
+      return;
     }
+
+    if (route.name === "recording") {
+      const opened = await recordingView.openRoute(route.recordingId);
+      if (seq !== routeSeq) {
+        return;
+      }
+      if (opened.status === "missing") {
+        showAppError(`Recording not found: ${opened.recordingId}`);
+        await setRoute({ name: "list" }, true);
+        return;
+      }
+      if (opened.status === "error") {
+        return;
+      }
+    }
+
+    if (currentRoute?.name === "list" && route.name !== "list") {
+      listController.unmount();
+    }
+
+    currentRoute = route;
+    currentRouteStateKey = key;
+
+    if (route.name === "list") {
+      listController.mount();
+    }
+
+    for (const name of Object.keys(screenEls) as RouteName[]) {
+      const isActive = name === route.name;
+      const screen = screenEls[name];
+      screen.hidden = !isActive;
+      screen.setAttribute("aria-hidden", String(!isActive));
+    }
+
+    const active = screenEls[route.name];
+    active.classList.remove("fade-in");
+    void active.offsetWidth;
+    active.classList.add("fade-in");
+
+    for (const navBtn of navBtns) {
+      const isActive = navBtn.dataset.route === route.name;
+      navBtn.classList.toggle("is-active", isActive);
+      if (isActive) {
+        navBtn.setAttribute("aria-current", "page");
+      } else {
+        navBtn.removeAttribute("aria-current");
+      }
+    }
+
+    const settingsActive = route.name === "settings";
+    settingsBtn.classList.toggle("is-active", settingsActive);
+    settingsBtn.setAttribute("aria-pressed", String(settingsActive));
+
+    if (route.name !== "settings") {
+      lastMainRoute = route;
+    }
+
+    if (syncHash) {
+      syncRouteHash(route);
+    }
+  } catch (error) {
+    reportUnexpectedError(error, "Navigation failed");
   }
+}
 
-  const settingsActive = route === "settings";
-  settingsBtn.classList.toggle("is-active", settingsActive);
-  settingsBtn.setAttribute("aria-pressed", String(settingsActive));
-
-  if (isTabRoute(route)) {
-    lastMainRoute = route;
-  }
-
-  if (!syncHash) {
-    return;
-  }
-
-  const hash = `#${route}`;
+function syncRouteHash(route: AppRoute): void {
+  const hash = routeToHash(route);
   if (window.location.hash !== hash) {
     window.location.hash = hash;
-  }
-}
-
-function showSplash(): void {
-  clearSplashHideTimer();
-  splashEl.hidden = false;
-  splashEl.setAttribute("aria-hidden", "false");
-  splashEl.classList.remove("is-fading");
-}
-
-function hideSplash(withFade: boolean): void {
-  if (splashEl.hidden) {
-    return;
-  }
-
-  if (!withFade) {
-    splashEl.classList.remove("is-fading");
-    splashEl.hidden = true;
-    splashEl.setAttribute("aria-hidden", "true");
-    return;
-  }
-
-  splashEl.classList.add("is-fading");
-  clearSplashHideTimer();
-  splashHideTimer = window.setTimeout(() => {
-    splashHideTimer = null;
-    splashEl.hidden = true;
-    splashEl.setAttribute("aria-hidden", "true");
-    splashEl.classList.remove("is-fading");
-  }, SPLASH_FADE_MS);
-}
-
-function maybeExitSplash(): void {
-  if (splashEl.hidden) {
-    return;
-  }
-  hideSplash(true);
-}
-
-function clearSplashHideTimer(): void {
-  if (splashHideTimer !== null) {
-    window.clearTimeout(splashHideTimer);
-    splashHideTimer = null;
   }
 }
 
@@ -331,14 +301,8 @@ async function initializeStorage(): Promise<void> {
   try {
     await getRecordingStore().init();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("Storage init failed:", message);
+    reportUnexpectedError(error, "Storage init failed");
   }
-}
-
-async function persistTranscript(transcript: string): Promise<void> {
-  await recordingService.persistTranscript(transcript);
-  fireRecordingsChanged();
 }
 
 async function initializePlugins(): Promise<void> {
@@ -346,9 +310,6 @@ async function initializePlugins(): Promise<void> {
     pluginState = await pluginPlatform.init();
     llm.setState(pluginState);
     renderPluginStatus();
-    if (pluginState.error) {
-      setStatus(`Plugin init failed: ${pluginState.error}`);
-    }
   } catch (error) {
     reportUnexpectedError(error, "Plugin init failed");
     throw error;
@@ -369,22 +330,26 @@ function renderPluginStatus(): void {
   if (!pluginState) {
     pluginSummaryEl.textContent = "Plugin registry loading...";
     llmStatusEl.textContent = "LLM service: unavailable";
+    recordingView.setTranscribeAvailable(false);
+    updateAsrLoadingIndicator();
     updateLlmControls();
     return;
   }
+
   pluginSummaryEl.textContent = formatPluginSummary(pluginState);
   llmStatusEl.textContent = formatLlmStatus(pluginState);
+  recordingView.setTranscribeAvailable(pluginState.features.transcription);
+  updateAsrLoadingIndicator();
   updateLlmControls();
 }
 
 async function importPlugin(): Promise<void> {
   if (!pluginState?.canImport) {
-    setStatus("Import unavailable outside desktop runtime");
+    llmStatusEl.textContent = "Import unavailable outside desktop runtime";
     return;
   }
 
   importPluginBtn.disabled = true;
-  setStatus("Importing plugin...");
   try {
     const sourcePath = await pluginPlatform.pickImportPath();
     if (!sourcePath) {
@@ -400,18 +365,14 @@ async function importPlugin(): Promise<void> {
       sourcePath,
       displayName: displayName?.trim() || undefined,
     });
-    setStatus(`Imported plugin: ${imported.name}`);
+    llmStatusEl.textContent = `Imported plugin: ${imported.name}`;
     await initializePlugins();
-    if (
-      imported.kind === "asr" &&
-      pluginState?.features.transcription &&
-      !pluginPlatform.isAsrReady()
-    ) {
+    if (imported.kind === "asr") {
       void loadModel();
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    setStatus(`Import failed: ${message}`);
+    llmStatusEl.textContent = `Import failed: ${message}`;
   } finally {
     importPluginBtn.disabled = false;
     updateLlmControls();
@@ -464,66 +425,73 @@ function mustTextarea(id: string): HTMLTextAreaElement {
   return el;
 }
 
-function setStatus(message: string): void {
-  statusEl.textContent = `Status: ${message}`;
-}
-
 function reportUnexpectedError(error: unknown, context: string): void {
-  const message = error instanceof Error ? error.message : String(error);
   console.error(`${context}:`, error);
-  setStatus(`${context}: ${message}`);
+  const message = error instanceof Error ? error.message : String(error);
+  showAppError(`${context}: ${message}`);
 }
 
-function resetCrashUi(): void {
-  maybeExitSplash();
-  loadBtn.disabled = false;
-  recordBtn.disabled = true;
-  syncRecordingUi(false);
+function showAppError(message: string): void {
+  appErrorEl.textContent = message;
+  appErrorEl.hidden = false;
 }
 
-async function loadModel(): Promise<void> {
+function updateAsrLoadingIndicator(): void {
+  const hasTranscription = Boolean(pluginState?.features.transcription);
+  const isReady = hasTranscription && pluginPlatform.isAsrReady();
+  const isLoading = asrLoadTask !== null;
+  asrLoadingEl.hidden = !(hasTranscription && isLoading && !isReady);
+}
+
+async function loadModel(): Promise<boolean> {
   if (pluginPlatform.isAsrReady()) {
-    setStatus("Model already loaded");
-    return;
+    updateAsrLoadingIndicator();
+    return true;
   }
 
   if (!pluginState?.features.transcription) {
-    if (!pluginState?.error) {
-      setStatus("No ASR provider available. Import one in Settings.");
-    }
-    recordBtn.disabled = true;
-    loadBtn.disabled = true;
-    maybeExitSplash();
-    return;
+    recordingView.setTranscribeAvailable(false);
+    updateAsrLoadingIndicator();
+    return false;
   }
 
-  loadBtn.disabled = true;
-  const loaded = await dictation.loadModel();
-  pluginState = await pluginPlatform.status();
-  llm.setState(pluginState);
-  renderPluginStatus();
-  recordBtn.disabled = !loaded;
-  loadBtn.disabled = loaded;
-  maybeExitSplash();
+  if (asrLoadTask) {
+    return asrLoadTask;
+  }
+
+  asrLoadTask = (async () => {
+    const loaded = await dictation.loadModel();
+    pluginState = await pluginPlatform.status();
+    llm.setState(pluginState);
+    renderPluginStatus();
+    return loaded;
+  })()
+    .catch((error) => {
+      reportUnexpectedError(error, "ASR load failed");
+      return false;
+    })
+    .finally(() => {
+      asrLoadTask = null;
+      updateAsrLoadingIndicator();
+    });
+
+  updateAsrLoadingIndicator();
+  return asrLoadTask;
 }
 
 async function toggleRecording(): Promise<void> {
-  if (!dictation.isAsrReady()) {
-    void loadModel();
+  if (!pluginState?.features.transcription) {
     return;
   }
 
-  recordBtn.disabled = true;
-  try {
-    await dictation.toggleRecording();
-  } finally {
-    recordBtn.disabled = !dictation.isAsrReady();
+  if (!dictation.isAsrReady()) {
+    const loaded = await loadModel();
+    if (!loaded) {
+      return;
+    }
   }
-}
 
-function syncRecordingUi(recording: boolean): void {
-  recordBtn.textContent = recording ? "Stop" : "Record";
-  recordBtn.classList.toggle("recording", recording);
+  await dictation.toggleRecording();
 }
 
 function isDebugMetricsEnabled(): boolean {

@@ -2,6 +2,7 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 
 import { NoopRecordingStore } from "../../storage/noop-store";
+import type { RecordingService } from "../recording-service";
 import {
   ListController,
   RECORDINGS_CHANGED_EVENT,
@@ -39,8 +40,8 @@ describe("ListController", () => {
     const { RecordingService } = await import("../recording-service");
     const service = new RecordingService(store);
 
-    await service.persistTranscript("First note");
-    await service.persistTranscript("Second note");
+    await saveInNewRecording(service, "First note");
+    await saveInNewRecording(service, "Second note");
 
     const ctrl = new ListController({ container, store });
     await ctrl.refresh();
@@ -73,7 +74,7 @@ describe("ListController", () => {
     // Add a recording and fire event
     const { RecordingService } = await import("../recording-service");
     const service = new RecordingService(store);
-    await service.persistTranscript("A note");
+    await saveInNewRecording(service, "A note");
 
     fireRecordingsChanged();
     await flushMicrotasks();
@@ -81,6 +82,29 @@ describe("ListController", () => {
     expect(container.querySelectorAll(".recording-item")).toHaveLength(1);
 
     ctrl.unmount();
+  });
+
+  it("calls onSelect when a recording item is clicked", async () => {
+    const store = new NoopRecordingStore();
+    const { RecordingService } = await import("../recording-service");
+    const service = new RecordingService(store);
+    await saveInNewRecording(service, "A note");
+
+    let selectedId: string | null = null;
+    const ctrl = new ListController({
+      container,
+      store,
+      onSelect: (recordingId) => {
+        selectedId = recordingId;
+      },
+    });
+    await ctrl.refresh();
+
+    const first = container.querySelector<HTMLButtonElement>(".recording-item");
+    expect(first).not.toBeNull();
+    first?.click();
+
+    expect(selectedId).not.toBeNull();
   });
 
   it("stops listening after unmount", async () => {
@@ -94,7 +118,7 @@ describe("ListController", () => {
     // Add a recording and fire — should NOT update
     const { RecordingService } = await import("../recording-service");
     const service = new RecordingService(store);
-    await service.persistTranscript("A note");
+    await saveInNewRecording(service, "A note");
 
     fireRecordingsChanged();
     await flushMicrotasks();
@@ -128,7 +152,7 @@ describe("ListController", () => {
     const first = ctrl.refresh();
 
     // Add a recording, then trigger a second refresh before the first resolves
-    await service.persistTranscript("New note");
+    await saveInNewRecording(service, "New note");
     const second = ctrl.refresh();
 
     // Release the first call — its result is now stale
@@ -170,4 +194,12 @@ function deferred<T>(): {
     reject = rej;
   });
   return { promise, resolve, reject };
+}
+
+async function saveInNewRecording(
+  service: Pick<RecordingService, "createDraftRecordingId" | "saveTranscript">,
+  transcript: string,
+): Promise<void> {
+  const recordingId = service.createDraftRecordingId();
+  await service.saveTranscript({ recordingId, transcript });
 }
