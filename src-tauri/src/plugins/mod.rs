@@ -93,6 +93,24 @@ impl PluginRuntimeState {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
     }
+
+    fn stop_all_running(&self) {
+        let mut running = self.lock_running();
+        for (plugin_id, mut service) in running.drain() {
+            if let Err(error) = service.child.kill() {
+                eprintln!("Failed to kill service for {plugin_id}: {error}");
+            }
+            if let Err(error) = service.child.wait() {
+                eprintln!("Failed to wait on service for {plugin_id}: {error}");
+            }
+        }
+    }
+}
+
+impl Drop for PluginRuntimeState {
+    fn drop(&mut self) {
+        self.stop_all_running();
+    }
 }
 
 #[derive(Debug, Deserialize)]
