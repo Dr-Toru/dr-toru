@@ -54,6 +54,8 @@ let loadTask: Promise<void> | null = null;
 let kenlmModule: KenLMModule | null = null;
 let kenlmStateSize = 0;
 
+let specialTokenIds: Set<number> | null = null;
+
 function send(message: WorkerToMainMessage): void {
   workerScope.postMessage(message);
 }
@@ -87,6 +89,7 @@ async function loadModel(message: LoadRequest): Promise<void> {
       "vocab",
     );
     vocab = vocabResult.data;
+    specialTokenIds = buildSpecialTokenIds(vocab.tokens);
 
     send({
       type: "status",
@@ -120,6 +123,7 @@ async function loadModel(message: LoadRequest): Promise<void> {
     .catch((error: unknown) => {
       session = null;
       vocab = null;
+      specialTokenIds = null;
       const msg = error instanceof Error ? error.message : String(error);
       send({ type: "load-error", message: msg });
     })
@@ -541,6 +545,23 @@ function beamTotalScore(b: Beam): number {
   return beamCtcScore(b) + LM_ALPHA * b.lmScore + LM_BETA * b.wordCount;
 }
 
+// Pre-allocated WASM buffer for token strings in scoreTokenKenLM.
+// Avoids ~100K malloc/free cycles per chunk.
+let tokenBufPtr = 0;
+let tokenBufSize = 0;
+
+// Cache of SentencePiece ▁→# token mappings (vocab is fixed after load).
+const lmTokenCache = new Map<string, string>();
+
+function lmTokenFor(tokenStr: string): string {
+  let cached = lmTokenCache.get(tokenStr);
+  if (cached === undefined) {
+    cached = tokenStr.startsWith("▁") ? "#" + tokenStr.slice(1) : tokenStr;
+    lmTokenCache.set(tokenStr, cached);
+  }
+  return cached;
+}
+
 /**
  * Score a SentencePiece token via KenLM and advance the LM state.
  * Maps ▁ → # to match the KenLM vocabulary convention.
@@ -552,17 +573,20 @@ function scoreTokenKenLM(
   inStatePtr: number,
   tokenStr: string,
 ): { logProb: number; newStatePtr: number } {
-  // Map SentencePiece ▁ → # for KenLM vocabulary
-  const lmToken = tokenStr.startsWith("▁") ? "#" + tokenStr.slice(1) : tokenStr;
+  const lmToken = lmTokenFor(tokenStr);
 
   const newStatePtr = mod._malloc(kenlmStateSize);
 
-  const tokenLen = mod.lengthBytesUTF8(lmToken) + 1;
-  const tokenPtr = mod._malloc(tokenLen);
-  mod.stringToUTF8(lmToken, tokenPtr, tokenLen);
+  // Reuse pre-allocated token buffer, growing if needed
+  const needed = mod.lengthBytesUTF8(lmToken) + 1;
+  if (needed > tokenBufSize) {
+    if (tokenBufPtr) mod._free(tokenBufPtr);
+    tokenBufSize = Math.max(needed, 256);
+    tokenBufPtr = mod._malloc(tokenBufSize);
+  }
+  mod.stringToUTF8(lmToken, tokenBufPtr, tokenBufSize);
 
-  const log10prob = mod._kenlm_score_word(inStatePtr, tokenPtr, newStatePtr);
-  mod._free(tokenPtr);
+  const log10prob = mod._kenlm_score_word(inStatePtr, tokenBufPtr, newStatePtr);
 
   return {
     logProb: log10prob * LOG10_TO_LN, // convert log10 → ln
@@ -626,8 +650,7 @@ function decodeBeamSearchLM(
     const candidateTokens: number[] = [argmaxIdx];
     for (let v = 0; v < vocabSize; v += 1) {
       if (v !== argmaxIdx && logProbs[frameOffset + v] >= MIN_TOKEN_LOGP) {
-        const tok = tokens[v] ?? "";
-        if (!isSpecialToken(tok) || v === blankId) {
+        if (!specialTokenIds!.has(v) || v === blankId) {
           candidateTokens.push(v);
         }
       }
@@ -660,10 +683,10 @@ function decodeBeamSearchLM(
         }
 
         // Skip special tokens (except blank handled above)
-        const tokenStr = tokens[c] ?? "";
-        if (c === eosId || isSpecialToken(tokenStr)) {
+        if (c === eosId || specialTokenIds!.has(c)) {
           continue;
         }
+        const tokenStr = tokens[c] ?? "";
 
         // Determine if this is a repeated token
         const isRepeat = c === beam.lastTokenId;
@@ -856,9 +879,8 @@ function decodeCTC(
     }
 
     if (bestIdx !== blankId && bestIdx !== prevToken) {
-      const token = tokens[bestIdx] ?? "";
-      if (bestIdx !== eosId && !isSpecialToken(token)) {
-        result.push(token);
+      if (bestIdx !== eosId && !specialTokenIds!.has(bestIdx)) {
+        result.push(tokens[bestIdx] ?? "");
       }
     }
     prevToken = bestIdx;
@@ -885,4 +907,15 @@ function isSpecialToken(token: string): boolean {
     return true;
   }
   return false;
+}
+
+/** Build a Set<number> of special token IDs once during vocab load. */
+function buildSpecialTokenIds(tokens: string[]): Set<number> {
+  const ids = new Set<number>();
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (isSpecialToken(tokens[i])) {
+      ids.add(i);
+    }
+  }
+  return ids;
 }
