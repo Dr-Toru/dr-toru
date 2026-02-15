@@ -1,6 +1,7 @@
 import { AudioCapture } from "./audio/capture";
 import { DictationController } from "./app/dictation-controller";
 import { LlmController } from "./app/llm-controller";
+import { ListController, fireRecordingsChanged } from "./app/list";
 import { RecordingService } from "./app/recording-service";
 import {
   createPluginPlatform,
@@ -41,6 +42,7 @@ let pluginState: PluginPlatformState | null = null;
 let dictation: DictationController;
 let llm: LlmController;
 let recordingService: RecordingService;
+let listController: ListController;
 
 let statusEl: HTMLElement;
 let transcriptEl: HTMLElement;
@@ -102,39 +104,11 @@ window.addEventListener("DOMContentLoaded", () => {
     setRoute("settings", true);
   });
 
-  window.addEventListener("hashchange", () => {
-    setRoute(routeFromHash(window.location.hash), false);
-  });
-
-  const initialHash = hashValue(window.location.hash);
-  if (initialHash) {
-    hideSplash(false);
-    setRoute(routeFromHash(window.location.hash), true);
-  } else {
-    setRoute(DEFAULT_ROUTE, true);
-    showSplash();
-  }
-
-  loadBtn.addEventListener("click", () => {
-    void loadModel();
-  });
-  recordBtn.addEventListener("click", () => {
-    void toggleRecording();
-  });
-  importPluginBtn.addEventListener("click", () => {
-    void importPlugin();
-  });
-  toggleLlmBtn.addEventListener("click", () => {
-    void toggleLlmService();
-  });
-  runLlmBtn.addEventListener("click", () => {
-    void runLlmTest();
-  });
-
-  window.addEventListener("beforeunload", () => {
-    clearSplashHideTimer();
-    void dictation.shutdown();
-    void pluginPlatform.shutdown();
+  const store = getRecordingStore();
+  recordingService = new RecordingService(store);
+  listController = new ListController({
+    container: mustEl("recording-list"),
+    store,
   });
 
   pluginPlatform = createPluginPlatform({
@@ -178,7 +152,41 @@ window.addEventListener("DOMContentLoaded", () => {
     onRecordingChange: (recording) => syncRecordingUi(recording),
     onRecordingComplete: (transcript) => persistTranscript(transcript),
   });
-  recordingService = new RecordingService(getRecordingStore());
+
+  window.addEventListener("hashchange", () => {
+    setRoute(routeFromHash(window.location.hash), false);
+  });
+
+  const initialHash = hashValue(window.location.hash);
+  if (initialHash) {
+    hideSplash(false);
+    setRoute(routeFromHash(window.location.hash), true);
+  } else {
+    setRoute(DEFAULT_ROUTE, true);
+    showSplash();
+  }
+
+  loadBtn.addEventListener("click", () => {
+    void loadModel();
+  });
+  recordBtn.addEventListener("click", () => {
+    void toggleRecording();
+  });
+  importPluginBtn.addEventListener("click", () => {
+    void importPlugin();
+  });
+  toggleLlmBtn.addEventListener("click", () => {
+    void toggleLlmService();
+  });
+  runLlmBtn.addEventListener("click", () => {
+    void runLlmTest();
+  });
+
+  window.addEventListener("beforeunload", () => {
+    clearSplashHideTimer();
+    void dictation.shutdown();
+    void pluginPlatform.shutdown();
+  });
 
   void initializePlugins().then(() => loadModel());
   void initializeStorage();
@@ -206,12 +214,19 @@ function setRoute(route: RouteName, syncHash: boolean): void {
     return;
   }
 
+  if (currentRoute === "list") {
+    listController.unmount();
+  }
+
   currentRoute = route;
+
+  if (route === "list") {
+    listController.mount();
+  }
 
   for (const name of ROUTES) {
     const isActive = name === route;
     const screen = screenEls[name];
-    screen.classList.toggle("is-hidden", !isActive);
     screen.hidden = !isActive;
     screen.setAttribute("aria-hidden", String(!isActive));
   }
@@ -303,6 +318,7 @@ async function initializeStorage(): Promise<void> {
 
 async function persistTranscript(transcript: string): Promise<void> {
   await recordingService.persistTranscript(transcript);
+  fireRecordingsChanged();
 }
 
 async function initializePlugins(): Promise<void> {

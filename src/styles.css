@@ -125,10 +125,6 @@ button {
   min-height: 100%;
 }
 
-.screen.is-hidden {
-  display: none;
-}
-
 .screen.fade-in {
   animation: fade-in 180ms ease-out;
 }
@@ -172,6 +168,28 @@ textarea.transcript {
 .placeholder {
   margin: 10px 0 0;
   color: #4b5563;
+}
+
+.recording-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.recording-item:last-child {
+  border-bottom: none;
+}
+
+.recording-date {
+  color: #111827;
+  font-size: 0.95rem;
+}
+
+.recording-attachment-count {
+  color: #6b7280;
+  font-size: 0.86rem;
 }
 
 .splash-screen {
