@@ -321,9 +321,7 @@ function updateLlmControls(): void {
   importPluginBtn.disabled = !canImport;
   toggleLlmBtn.disabled = !hasProvider;
   runLlmBtn.disabled = !hasProvider || !running;
-  toggleLlmBtn.textContent = running
-    ? "Stop LLM Service"
-    : "Start LLM Service";
+  toggleLlmBtn.textContent = running ? "Stop LLM Service" : "Start LLM Service";
 }
 
 function renderPluginStatus(): void {
@@ -390,7 +388,11 @@ async function toggleLlmService(): Promise<void> {
 
 async function runLlmTest(): Promise<void> {
   runLlmBtn.disabled = true;
-  await llm.run(llmInputEl.value);
+  try {
+    await llm.run(llmInputEl.value);
+  } finally {
+    runLlmBtn.disabled = false;
+  }
 }
 
 function mustEl(id: string): HTMLElement {

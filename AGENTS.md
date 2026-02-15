@@ -33,10 +33,10 @@ A **recording** is the atomic unit of data -- one dictation event and
 everything derived from it. Each recording is a directory containing
 **attachments**:
 
-| Attachment | Source |
-|---|---|
-| Captured audio | mic |
-| Raw transcript | ASR plugin |
+| Attachment                          | Source     |
+| ----------------------------------- | ---------- |
+| Captured audio                      | mic        |
+| Raw transcript                      | ASR plugin |
 | Revised transcript, SOAP note, etc. | LLM plugin |
 
 Attachments track provenance so the UI can show the chain from raw audio
@@ -57,10 +57,10 @@ runnable without the Rust backend.
 
 ## Key entry points
 
-| Area | Web | Rust |
-|---|---|---|
-| UI shell and routing | `src/main.ts` | -- |
-| Dictation orchestration | `src/app/dictation-controller.ts` | -- |
-| Plugin system | `src/plugins/` | `src-tauri/src/plugins.rs` |
-| Recording storage | `src/app/recording-service.ts` | `src-tauri/src/storage.rs` |
-| ASR inference | `src/asr.worker.ts` | -- |
+| Area                    | Web                               | Rust                       |
+| ----------------------- | --------------------------------- | -------------------------- |
+| UI shell and routing    | `src/main.ts`                     | --                         |
+| Dictation orchestration | `src/app/dictation-controller.ts` | --                         |
+| Plugin system           | `src/plugins/`                    | `src-tauri/src/plugins.rs` |
+| Recording storage       | `src/app/recording-service.ts`    | `src-tauri/src/storage.rs` |
+| ASR inference           | `src/asr.worker.ts`               | --                         |
