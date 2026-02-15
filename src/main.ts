@@ -1,6 +1,7 @@
 import { AudioCapture } from "./audio/capture";
 import { DictationController } from "./app/dictation-controller";
 import { LlmController } from "./app/llm-controller";
+import { ListController, fireRecordingsChanged } from "./app/list";
 import { RecordingService } from "./app/recording-service";
 import {
   createPluginPlatform,
@@ -41,6 +42,7 @@ let pluginState: PluginPlatformState | null = null;
 let dictation: DictationController;
 let llm: LlmController;
 let recordingService: RecordingService;
+let listController: ListController;
 
 let statusEl: HTMLElement;
 let transcriptEl: HTMLElement;
@@ -102,6 +104,13 @@ window.addEventListener("DOMContentLoaded", () => {
     setRoute("settings", true);
   });
 
+  const store = getRecordingStore();
+  recordingService = new RecordingService(store);
+  listController = new ListController({
+    container: mustEl("recording-list"),
+    store,
+  });
+
   window.addEventListener("hashchange", () => {
     setRoute(routeFromHash(window.location.hash), false);
   });
@@ -116,19 +125,37 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   loadBtn.addEventListener("click", () => {
-    void loadModel();
+    void loadModel().catch((error) =>
+      reportUnexpectedError(error, "Load model failed"),
+    );
   });
   recordBtn.addEventListener("click", () => {
-    void toggleRecording();
+    void toggleRecording().catch((error) =>
+      reportUnexpectedError(error, "Recording failed"),
+    );
   });
   importPluginBtn.addEventListener("click", () => {
-    void importPlugin();
+    void importPlugin().catch((error) =>
+      reportUnexpectedError(error, "Plugin import failed"),
+    );
   });
   toggleLlmBtn.addEventListener("click", () => {
-    void toggleLlmService();
+    void toggleLlmService().catch((error) =>
+      reportUnexpectedError(error, "LLM service toggle failed"),
+    );
   });
   runLlmBtn.addEventListener("click", () => {
-    void runLlmTest();
+    void runLlmTest().catch((error) =>
+      reportUnexpectedError(error, "LLM test failed"),
+    );
+  });
+
+  window.addEventListener("error", (event) => {
+    reportUnexpectedError(event.error ?? event.message, "Runtime error");
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    event.preventDefault();
+    reportUnexpectedError(event.reason, "Unhandled async error");
   });
 
   window.addEventListener("beforeunload", () => {
@@ -178,9 +205,10 @@ window.addEventListener("DOMContentLoaded", () => {
     onRecordingChange: (recording) => syncRecordingUi(recording),
     onRecordingComplete: (transcript) => persistTranscript(transcript),
   });
-  recordingService = new RecordingService(getRecordingStore());
 
-  void initializePlugins().then(() => loadModel());
+  void initializePlugins()
+    .then(() => loadModel())
+    .catch((error) => reportUnexpectedError(error, "Startup failed"));
   void initializeStorage();
 });
 
@@ -206,12 +234,19 @@ function setRoute(route: RouteName, syncHash: boolean): void {
     return;
   }
 
+  if (currentRoute === "list") {
+    listController.unmount();
+  }
+
   currentRoute = route;
+
+  if (route === "list") {
+    listController.mount();
+  }
 
   for (const name of ROUTES) {
     const isActive = name === route;
     const screen = screenEls[name];
-    screen.classList.toggle("is-hidden", !isActive);
     screen.hidden = !isActive;
     screen.setAttribute("aria-hidden", String(!isActive));
   }
@@ -303,14 +338,20 @@ async function initializeStorage(): Promise<void> {
 
 async function persistTranscript(transcript: string): Promise<void> {
   await recordingService.persistTranscript(transcript);
+  fireRecordingsChanged();
 }
 
 async function initializePlugins(): Promise<void> {
-  pluginState = await pluginPlatform.init();
-  llm.setState(pluginState);
-  renderPluginStatus();
-  if (pluginState.error) {
-    setStatus(`Plugin init failed: ${pluginState.error}`);
+  try {
+    pluginState = await pluginPlatform.init();
+    llm.setState(pluginState);
+    renderPluginStatus();
+    if (pluginState.error) {
+      setStatus(`Plugin init failed: ${pluginState.error}`);
+    }
+  } catch (error) {
+    reportUnexpectedError(error, "Plugin init failed");
+    throw error;
   }
 }
 
@@ -361,7 +402,11 @@ async function importPlugin(): Promise<void> {
     });
     setStatus(`Imported plugin: ${imported.name}`);
     await initializePlugins();
-    if (pluginState?.features.transcription && !pluginPlatform.isAsrReady()) {
+    if (
+      imported.kind === "asr" &&
+      pluginState?.features.transcription &&
+      !pluginPlatform.isAsrReady()
+    ) {
       void loadModel();
     }
   } catch (error) {
@@ -421,6 +466,12 @@ function mustTextarea(id: string): HTMLTextAreaElement {
 
 function setStatus(message: string): void {
   statusEl.textContent = `Status: ${message}`;
+}
+
+function reportUnexpectedError(error: unknown, context: string): void {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`${context}:`, error);
+  setStatus(`${context}: ${message}`);
 }
 
 function resetCrashUi(): void {
