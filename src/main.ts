@@ -111,6 +111,59 @@ window.addEventListener("DOMContentLoaded", () => {
     store,
   });
 
+  window.addEventListener("hashchange", () => {
+    setRoute(routeFromHash(window.location.hash), false);
+  });
+
+  const initialHash = hashValue(window.location.hash);
+  if (initialHash) {
+    hideSplash(false);
+    setRoute(routeFromHash(window.location.hash), true);
+  } else {
+    setRoute(DEFAULT_ROUTE, true);
+    showSplash();
+  }
+
+  loadBtn.addEventListener("click", () => {
+    void loadModel().catch((error) =>
+      reportUnexpectedError(error, "Load model failed"),
+    );
+  });
+  recordBtn.addEventListener("click", () => {
+    void toggleRecording().catch((error) =>
+      reportUnexpectedError(error, "Recording failed"),
+    );
+  });
+  importPluginBtn.addEventListener("click", () => {
+    void importPlugin().catch((error) =>
+      reportUnexpectedError(error, "Plugin import failed"),
+    );
+  });
+  toggleLlmBtn.addEventListener("click", () => {
+    void toggleLlmService().catch((error) =>
+      reportUnexpectedError(error, "LLM service toggle failed"),
+    );
+  });
+  runLlmBtn.addEventListener("click", () => {
+    void runLlmTest().catch((error) =>
+      reportUnexpectedError(error, "LLM test failed"),
+    );
+  });
+
+  window.addEventListener("error", (event) => {
+    reportUnexpectedError(event.error ?? event.message, "Runtime error");
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    event.preventDefault();
+    reportUnexpectedError(event.reason, "Unhandled async error");
+  });
+
+  window.addEventListener("beforeunload", () => {
+    clearSplashHideTimer();
+    void dictation.shutdown();
+    void pluginPlatform.shutdown();
+  });
+
   pluginPlatform = createPluginPlatform({
     workerUrl: new URL("./asr.worker.ts", import.meta.url),
     ortDir,
@@ -153,42 +206,9 @@ window.addEventListener("DOMContentLoaded", () => {
     onRecordingComplete: (transcript) => persistTranscript(transcript),
   });
 
-  window.addEventListener("hashchange", () => {
-    setRoute(routeFromHash(window.location.hash), false);
-  });
-
-  const initialHash = hashValue(window.location.hash);
-  if (initialHash) {
-    hideSplash(false);
-    setRoute(routeFromHash(window.location.hash), true);
-  } else {
-    setRoute(DEFAULT_ROUTE, true);
-    showSplash();
-  }
-
-  loadBtn.addEventListener("click", () => {
-    void loadModel();
-  });
-  recordBtn.addEventListener("click", () => {
-    void toggleRecording();
-  });
-  importPluginBtn.addEventListener("click", () => {
-    void importPlugin();
-  });
-  toggleLlmBtn.addEventListener("click", () => {
-    void toggleLlmService();
-  });
-  runLlmBtn.addEventListener("click", () => {
-    void runLlmTest();
-  });
-
-  window.addEventListener("beforeunload", () => {
-    clearSplashHideTimer();
-    void dictation.shutdown();
-    void pluginPlatform.shutdown();
-  });
-
-  void initializePlugins().then(() => loadModel());
+  void initializePlugins()
+    .then(() => loadModel())
+    .catch((error) => reportUnexpectedError(error, "Startup failed"));
   void initializeStorage();
 });
 
@@ -322,11 +342,16 @@ async function persistTranscript(transcript: string): Promise<void> {
 }
 
 async function initializePlugins(): Promise<void> {
-  pluginState = await pluginPlatform.init();
-  llm.setState(pluginState);
-  renderPluginStatus();
-  if (pluginState.error) {
-    setStatus(`Plugin init failed: ${pluginState.error}`);
+  try {
+    pluginState = await pluginPlatform.init();
+    llm.setState(pluginState);
+    renderPluginStatus();
+    if (pluginState.error) {
+      setStatus(`Plugin init failed: ${pluginState.error}`);
+    }
+  } catch (error) {
+    reportUnexpectedError(error, "Plugin init failed");
+    throw error;
   }
 }
 
@@ -377,7 +402,11 @@ async function importPlugin(): Promise<void> {
     });
     setStatus(`Imported plugin: ${imported.name}`);
     await initializePlugins();
-    if (pluginState?.features.transcription && !pluginPlatform.isAsrReady()) {
+    if (
+      imported.kind === "asr" &&
+      pluginState?.features.transcription &&
+      !pluginPlatform.isAsrReady()
+    ) {
       void loadModel();
     }
   } catch (error) {
@@ -437,6 +466,12 @@ function mustTextarea(id: string): HTMLTextAreaElement {
 
 function setStatus(message: string): void {
   statusEl.textContent = `Status: ${message}`;
+}
+
+function reportUnexpectedError(error: unknown, context: string): void {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`${context}:`, error);
+  setStatus(`${context}: ${message}`);
 }
 
 function resetCrashUi(): void {
