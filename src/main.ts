@@ -351,6 +351,7 @@ async function initializePlugins(): Promise<void> {
     }
   } catch (error) {
     reportUnexpectedError(error, "Plugin init failed");
+    throw error;
   }
 }
 
