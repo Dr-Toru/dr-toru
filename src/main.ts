@@ -1,6 +1,7 @@
 import { AudioCapture } from "./audio/capture";
 import { DictationController } from "./app/dictation-controller";
 import { LlmController } from "./app/llm-controller";
+import { ListController, fireRecordingsChanged } from "./app/list";
 import { RecordingService } from "./app/recording-service";
 import {
   createPluginPlatform,
@@ -41,6 +42,7 @@ let pluginState: PluginPlatformState | null = null;
 let dictation: DictationController;
 let llm: LlmController;
 let recordingService: RecordingService;
+let listController: ListController;
 
 let statusEl: HTMLElement;
 let transcriptEl: HTMLElement;
@@ -178,7 +180,12 @@ window.addEventListener("DOMContentLoaded", () => {
     onRecordingChange: (recording) => syncRecordingUi(recording),
     onRecordingComplete: (transcript) => persistTranscript(transcript),
   });
-  recordingService = new RecordingService(getRecordingStore());
+  const store = getRecordingStore();
+  recordingService = new RecordingService(store);
+  listController = new ListController({
+    container: mustEl("recording-list"),
+    store,
+  });
 
   void initializePlugins().then(() => loadModel());
   void initializeStorage();
@@ -206,7 +213,15 @@ function setRoute(route: RouteName, syncHash: boolean): void {
     return;
   }
 
+  if (currentRoute === "list") {
+    listController.unmount();
+  }
+
   currentRoute = route;
+
+  if (route === "list") {
+    listController.mount();
+  }
 
   for (const name of ROUTES) {
     const isActive = name === route;
@@ -303,6 +318,7 @@ async function initializeStorage(): Promise<void> {
 
 async function persistTranscript(transcript: string): Promise<void> {
   await recordingService.persistTranscript(transcript);
+  fireRecordingsChanged();
 }
 
 async function initializePlugins(): Promise<void> {
