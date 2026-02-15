@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { createRecording, createTextAttachment } from "../domain/recording";
 import { NoopRecordingStore } from "../storage/noop-store";
 import { RecordingService } from "./recording-service";
 
@@ -50,5 +51,30 @@ describe("RecordingService", () => {
     await expect(
       service.saveTranscript({ recordingId, transcript: "   " }),
     ).rejects.toThrow("transcript is required");
+  });
+
+  it("drops attachment binding when transcript read fails", async () => {
+    const store = new NoopRecordingStore();
+    const service = new RecordingService(store);
+    const recordingId = service.createDraftRecordingId();
+    const createdAt = new Date().toISOString();
+    const recording = createRecording({ recordingId, createdAt });
+    const attachment = createTextAttachment({
+      attachmentId: "att-read-fail",
+      kind: "transcript_raw",
+      role: "source",
+      createdAt,
+      createdBy: "asr",
+      path: `recordings/${recordingId}/attachments/missing.txt`,
+      metadata: {},
+    });
+    recording.attachments.push(attachment);
+    recording.activeAttachmentId = attachment.attachmentId;
+    await store.saveRecording(recording);
+
+    const loaded = await service.loadTranscript(recordingId);
+    expect(loaded).not.toBeNull();
+    expect(loaded?.attachmentId).toBeNull();
+    expect(loaded?.transcript).toBe("");
   });
 });

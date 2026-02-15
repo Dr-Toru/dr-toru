@@ -122,11 +122,13 @@ export class RecordingViewController {
       this.context.attachmentId = saved.attachmentId;
       this.context.transcript = saved.transcript;
       this.onRecordingsChanged();
-    } catch (error) {
-      this.onError(error, "Failed to save transcript");
-    } finally {
       this.liveTranscript = "";
       this.renderTranscript();
+    } catch (error) {
+      this.onError(error, "Failed to save transcript");
+      this.liveTranscript = chunk;
+      this.renderTranscript();
+      throw error;
     }
   }
 

@@ -66,7 +66,7 @@ export class RecordingService {
     } catch {
       return {
         recordingId,
-        attachmentId: target.attachmentId,
+        attachmentId: null,
         transcript: "",
       };
     }
