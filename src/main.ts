@@ -388,7 +388,11 @@ async function toggleLlmService(): Promise<void> {
 
 async function runLlmTest(): Promise<void> {
   runLlmBtn.disabled = true;
-  await llm.run(llmInputEl.value);
+  try {
+    await llm.run(llmInputEl.value);
+  } finally {
+    runLlmBtn.disabled = false;
+  }
 }
 
 function mustEl(id: string): HTMLElement {
