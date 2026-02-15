@@ -217,6 +217,18 @@ window.addEventListener("DOMContentLoaded", () => {
 
 async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
   try {
+    if (
+      dictation.isRecording &&
+      currentRoute?.name === "recording" &&
+      route.name !== "recording"
+    ) {
+      showAppError("Stop recording before leaving the recording view.");
+      if (currentRoute) {
+        syncRouteHash(currentRoute);
+      }
+      return;
+    }
+
     const seq = ++routeSeq;
     const key = routeKey(route);
     if (key === currentRouteStateKey) {
@@ -234,6 +246,13 @@ async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
       if (opened.status === "missing") {
         showAppError(`Recording not found: ${opened.recordingId}`);
         await setRoute({ name: "list" }, true);
+        return;
+      }
+      if (opened.status === "blocked") {
+        showAppError("Stop recording before switching recordings.");
+        if (currentRoute) {
+          syncRouteHash(currentRoute);
+        }
         return;
       }
       if (opened.status === "error") {

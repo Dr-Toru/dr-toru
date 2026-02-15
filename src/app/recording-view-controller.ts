@@ -18,6 +18,7 @@ interface RecordingContext {
 export type OpenRouteResult =
   | { status: "opened"; recordingId: string }
   | { status: "missing"; recordingId: string }
+  | { status: "blocked" }
   | { status: "error" };
 
 export class RecordingViewController {
@@ -48,12 +49,21 @@ export class RecordingViewController {
 
   async openRoute(recordingId: string | null): Promise<OpenRouteResult> {
     try {
-      if (recordingId === null && this.context) {
-        return { status: "opened", recordingId: this.context.recordingId };
-      }
-
       if (recordingId && this.context?.recordingId === recordingId) {
         return { status: "opened", recordingId };
+      }
+
+      if (this.recording) {
+        return { status: "blocked" };
+      }
+
+      if (recordingId === null) {
+        this.context = createEmptyContext(
+          this.recordingService.createDraftRecordingId(),
+        );
+        this.liveTranscript = "";
+        this.render();
+        return { status: "opened", recordingId: this.context.recordingId };
       }
 
       if (recordingId) {
@@ -66,24 +76,7 @@ export class RecordingViewController {
         }
         return { status: "missing", recordingId };
       }
-
-      const latestId = await this.recordingService.getLatestRecordingId();
-      if (latestId) {
-        const loaded = await this.recordingService.loadTranscript(latestId);
-        if (loaded) {
-          this.context = mapLoadedContext(loaded);
-          this.liveTranscript = "";
-          this.render();
-          return { status: "opened", recordingId: loaded.recordingId };
-        }
-      }
-
-      this.context = createEmptyContext(
-        this.recordingService.createDraftRecordingId(),
-      );
-      this.liveTranscript = "";
-      this.render();
-      return { status: "opened", recordingId: this.context.recordingId };
+      return { status: "error" };
     } catch (error) {
       this.onError(error, "Failed to load recording");
       return { status: "error" };
