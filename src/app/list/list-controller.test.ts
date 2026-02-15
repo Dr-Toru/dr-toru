@@ -103,6 +103,43 @@ describe("ListController", () => {
     expect(container.textContent).toBe("No recordings yet.");
   });
 
+  it("discards stale refresh results when a newer refresh starts", async () => {
+    let callCount = 0;
+    const gate = deferred<void>();
+    const store = new NoopRecordingStore();
+
+    // Patch listRecordings so the first call blocks until we release it,
+    // while the second call resolves immediately.
+    const original = store.listRecordings.bind(store);
+    store.listRecordings = async () => {
+      callCount++;
+      if (callCount === 1) {
+        await gate.promise;
+      }
+      return original();
+    };
+
+    const { RecordingService } = await import("../recording-service");
+    const service = new RecordingService(store);
+
+    const ctrl = new ListController({ container, store });
+
+    // First refresh — will block on gate
+    const first = ctrl.refresh();
+
+    // Add a recording, then trigger a second refresh before the first resolves
+    await service.persistTranscript("New note");
+    const second = ctrl.refresh();
+
+    // Release the first call — its result is now stale
+    gate.resolve();
+    await first;
+    await second;
+
+    // The DOM should reflect the second (newer) result, not the first (empty)
+    expect(container.querySelectorAll(".recording-item")).toHaveLength(1);
+  });
+
   it("fires event via fireRecordingsChanged helper", () => {
     let fired = false;
     document.addEventListener(
@@ -119,4 +156,18 @@ describe("ListController", () => {
 
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }

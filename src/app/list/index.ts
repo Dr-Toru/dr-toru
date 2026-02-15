@@ -12,6 +12,7 @@ export class ListController {
   private readonly container: HTMLElement;
   private readonly store: RecordingStore;
   private listening = false;
+  private refreshSeq = 0;
   private readonly onChanged = (): void => {
     void this.refresh();
   };
@@ -37,14 +38,19 @@ export class ListController {
   }
 
   async refresh(): Promise<void> {
+    const seq = ++this.refreshSeq;
+
     let summaries: RecordingSummary[];
     try {
       summaries = await this.store.listRecordings();
     } catch (error) {
+      if (seq !== this.refreshSeq) return;
       const message = error instanceof Error ? error.message : String(error);
       this.container.textContent = `Failed to load recordings: ${message}`;
       return;
     }
+
+    if (seq !== this.refreshSeq) return;
 
     if (summaries.length === 0) {
       this.container.textContent = "No recordings yet.";
