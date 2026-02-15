@@ -125,10 +125,6 @@ button {
   min-height: 100%;
 }
 
-.screen.is-hidden {
-  display: none;
-}
-
 .screen.fade-in {
   animation: fade-in 180ms ease-out;
 }

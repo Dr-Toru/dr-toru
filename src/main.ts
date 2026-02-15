@@ -226,7 +226,6 @@ function setRoute(route: RouteName, syncHash: boolean): void {
   for (const name of ROUTES) {
     const isActive = name === route;
     const screen = screenEls[name];
-    screen.classList.toggle("is-hidden", !isActive);
     screen.hidden = !isActive;
     screen.setAttribute("aria-hidden", String(!isActive));
   }
