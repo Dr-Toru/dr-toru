@@ -1,12 +1,5 @@
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-
 import type { AsrClientEvents } from "../asr/client";
-import {
-  supportsFeature,
-  type PluginCapability,
-  type PluginFeature,
-  type PluginManifest,
-} from "./contracts";
+import type { PluginManifest } from "./contracts";
 import { PluginService } from "./service";
 import { createRuntimeAdapter, type RuntimeAdapter } from "./runtime-adapter";
 import {
@@ -29,29 +22,17 @@ export interface PluginPlatformState {
   ready: boolean;
   error: string | null;
   canImport: boolean;
-  features: Record<PluginFeature, boolean>;
+  features: { transcription: boolean; llm: boolean };
   activeAsr: PluginManifest | null;
-  activeTransform: PluginManifest | null;
-  transformCount: number;
-  transformRunning: boolean;
-  transformStatus: string;
-  transformEndpoint: string | null;
+  activeLlm: PluginManifest | null;
+  llmCount: number;
+  llmRunning: boolean;
+  llmStatus: string;
+  llmEndpoint: string | null;
 }
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function pickTransformCapability(
-  plugin: PluginManifest,
-): PluginCapability | null {
-  if (plugin.capabilities.includes("llm.transform.correct")) {
-    return "llm.transform.correct";
-  }
-  if (plugin.capabilities.includes("llm.transform.soap")) {
-    return "llm.transform.soap";
-  }
-  return null;
 }
 
 export function formatPluginSummary(state: PluginPlatformState): string {
@@ -61,31 +42,29 @@ export function formatPluginSummary(state: PluginPlatformState): string {
 
   const lines: string[] = [];
   if (state.activeAsr) {
-    lines.push(`ASR: ${state.activeAsr.name} (${state.activeAsr.runtime})`);
+    lines.push(`ASR: ${state.activeAsr.name}`);
   } else {
     lines.push("ASR: none configured");
   }
 
-  if (state.activeTransform) {
-    lines.push(
-      `Transform: ${state.activeTransform.name} (${state.activeTransform.runtime})`,
-    );
-  } else if (state.transformCount > 0) {
-    lines.push(`Transform: ${state.transformCount} installed, none active`);
+  if (state.activeLlm) {
+    lines.push(`LLM: ${state.activeLlm.name}`);
+  } else if (state.llmCount > 0) {
+    lines.push(`LLM: ${state.llmCount} installed, none active`);
   } else {
-    lines.push("Transform: unavailable (core dictation only)");
+    lines.push("LLM: unavailable (core dictation only)");
   }
   return lines.join(" | ");
 }
 
-export function formatTransformStatus(state: PluginPlatformState): string {
-  if (!state.activeTransform) {
-    return "Transform service: unavailable";
+export function formatLlmStatus(state: PluginPlatformState): string {
+  if (!state.activeLlm) {
+    return "LLM service: unavailable";
   }
-  if (state.transformEndpoint) {
-    return `Transform service: ${state.transformStatus} (${state.transformEndpoint})`;
+  if (state.llmEndpoint) {
+    return `LLM service: ${state.llmStatus} (${state.llmEndpoint})`;
   }
-  return `Transform service: ${state.transformStatus}`;
+  return `LLM service: ${state.llmStatus}`;
 }
 
 async function resolveAppDataDir(): Promise<string> {
@@ -105,11 +84,11 @@ export class PluginPlatform {
   private initError: string | null = null;
   private resolvedDataDir = "";
   private activeAsr: PluginManifest | null = null;
-  private activeTransform: PluginManifest | null = null;
-  private transformCount = 0;
-  private transformHealth: PluginServiceHealth | null = null;
+  private activeLlm: PluginManifest | null = null;
+  private llmCount = 0;
+  private llmHealth: PluginServiceHealth | null = null;
   private asrRuntime: RuntimeAdapter | null = null;
-  private transformRuntime: RuntimeAdapter | null = null;
+  private llmRuntime: RuntimeAdapter | null = null;
   private asrReady = false;
 
   constructor(
@@ -142,7 +121,7 @@ export class PluginPlatform {
     } else if (!this.initialized && !this.initError) {
       await this.init();
     } else {
-      await this.refreshTransformHealth();
+      await this.refreshLlmHealth();
     }
     return this.snapshot();
   }
@@ -152,7 +131,8 @@ export class PluginPlatform {
       return null;
     }
 
-    const sourcePath = await openFileDialog({
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const sourcePath = await open({
       title: "Import Model File or Package",
       multiple: false,
       filters: [
@@ -206,59 +186,56 @@ export class PluginPlatform {
     return result.text;
   }
 
-  async setTransformServiceRunning(
-    running: boolean,
-  ): Promise<PluginPlatformState> {
+  async setLlmServiceRunning(running: boolean): Promise<PluginPlatformState> {
     const state = await this.init();
     if (state.error) {
       throw new Error(state.error);
     }
-    if (!this.activeTransform) {
-      throw new Error("No active transform provider configured");
+    if (!this.activeLlm) {
+      throw new Error("No active LLM provider configured");
     }
 
     try {
       if (running) {
-        const runtime = await this.ensureTransformRuntime();
+        const runtime = await this.ensureLlmRuntime();
         await runtime.init();
       } else {
-        await this.transformRuntime?.shutdown();
+        await this.llmRuntime?.shutdown();
       }
     } finally {
-      await this.refreshTransformHealth();
+      await this.refreshLlmHealth();
     }
 
     return this.snapshot();
   }
 
-  async runTransform(input: string, prompt?: string): Promise<string> {
+  async runLlm(
+    action: string,
+    input: string,
+    prompt?: string,
+  ): Promise<string> {
     const state = await this.init();
     if (state.error) {
       throw new Error(state.error);
     }
-    if (!this.activeTransform) {
-      throw new Error("No active transform provider configured");
+    if (!this.activeLlm) {
+      throw new Error("No active LLM provider configured");
     }
-
-    const capability = pickTransformCapability(this.activeTransform);
-    if (!capability) {
-      throw new Error("Active transform plugin has no supported capability");
-    }
-    if (!this.transformHealth?.running) {
-      throw new Error("Start the transform service first");
+    if (!this.llmHealth?.running) {
+      throw new Error("Start the LLM service first");
     }
 
     try {
-      const runtime = await this.ensureTransformRuntime();
+      const runtime = await this.ensureLlmRuntime();
       const result = await runtime.execute({
         type: "llm.transform",
-        capability,
+        action,
         input,
         prompt,
       });
       return result.text;
     } catch (error) {
-      await this.refreshTransformHealth();
+      await this.refreshLlmHealth();
       throw new Error(toErrorMessage(error));
     }
   }
@@ -266,10 +243,10 @@ export class PluginPlatform {
   async shutdown(): Promise<void> {
     this.asrReady = false;
     await this.asrRuntime?.shutdown().catch(() => undefined);
-    await this.transformRuntime?.shutdown().catch(() => undefined);
+    await this.llmRuntime?.shutdown().catch(() => undefined);
     this.asrRuntime = null;
-    this.transformRuntime = null;
-    this.transformHealth = null;
+    this.llmRuntime = null;
+    this.llmHealth = null;
   }
 
   private async initNow(): Promise<PluginPlatformState> {
@@ -279,35 +256,32 @@ export class PluginPlatform {
       }
       await this.service.init();
       const nextAsr = await this.service.activePlugin("asr");
-      const transforms = await this.service.discover({ role: "transform" });
-      const nextTransform = await this.service.activePlugin("transform");
+      const llmPlugins = await this.service.discover({ kind: "llm" });
+      const nextLlm = await this.service.activePlugin("llm");
 
       if (this.activeAsr?.pluginId !== nextAsr?.pluginId && this.asrRuntime) {
         await this.asrRuntime.shutdown().catch(() => undefined);
         this.asrRuntime = null;
         this.asrReady = false;
       }
-      if (
-        this.activeTransform?.pluginId !== nextTransform?.pluginId &&
-        this.transformRuntime
-      ) {
-        await this.transformRuntime.shutdown().catch(() => undefined);
-        this.transformRuntime = null;
+      if (this.activeLlm?.pluginId !== nextLlm?.pluginId && this.llmRuntime) {
+        await this.llmRuntime.shutdown().catch(() => undefined);
+        this.llmRuntime = null;
       }
 
       this.activeAsr = nextAsr;
-      this.activeTransform = nextTransform;
-      this.transformCount = transforms.length;
+      this.activeLlm = nextLlm;
+      this.llmCount = llmPlugins.length;
       this.initError = null;
       this.initialized = true;
 
-      await this.refreshTransformHealth();
+      await this.refreshLlmHealth();
       return this.snapshot();
     } catch (error) {
       this.activeAsr = null;
-      this.activeTransform = null;
-      this.transformCount = 0;
-      this.transformHealth = null;
+      this.activeLlm = null;
+      this.llmCount = 0;
+      this.llmHealth = null;
       this.asrReady = false;
       this.initError = toErrorMessage(error);
       this.initialized = true;
@@ -316,23 +290,23 @@ export class PluginPlatform {
   }
 
   private snapshot(): PluginPlatformState {
-    const transformStatus = this.activeTransform
-      ? (this.transformHealth?.message ?? "Service is stopped")
+    const llmStatus = this.activeLlm
+      ? (this.llmHealth?.message ?? "Service is stopped")
       : "unavailable";
     return {
       ready: this.initError === null,
       error: this.initError,
       canImport: this.canImport,
       features: {
-        transcription: supportsFeature(this.activeAsr, "transcription"),
-        transform: supportsFeature(this.activeTransform, "transform"),
+        transcription: this.activeAsr != null,
+        llm: this.activeLlm != null,
       },
       activeAsr: this.activeAsr,
-      activeTransform: this.activeTransform,
-      transformCount: this.transformCount,
-      transformRunning: this.transformHealth?.running ?? false,
-      transformStatus,
-      transformEndpoint: this.transformHealth?.endpoint ?? null,
+      activeLlm: this.activeLlm,
+      llmCount: this.llmCount,
+      llmRunning: this.llmHealth?.running ?? false,
+      llmStatus,
+      llmEndpoint: this.llmHealth?.endpoint ?? null,
     };
   }
 
@@ -358,12 +332,12 @@ export class PluginPlatform {
     return this.asrRuntime;
   }
 
-  private async ensureTransformRuntime(): Promise<RuntimeAdapter> {
-    if (!this.activeTransform) {
-      throw new Error("No active transform provider configured");
+  private async ensureLlmRuntime(): Promise<RuntimeAdapter> {
+    if (!this.activeLlm) {
+      throw new Error("No active LLM provider configured");
     }
-    if (!this.transformRuntime) {
-      this.transformRuntime = createRuntimeAdapter(this.activeTransform, {
+    if (!this.llmRuntime) {
+      this.llmRuntime = createRuntimeAdapter(this.activeLlm, {
         workerUrl: this.options.workerUrl,
         ortDir: this.options.ortDir,
         appDataDir: this.resolvedDataDir,
@@ -371,26 +345,26 @@ export class PluginPlatform {
         events: {
           onStatus: () => undefined,
           onCrash: (message) => {
-            console.error("Transform runtime crash reported:", message);
+            console.error("LLM runtime crash reported:", message);
           },
         },
       });
     }
-    return this.transformRuntime;
+    return this.llmRuntime;
   }
 
-  private async refreshTransformHealth(): Promise<void> {
-    if (!this.activeTransform) {
-      this.transformHealth = null;
+  private async refreshLlmHealth(): Promise<void> {
+    if (!this.activeLlm) {
+      this.llmHealth = null;
       return;
     }
 
     try {
-      this.transformHealth = await this.service.serviceStatus(
-        this.activeTransform.pluginId,
+      this.llmHealth = await this.service.serviceStatus(
+        this.activeLlm.pluginId,
       );
     } catch (error) {
-      this.transformHealth = {
+      this.llmHealth = {
         ready: false,
         running: false,
         message: toErrorMessage(error),

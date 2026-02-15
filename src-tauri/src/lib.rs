@@ -21,10 +21,10 @@ pub fn run() {
             plugins::plugin_service_stop,
             plugins::plugin_runtime_llamafile_execute,
             storage::storage_init,
-            storage::storage_list_sessions,
-            storage::storage_get_session,
-            storage::storage_save_session,
-            storage::storage_write_artifact_text
+            storage::storage_list_recordings,
+            storage::storage_get_recording,
+            storage::storage_save_recording,
+            storage::storage_write_attachment_text
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -14,7 +14,7 @@ export interface DictationControllerOptions {
   onStatus: (message: string) => void;
   onTranscript: (text: string) => void;
   onRecordingChange: (recording: boolean) => void;
-  onSessionComplete?: (transcript: string) => Promise<void>;
+  onRecordingComplete?: (transcript: string) => Promise<void>;
 }
 
 export class DictationController {
@@ -74,7 +74,7 @@ export class DictationController {
         this.transcriptText = "";
         this.metricChunkId = 0;
         this.silentChunkSkips = 0;
-        this.debugMetric("session-start", {
+        this.debugMetric("recording-start", {
           chunkSecs: this.options.chunkSecs,
           strideSecs: this.options.strideSecs,
         });
@@ -110,13 +110,13 @@ export class DictationController {
       let saveFailed = false;
       if (!this.transcriptText) {
         this.options.onTranscript("(No speech detected)");
-      } else if (this.options.onSessionComplete) {
+      } else if (this.options.onRecordingComplete) {
         try {
-          await this.options.onSessionComplete(this.transcriptText);
+          await this.options.onRecordingComplete(this.transcriptText);
         } catch (error) {
           const message =
             error instanceof Error ? error.message : String(error);
-          this.options.onStatus(`Session save failed: ${message}`);
+          this.options.onStatus(`Recording save failed: ${message}`);
           saveFailed = true;
         }
       }

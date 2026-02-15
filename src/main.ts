@@ -1,14 +1,15 @@
 import { AudioCapture } from "./audio/capture";
 import { DictationController } from "./app/dictation-controller";
-import { SessionBundleService } from "./app/session-bundles";
+import { LlmController } from "./app/llm-controller";
+import { RecordingService } from "./app/recording-service";
 import {
   createPluginPlatform,
   formatPluginSummary,
-  formatTransformStatus,
+  formatLlmStatus,
   type PluginPlatform,
   type PluginPlatformState,
 } from "./plugins";
-import { getSessionStore } from "./storage";
+import { getRecordingStore } from "./storage";
 
 const ROUTES = ["transcription", "list", "settings"] as const;
 type RouteName = (typeof ROUTES)[number];
@@ -38,20 +39,21 @@ const ortDir = new URL("ort/", appBase).href;
 let pluginPlatform: PluginPlatform;
 let pluginState: PluginPlatformState | null = null;
 let dictation: DictationController;
-let sessionBundles: SessionBundleService;
+let llm: LlmController;
+let recordingService: RecordingService;
 
 let statusEl: HTMLElement;
 let transcriptEl: HTMLElement;
 let pluginSummaryEl: HTMLElement;
-let transformServiceStatusEl: HTMLElement;
-let transformOutputEl: HTMLElement;
+let llmStatusEl: HTMLElement;
+let llmOutputEl: HTMLElement;
 let loadBtn: HTMLButtonElement;
 let recordBtn: HTMLButtonElement;
 let settingsBtn: HTMLButtonElement;
 let importPluginBtn: HTMLButtonElement;
-let toggleTransformBtn: HTMLButtonElement;
-let runTransformBtn: HTMLButtonElement;
-let transformInputEl: HTMLTextAreaElement;
+let toggleLlmBtn: HTMLButtonElement;
+let runLlmBtn: HTMLButtonElement;
+let llmInputEl: HTMLTextAreaElement;
 let navBtns: HTMLButtonElement[] = [];
 let currentRoute: RouteName | null = null;
 let screenEls: Record<RouteName, HTMLElement>;
@@ -63,15 +65,15 @@ window.addEventListener("DOMContentLoaded", () => {
   statusEl = mustEl("status");
   transcriptEl = mustEl("transcript");
   pluginSummaryEl = mustEl("pluginSummary");
-  transformServiceStatusEl = mustEl("transformServiceStatus");
-  transformOutputEl = mustEl("transformOutput");
+  llmStatusEl = mustEl("llmServiceStatus");
+  llmOutputEl = mustEl("llmOutput");
   loadBtn = mustBtn("loadBtn");
   recordBtn = mustBtn("recordBtn");
   settingsBtn = mustBtn("settingsBtn");
   importPluginBtn = mustBtn("importPluginBtn");
-  toggleTransformBtn = mustBtn("toggleTransformBtn");
-  runTransformBtn = mustBtn("runTransformBtn");
-  transformInputEl = mustTextarea("transformInput");
+  toggleLlmBtn = mustBtn("toggleLlmBtn");
+  runLlmBtn = mustBtn("runLlmBtn");
+  llmInputEl = mustTextarea("llmInput");
   splashEl = mustEl("screen-splash");
   screenEls = {
     transcription: mustEl("screen-transcription"),
@@ -122,11 +124,11 @@ window.addEventListener("DOMContentLoaded", () => {
   importPluginBtn.addEventListener("click", () => {
     void importPlugin();
   });
-  toggleTransformBtn.addEventListener("click", () => {
-    void toggleTransformService();
+  toggleLlmBtn.addEventListener("click", () => {
+    void toggleLlmService();
   });
-  runTransformBtn.addEventListener("click", () => {
-    void runTransformTest();
+  runLlmBtn.addEventListener("click", () => {
+    void runLlmTest();
   });
 
   window.addEventListener("beforeunload", () => {
@@ -147,6 +149,19 @@ window.addEventListener("DOMContentLoaded", () => {
       },
     },
   });
+  llm = new LlmController({
+    pluginPlatform,
+    onStatus: (message) => {
+      llmStatusEl.textContent = message;
+    },
+    onOutput: (text) => {
+      llmOutputEl.textContent = text;
+    },
+    onStateChange: (state) => {
+      pluginState = state;
+      renderPluginStatus();
+    },
+  });
   dictation = new DictationController({
     pluginPlatform,
     capture,
@@ -161,9 +176,9 @@ window.addEventListener("DOMContentLoaded", () => {
       transcriptEl.textContent = text;
     },
     onRecordingChange: (recording) => syncRecordingUi(recording),
-    onSessionComplete: (transcript) => persistTranscriptBundle(transcript),
+    onRecordingComplete: (transcript) => persistTranscript(transcript),
   });
-  sessionBundles = new SessionBundleService(getSessionStore());
+  recordingService = new RecordingService(getRecordingStore());
 
   void initializePlugins().then(() => loadModel());
   void initializeStorage();
@@ -279,47 +294,46 @@ function clearSplashHideTimer(): void {
 
 async function initializeStorage(): Promise<void> {
   try {
-    await getSessionStore().init();
+    await getRecordingStore().init();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("Storage init failed:", message);
   }
 }
 
-async function persistTranscriptBundle(transcript: string): Promise<void> {
-  await sessionBundles.saveTranscriptSession(transcript);
+async function persistTranscript(transcript: string): Promise<void> {
+  await recordingService.persistTranscript(transcript);
 }
 
 async function initializePlugins(): Promise<void> {
   pluginState = await pluginPlatform.init();
+  llm.setState(pluginState);
   renderPluginStatus();
   if (pluginState.error) {
     setStatus(`Plugin init failed: ${pluginState.error}`);
   }
 }
 
-function updateTransformControls(): void {
-  const hasProvider = Boolean(pluginState?.features.transform);
+function updateLlmControls(): void {
+  const hasProvider = Boolean(pluginState?.features.llm);
   const canImport = pluginState?.canImport ?? false;
-  const running = pluginState?.transformRunning ?? false;
+  const running = pluginState?.llmRunning ?? false;
   importPluginBtn.disabled = !canImport;
-  toggleTransformBtn.disabled = !hasProvider;
-  runTransformBtn.disabled = !hasProvider || !running;
-  toggleTransformBtn.textContent = running
-    ? "Stop Transform Service"
-    : "Start Transform Service";
+  toggleLlmBtn.disabled = !hasProvider;
+  runLlmBtn.disabled = !hasProvider || !running;
+  toggleLlmBtn.textContent = running ? "Stop LLM Service" : "Start LLM Service";
 }
 
 function renderPluginStatus(): void {
   if (!pluginState) {
     pluginSummaryEl.textContent = "Plugin registry loading...";
-    transformServiceStatusEl.textContent = "Transform service: unavailable";
-    updateTransformControls();
+    llmStatusEl.textContent = "LLM service: unavailable";
+    updateLlmControls();
     return;
   }
   pluginSummaryEl.textContent = formatPluginSummary(pluginState);
-  transformServiceStatusEl.textContent = formatTransformStatus(pluginState);
-  updateTransformControls();
+  llmStatusEl.textContent = formatLlmStatus(pluginState);
+  updateLlmControls();
 }
 
 async function importPlugin(): Promise<void> {
@@ -355,55 +369,29 @@ async function importPlugin(): Promise<void> {
     setStatus(`Import failed: ${message}`);
   } finally {
     importPluginBtn.disabled = false;
-    updateTransformControls();
+    updateLlmControls();
   }
 }
 
-async function toggleTransformService(): Promise<void> {
-  if (!pluginState?.activeTransform) {
+async function toggleLlmService(): Promise<void> {
+  if (!llm.isReady()) {
     return;
   }
 
-  toggleTransformBtn.disabled = true;
+  toggleLlmBtn.disabled = true;
   try {
-    const running = !(pluginState?.transformRunning ?? false);
-    pluginState = await pluginPlatform.setTransformServiceRunning(running);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    transformServiceStatusEl.textContent = `Transform service: ${message}`;
+    pluginState = await llm.setServiceRunning(!llm.isRunning());
   } finally {
-    pluginState = await pluginPlatform.status();
     renderPluginStatus();
   }
 }
 
-async function runTransformTest(): Promise<void> {
-  if (!pluginState?.activeTransform) {
-    transformOutputEl.textContent = "(No active transform provider)";
-    return;
-  }
-  if (!pluginState.transformRunning) {
-    transformOutputEl.textContent = "(Start the transform service first)";
-    return;
-  }
-
-  const input = transformInputEl.value.trim();
-  if (!input) {
-    transformOutputEl.textContent = "(Enter text to transform)";
-    return;
-  }
-
-  runTransformBtn.disabled = true;
-  transformOutputEl.textContent = "Running transform...";
+async function runLlmTest(): Promise<void> {
+  runLlmBtn.disabled = true;
   try {
-    const text = await pluginPlatform.runTransform(input);
-    transformOutputEl.textContent = text || "(No output returned)";
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    transformOutputEl.textContent = `Transform failed: ${message}`;
+    await llm.run(llmInputEl.value);
   } finally {
-    pluginState = await pluginPlatform.status();
-    renderPluginStatus();
+    runLlmBtn.disabled = false;
   }
 }
 
@@ -461,6 +449,7 @@ async function loadModel(): Promise<void> {
   loadBtn.disabled = true;
   const loaded = await dictation.loadModel();
   pluginState = await pluginPlatform.status();
+  llm.setState(pluginState);
   renderPluginStatus();
   recordBtn.disabled = !loaded;
   loadBtn.disabled = loaded;

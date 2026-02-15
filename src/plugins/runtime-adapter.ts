@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 
 import { AsrClient, type AsrClientEvents } from "../asr/client";
-import type { PluginCapability, PluginManifest } from "./contracts";
+import type { PluginManifest } from "./contracts";
 
 export interface RuntimeHealth {
   ready: boolean;
@@ -15,7 +15,7 @@ export type RuntimeExecuteRequest =
     }
   | {
       type: "llm.transform";
-      capability: PluginCapability;
+      action: string;
       input: string;
       prompt?: string;
     };
@@ -72,23 +72,29 @@ export function createRuntimeAdapter(
   manifest: PluginManifest,
   options: RuntimeFactoryOptions,
 ): RuntimeAdapter {
-  if (manifest.runtime === "ort") {
-    const vocabPath = manifest.metadata?.vocabPath;
-    if (typeof vocabPath !== "string" || !vocabPath.trim()) {
-      throw new Error(
-        `Plugin ${manifest.pluginId} is missing metadata.vocabPath`,
+  switch (manifest.kind) {
+    case "asr": {
+      const vocabPath = manifest.metadata?.vocabPath;
+      if (typeof vocabPath !== "string" || !vocabPath.trim()) {
+        throw new Error(
+          `Plugin ${manifest.pluginId} is missing metadata.vocabPath`,
+        );
+      }
+      return new OrtRuntimeAdapter(
+        manifest,
+        new AsrClient(options.workerUrl, options.events),
+        options.ortDir,
+        options.appDataDir,
+        options.appOrigin,
       );
     }
-    return new OrtRuntimeAdapter(
-      manifest,
-      new AsrClient(options.workerUrl, options.events),
-      options.ortDir,
-      options.appDataDir,
-      options.appOrigin,
-    );
+    case "llm":
+      return new LlamafileRuntimeAdapter(manifest.pluginId);
+    default:
+      throw new Error(
+        `Unsupported plugin kind "${manifest.kind}" for ${manifest.pluginId}`,
+      );
   }
-
-  return new LlamafileRuntimeAdapter(manifest.pluginId);
 }
 
 class OrtRuntimeAdapter implements RuntimeAdapter {
@@ -189,7 +195,7 @@ class LlamafileRuntimeAdapter implements RuntimeAdapter {
     }
     return invoke<LlamafileExecuteResult>("plugin_runtime_llamafile_execute", {
       pluginId: this.pluginId,
-      capability: request.capability,
+      action: request.action,
       input: request.input,
       prompt: request.prompt ?? null,
     });

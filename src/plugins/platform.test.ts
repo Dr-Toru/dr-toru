@@ -16,17 +16,17 @@ function createPlatform(store = new NoopPluginRegistryStore()): PluginPlatform {
 }
 
 describe("PluginPlatform", () => {
-  it("initializes with built-in ASR and no transform provider", async () => {
+  it("initializes with built-in ASR and no LLM provider", async () => {
     const platform = createPlatform();
     const state = await platform.init();
 
     expect(state.ready).toBe(true);
     expect(state.error).toBeNull();
     expect(state.features.transcription).toBe(true);
-    expect(state.features.transform).toBe(false);
+    expect(state.features.llm).toBe(false);
     expect(state.activeAsr?.pluginId).toBe("builtin.asr.ort.medasr");
-    expect(state.activeTransform).toBeNull();
-    expect(state.transformRunning).toBe(false);
+    expect(state.activeLlm).toBeNull();
+    expect(state.llmRunning).toBe(false);
   });
 
   it("reports import capability from runtime", async () => {
@@ -38,7 +38,7 @@ describe("PluginPlatform", () => {
 
   it("stays initialized when no ASR provider is active", async () => {
     const store = new NoopPluginRegistryStore();
-    await store.setActiveProvider("asr", null);
+    await store.setActivePlugin("asr", null);
     const platform = createPlatform(store);
     const state = await platform.init();
 

@@ -1,21 +1,21 @@
-import { NoopSessionStore } from "./noop-store";
-import type { SessionStore } from "./store";
-import { canUseTauriStore, TauriSessionStore } from "./tauri-store";
+import { NoopRecordingStore } from "./noop-store";
+import type { RecordingStore } from "./store";
+import { canUseTauriStore, TauriRecordingStore } from "./tauri-store";
 
-let store: SessionStore | null = null;
+let store: RecordingStore | null = null;
 
-export function getSessionStore(): SessionStore {
+export function getRecordingStore(): RecordingStore {
   if (store) {
     return store;
   }
 
   if (canUseTauriStore()) {
-    store = new TauriSessionStore();
+    store = new TauriRecordingStore();
     return store;
   }
 
   if (import.meta.env.DEV) {
-    store = new NoopSessionStore();
+    store = new NoopRecordingStore();
     return store;
   }
 

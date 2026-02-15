@@ -1,38 +1,38 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
-import type { SessionRecord, SessionSummary } from "../domain/session";
+import type { Recording, RecordingSummary } from "../domain/recording";
 import type {
-  SessionStore,
+  RecordingStore,
   StorageInitResult,
-  WriteArtifactTextInput,
-  WriteArtifactTextResult,
+  WriteAttachmentTextInput,
+  WriteAttachmentTextResult,
 } from "./store";
 
 export function canUseTauriStore(): boolean {
   return isTauri();
 }
 
-export class TauriSessionStore implements SessionStore {
+export class TauriRecordingStore implements RecordingStore {
   init(): Promise<StorageInitResult> {
     return invoke<StorageInitResult>("storage_init");
   }
 
-  listSessions(): Promise<SessionSummary[]> {
-    return invoke<SessionSummary[]>("storage_list_sessions");
+  listRecordings(): Promise<RecordingSummary[]> {
+    return invoke<RecordingSummary[]>("storage_list_recordings");
   }
 
-  getSession(sessionId: string): Promise<SessionRecord | null> {
-    return invoke<SessionRecord | null>("storage_get_session", { sessionId });
+  getRecording(recordingId: string): Promise<Recording | null> {
+    return invoke<Recording | null>("storage_get_recording", { recordingId });
   }
 
-  saveSession(session: SessionRecord): Promise<void> {
-    return invoke<void>("storage_save_session", { session });
+  saveRecording(recording: Recording): Promise<void> {
+    return invoke<void>("storage_save_recording", { recording });
   }
 
-  writeArtifactText(
-    input: WriteArtifactTextInput,
-  ): Promise<WriteArtifactTextResult> {
-    return invoke<WriteArtifactTextResult>("storage_write_artifact_text", {
+  writeAttachmentText(
+    input: WriteAttachmentTextInput,
+  ): Promise<WriteAttachmentTextResult> {
+    return invoke<WriteAttachmentTextResult>("storage_write_attachment_text", {
       request: input,
     });
   }

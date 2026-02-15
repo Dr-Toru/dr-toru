@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in *.ts|*.js|*.tsx|*.jsx) pnpm eslint --fix \"$f\" 2>&1; pnpm prettier --write \"$f\" 2>&1 ;; esac; exit 0"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "output=$(pnpm check:fix 2>&1 && pnpm vitest run 2>&1 && { command -v cargo >/dev/null 2>&1 && cargo check --manifest-path \"$CLAUDE_PROJECT_DIR/src-tauri/Cargo.toml\" 2>&1 || true; }) || { echo \"$output\" >&2; exit 2; }"
+          }
+        ]
+      }
+    ]
+  }
+}

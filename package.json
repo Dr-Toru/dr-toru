@@ -8,8 +8,10 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "check": "tsc --noEmit && eslint . && prettier --check .",
-    "check:fix": "tsc --noEmit && eslint --fix . && prettier --write .",
+    "check": "tsc --noEmit && eslint --cache . && prettier --cache --check .",
+    "check:fix": "tsc --noEmit && eslint --cache --fix . && prettier --cache --write .",
+    "check:all": "tsc --noEmit && eslint . && prettier --check .",
+    "check:fix-all": "tsc --noEmit && eslint --fix . && prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -12,6 +12,8 @@ dist
 dist-ssr
 *.local
 .env
+.eslintcache
+node_modules/.cache/prettier
 
 # Editor directories and files
 .vscode/*
