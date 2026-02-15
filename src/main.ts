@@ -104,39 +104,11 @@ window.addEventListener("DOMContentLoaded", () => {
     setRoute("settings", true);
   });
 
-  window.addEventListener("hashchange", () => {
-    setRoute(routeFromHash(window.location.hash), false);
-  });
-
-  const initialHash = hashValue(window.location.hash);
-  if (initialHash) {
-    hideSplash(false);
-    setRoute(routeFromHash(window.location.hash), true);
-  } else {
-    setRoute(DEFAULT_ROUTE, true);
-    showSplash();
-  }
-
-  loadBtn.addEventListener("click", () => {
-    void loadModel();
-  });
-  recordBtn.addEventListener("click", () => {
-    void toggleRecording();
-  });
-  importPluginBtn.addEventListener("click", () => {
-    void importPlugin();
-  });
-  toggleLlmBtn.addEventListener("click", () => {
-    void toggleLlmService();
-  });
-  runLlmBtn.addEventListener("click", () => {
-    void runLlmTest();
-  });
-
-  window.addEventListener("beforeunload", () => {
-    clearSplashHideTimer();
-    void dictation.shutdown();
-    void pluginPlatform.shutdown();
+  const store = getRecordingStore();
+  recordingService = new RecordingService(store);
+  listController = new ListController({
+    container: mustEl("recording-list"),
+    store,
   });
 
   pluginPlatform = createPluginPlatform({
@@ -180,11 +152,40 @@ window.addEventListener("DOMContentLoaded", () => {
     onRecordingChange: (recording) => syncRecordingUi(recording),
     onRecordingComplete: (transcript) => persistTranscript(transcript),
   });
-  const store = getRecordingStore();
-  recordingService = new RecordingService(store);
-  listController = new ListController({
-    container: mustEl("recording-list"),
-    store,
+
+  window.addEventListener("hashchange", () => {
+    setRoute(routeFromHash(window.location.hash), false);
+  });
+
+  const initialHash = hashValue(window.location.hash);
+  if (initialHash) {
+    hideSplash(false);
+    setRoute(routeFromHash(window.location.hash), true);
+  } else {
+    setRoute(DEFAULT_ROUTE, true);
+    showSplash();
+  }
+
+  loadBtn.addEventListener("click", () => {
+    void loadModel();
+  });
+  recordBtn.addEventListener("click", () => {
+    void toggleRecording();
+  });
+  importPluginBtn.addEventListener("click", () => {
+    void importPlugin();
+  });
+  toggleLlmBtn.addEventListener("click", () => {
+    void toggleLlmService();
+  });
+  runLlmBtn.addEventListener("click", () => {
+    void runLlmTest();
+  });
+
+  window.addEventListener("beforeunload", () => {
+    clearSplashHideTimer();
+    void dictation.shutdown();
+    void pluginPlatform.shutdown();
   });
 
   void initializePlugins().then(() => loadModel());
