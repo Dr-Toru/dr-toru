@@ -235,14 +235,14 @@ integration through `DictationController` tests would require mocking
 
 ## Files Changed
 
-| File                                        | Change                                                                                          |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| File                                        | Change                                                                             |
+| ------------------------------------------- | ---------------------------------------------------------------------------------- |
 | `src/audio/capture.ts`                      | Extract `computeRms()`, add `onLevel` callback to `start()`, refactor `isSilent()` |
-| `src/app/dictation-controller.ts`           | Add `onLevel?` to options, pass through to `capture.start()`                                    |
-| `src/main.ts`                               | Wire `onLevel` callback, query bar elements, pass `barEls` to controller                        |
-| `src/app/recording-view-controller.ts`      | Add `barEls` option, `setLevel()`, `resetBars()`, `levelToHeight()`                             |
-| `src/styles.css`                            | Remove animation/keyframes, add `height` transition, keep green color                           |
-| `src/app/recording-view-controller.test.ts` | Add `levelToHeight` and `setLevel` tests, update `makeController`                               |
+| `src/app/dictation-controller.ts`           | Add `onLevel?` to options, pass through to `capture.start()`                       |
+| `src/main.ts`                               | Wire `onLevel` callback, query bar elements, pass `barEls` to controller           |
+| `src/app/recording-view-controller.ts`      | Add `barEls` option, `setLevel()`, `resetBars()`, `levelToHeight()`                |
+| `src/styles.css`                            | Remove animation/keyframes, add `height` transition, keep green color              |
+| `src/app/recording-view-controller.test.ts` | Add `levelToHeight` and `setLevel` tests, update `makeController`                  |
 
 ## Out of Scope
 

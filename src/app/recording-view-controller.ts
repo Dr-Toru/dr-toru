@@ -13,6 +13,7 @@ export function levelToHeight(rms: number): number {
 
 export interface RecordingViewControllerOptions {
   transcriptEl: HTMLTextAreaElement;
+  contextNoteEl: HTMLTextAreaElement;
   transcribeBtn: HTMLButtonElement;
   timerEl: HTMLElement;
   barEls: readonly HTMLElement[];
@@ -27,6 +28,8 @@ interface RecordingContext {
   recordingId: string;
   attachmentId: string | null;
   transcript: string;
+  contextAttachmentId: string | null;
+  contextText: string;
 }
 
 export type OpenRouteResult =
@@ -37,6 +40,7 @@ export type OpenRouteResult =
 
 export class RecordingViewController {
   private readonly transcriptEl: HTMLTextAreaElement;
+  private readonly contextNoteEl: HTMLTextAreaElement;
   private readonly transcribeBtn: HTMLButtonElement;
   private readonly timerEl: HTMLElement;
   private readonly barEls: readonly HTMLElement[];
@@ -52,9 +56,11 @@ export class RecordingViewController {
   private toggling = false;
   private timerInterval: ReturnType<typeof setInterval> | null = null;
   private recordingStartTime: number | null = null;
+  private contextSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: RecordingViewControllerOptions) {
     this.transcriptEl = options.transcriptEl;
+    this.contextNoteEl = options.contextNoteEl;
     this.transcribeBtn = options.transcribeBtn;
     this.timerEl = options.timerEl;
     this.barEls = options.barEls;
@@ -65,6 +71,9 @@ export class RecordingViewController {
     this.onError = options.onError;
     this.transcribeBtn.addEventListener("click", () => {
       void this.toggleRecording();
+    });
+    this.contextNoteEl.addEventListener("input", () => {
+      this.scheduleContextSave();
     });
     this.render();
   }
@@ -79,12 +88,15 @@ export class RecordingViewController {
         return { status: "blocked" };
       }
 
+      this.flushContextSave();
+
       if (recordingId === null) {
         this.resetTimer();
         this.context = createEmptyContext(
           this.recordingService.createDraftRecordingId(),
         );
         this.liveTranscript = "";
+        this.contextNoteEl.value = "";
         this.render();
         return { status: "opened", recordingId: this.context.recordingId };
       }
@@ -92,8 +104,15 @@ export class RecordingViewController {
       if (recordingId) {
         const loaded = await this.recordingService.loadTranscript(recordingId);
         if (loaded) {
-          this.context = mapLoadedContext(loaded);
+          const loadedContext =
+            await this.recordingService.loadContext(recordingId);
+          this.context = {
+            ...mapLoadedContext(loaded),
+            contextAttachmentId: loadedContext?.attachmentId ?? null,
+            contextText: loadedContext?.context ?? "",
+          };
           this.liveTranscript = "";
+          this.contextNoteEl.value = this.context.contextText;
           this.render();
           return { status: "opened", recordingId: loaded.recordingId };
         }
@@ -238,6 +257,41 @@ export class RecordingViewController {
     delete this.transcriptEl.dataset.recording;
   }
 
+  private scheduleContextSave(): void {
+    if (this.contextSaveTimer !== null) {
+      clearTimeout(this.contextSaveTimer);
+    }
+    this.contextSaveTimer = setTimeout(() => {
+      this.contextSaveTimer = null;
+      void this.saveContext();
+    }, 1000);
+  }
+
+  private flushContextSave(): void {
+    if (this.contextSaveTimer !== null) {
+      clearTimeout(this.contextSaveTimer);
+      this.contextSaveTimer = null;
+      void this.saveContext();
+    }
+  }
+
+  private async saveContext(): Promise<void> {
+    if (!this.context) return;
+    const text = this.contextNoteEl.value;
+    try {
+      const saved = await this.recordingService.saveContext({
+        recordingId: this.context.recordingId,
+        attachmentId: this.context.contextAttachmentId,
+        context: text,
+      });
+      this.context.contextAttachmentId = saved.attachmentId;
+      this.context.contextText = saved.context;
+      this.onRecordingsChanged();
+    } catch (error) {
+      this.onError(error, "Failed to save context");
+    }
+  }
+
   private resetTimer(): void {
     this.clearTimerInterval();
     this.recordingStartTime = null;
@@ -258,6 +312,8 @@ function createEmptyContext(recordingId: string): RecordingContext {
     recordingId,
     attachmentId: null,
     transcript: "",
+    contextAttachmentId: null,
+    contextText: "",
   };
 }
 
@@ -265,7 +321,7 @@ function mapLoadedContext(loaded: {
   recordingId: string;
   attachmentId: string | null;
   transcript: string;
-}): RecordingContext {
+}): Omit<RecordingContext, "contextAttachmentId" | "contextText"> {
   return {
     recordingId: loaded.recordingId,
     attachmentId: loaded.attachmentId,

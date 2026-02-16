@@ -308,6 +308,136 @@ describe("typing indicator", () => {
   });
 });
 
+describe("context textarea", () => {
+  it("clears context textarea on openRoute(null)", async () => {
+    const service = makeServiceStub();
+    const { controller, contextNoteEl } = makeController(service);
+
+    contextNoteEl.value = "leftover text";
+    await controller.openRoute(null);
+    expect(contextNoteEl.value).toBe("");
+  });
+
+  it("loads context text when opening an existing recording", async () => {
+    const service = makeServiceStub({
+      loadTranscript: async () => ({
+        recordingId: "rec-1",
+        attachmentId: "att-1",
+        transcript: "some transcript",
+      }),
+      loadContext: async () => ({
+        recordingId: "rec-1",
+        attachmentId: "ctx-1",
+        context: "patient context notes",
+      }),
+    });
+    const { controller, contextNoteEl } = makeController(service);
+
+    const result = await controller.openRoute("rec-1");
+    expect(result.status).toBe("opened");
+    expect(contextNoteEl.value).toBe("patient context notes");
+  });
+
+  it("sets empty context when existing recording has no context", async () => {
+    const service = makeServiceStub({
+      loadTranscript: async () => ({
+        recordingId: "rec-1",
+        attachmentId: "att-1",
+        transcript: "some transcript",
+      }),
+      loadContext: async () => null,
+    });
+    const { controller, contextNoteEl } = makeController(service);
+
+    await controller.openRoute("rec-1");
+    expect(contextNoteEl.value).toBe("");
+  });
+
+  it("debounced save fires after input event", async () => {
+    vi.useFakeTimers();
+    try {
+      const saveContext = vi.fn(
+        async (input: { recordingId: string; context: string }) => ({
+          recordingId: input.recordingId,
+          attachmentId: "ctx-1",
+          context: input.context,
+        }),
+      );
+      const service = makeServiceStub({ saveContext: saveContext as never });
+      const { controller, contextNoteEl } = makeController(service);
+
+      await controller.openRoute(null);
+      contextNoteEl.value = "patient info";
+      contextNoteEl.dispatchEvent(new Event("input"));
+
+      expect(saveContext).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(saveContext).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("multiple inputs within debounce window only save once", async () => {
+    vi.useFakeTimers();
+    try {
+      const saveContext = vi.fn(
+        async (input: { recordingId: string; context: string }) => ({
+          recordingId: input.recordingId,
+          attachmentId: "ctx-1",
+          context: input.context,
+        }),
+      );
+      const service = makeServiceStub({ saveContext: saveContext as never });
+      const { controller, contextNoteEl } = makeController(service);
+
+      await controller.openRoute(null);
+      contextNoteEl.value = "first";
+      contextNoteEl.dispatchEvent(new Event("input"));
+
+      await vi.advanceTimersByTimeAsync(500);
+      contextNoteEl.value = "second";
+      contextNoteEl.dispatchEvent(new Event("input"));
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(saveContext).toHaveBeenCalledTimes(1);
+      expect(saveContext).toHaveBeenCalledWith(
+        expect.objectContaining({ context: "second" }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("flushes pending save on openRoute", async () => {
+    vi.useFakeTimers();
+    try {
+      const saveContext = vi.fn(
+        async (input: { recordingId: string; context: string }) => ({
+          recordingId: input.recordingId,
+          attachmentId: "ctx-1",
+          context: input.context,
+        }),
+      );
+      const service = makeServiceStub({ saveContext: saveContext as never });
+      const { controller, contextNoteEl } = makeController(service);
+
+      await controller.openRoute(null);
+      contextNoteEl.value = "pending notes";
+      contextNoteEl.dispatchEvent(new Event("input"));
+
+      // Navigate away before debounce fires — should flush
+      await controller.openRoute(null);
+      expect(saveContext).toHaveBeenCalledTimes(1);
+      expect(saveContext).toHaveBeenCalledWith(
+        expect.objectContaining({ context: "pending notes" }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 function makeBars(count = 4): HTMLElement[] {
   return Array.from({ length: count }, () => {
     const el = document.createElement("span");
@@ -323,28 +453,41 @@ function makeController(
 ): {
   controller: RecordingViewController;
   transcriptEl: HTMLTextAreaElement;
+  contextNoteEl: HTMLTextAreaElement;
   timerEl: HTMLElement;
   barEls: HTMLElement[];
   typingIndicatorEl: HTMLElement;
+  onRecordingsChanged: ReturnType<typeof vi.fn>;
 } {
   const transcriptEl = document.createElement("textarea");
+  const contextNoteEl = document.createElement("textarea");
   const transcribeBtn = document.createElement("button");
   const timerEl = document.createElement("span");
   timerEl.textContent = "0:00";
   const typingIndicatorEl = document.createElement("div");
   typingIndicatorEl.hidden = true;
+  const onRecordingsChanged = vi.fn();
   const controller = new RecordingViewController({
     transcriptEl,
+    contextNoteEl,
     transcribeBtn,
     timerEl,
     barEls,
     typingIndicatorEl,
     recordingService: service,
     onToggleRecording: async () => undefined,
-    onRecordingsChanged: () => undefined,
+    onRecordingsChanged,
     onError,
   });
-  return { controller, transcriptEl, timerEl, barEls, typingIndicatorEl };
+  return {
+    controller,
+    transcriptEl,
+    contextNoteEl,
+    timerEl,
+    barEls,
+    typingIndicatorEl,
+    onRecordingsChanged,
+  };
 }
 
 function makeServiceStub(
@@ -354,6 +497,7 @@ function makeServiceStub(
   const base = {
     createDraftRecordingId: () => `draft-${++seq}`,
     loadTranscript: async () => null,
+    loadContext: async () => null,
     saveTranscript: async (input: {
       recordingId: string;
       transcript: string;
@@ -362,6 +506,12 @@ function makeServiceStub(
         recordingId: input.recordingId,
         attachmentId: "att-1",
         transcript: input.transcript,
+      }) as never,
+    saveContext: async (input: { recordingId: string; context: string }) =>
+      ({
+        recordingId: input.recordingId,
+        attachmentId: "ctx-1",
+        context: input.context,
       }) as never,
   };
   return { ...base, ...overrides } as unknown as RecordingService;

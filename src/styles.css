@@ -991,6 +991,48 @@ body {
   color: var(--text-primary);
 }
 
+/* ===== Context Card ===== */
+
+#screen-recording .context-card {
+  flex-shrink: 0;
+  margin: var(--space-3) var(--space-4) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+#screen-recording .context-card-header {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+#screen-recording .context-card-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+#screen-recording .context-card-input {
+  width: 100%;
+  padding: var(--space-3);
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  resize: none;
+  outline: none;
+}
+
+#screen-recording .context-card-input::placeholder {
+  color: var(--text-muted);
+}
+
 /* ===== Recording Transcript ===== */
 
 #screen-recording .view-body {

@@ -132,6 +132,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   recordingView = new RecordingViewController({
     transcriptEl: mustTextarea("transcript"),
+    contextNoteEl: mustTextarea("contextNote"),
     transcribeBtn: mustBtn("recordBtn"),
     timerEl: mustEl("recordingTimer"),
     barEls,

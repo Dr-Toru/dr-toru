@@ -24,6 +24,24 @@ export interface LoadedTranscriptResult {
   transcript: string;
 }
 
+export interface SaveContextInput {
+  recordingId: string;
+  attachmentId?: string | null;
+  context: string;
+}
+
+export interface SaveContextResult {
+  recordingId: string;
+  attachmentId: string;
+  context: string;
+}
+
+export interface LoadedContextResult {
+  recordingId: string;
+  attachmentId: string | null;
+  context: string;
+}
+
 export class RecordingService {
   constructor(private readonly store: RecordingStore) {}
 
@@ -138,6 +156,92 @@ export class RecordingService {
     };
   }
 
+  async loadContext(recordingId: string): Promise<LoadedContextResult | null> {
+    const recording = await this.store.getRecording(recordingId);
+    if (!recording) {
+      return null;
+    }
+
+    const target = this.pickContextAttachment(recording.attachments);
+    if (!target) {
+      return {
+        recordingId,
+        attachmentId: null,
+        context: "",
+      };
+    }
+
+    try {
+      const context = await this.store.readText(target.path);
+      return {
+        recordingId,
+        attachmentId: target.attachmentId,
+        context,
+      };
+    } catch {
+      return {
+        recordingId,
+        attachmentId: null,
+        context: "",
+      };
+    }
+  }
+
+  async saveContext(input: SaveContextInput): Promise<SaveContextResult> {
+    const now = new Date().toISOString();
+    const recording =
+      (await this.store.getRecording(input.recordingId)) ??
+      createRecording({ createdAt: now, recordingId: input.recordingId });
+    const target =
+      this.findContextAttachment(recording.attachments, input.attachmentId) ??
+      this.pickContextAttachment(recording.attachments);
+    const attachmentId = target?.attachmentId ?? createUlid();
+
+    const written = await this.store.writeAttachmentText({
+      recordingId: input.recordingId,
+      attachmentId,
+      extension: "txt",
+      text: input.context,
+    });
+
+    if (target) {
+      const updatedTarget: Attachment = {
+        ...target,
+        path: written.path,
+        metadata: {
+          ...target.metadata,
+          sizeBytes: written.sizeBytes,
+        },
+      };
+      recording.attachments = recording.attachments.map((attachment) =>
+        attachment.attachmentId === updatedTarget.attachmentId
+          ? updatedTarget
+          : attachment,
+      );
+    } else {
+      const attachment = createTextAttachment({
+        attachmentId,
+        kind: "context_note",
+        role: "source",
+        createdAt: now,
+        createdBy: "user",
+        path: written.path,
+        metadata: {
+          sizeBytes: written.sizeBytes,
+        },
+      });
+      recording.attachments.push(attachment);
+    }
+    recording.updatedAt = now;
+
+    await this.store.saveRecording(recording);
+    return {
+      recordingId: input.recordingId,
+      attachmentId,
+      context: input.context,
+    };
+  }
+
   private findAttachment(
     attachments: Attachment[],
     attachmentId: string | null | undefined,
@@ -172,5 +276,34 @@ export class RecordingService {
       right.createdAt.localeCompare(left.createdAt),
     );
     return transcriptAttachments[0] ?? null;
+  }
+
+  private findContextAttachment(
+    attachments: Attachment[],
+    attachmentId: string | null | undefined,
+  ): Attachment | null {
+    if (!attachmentId) {
+      return null;
+    }
+    const target = attachments.find(
+      (attachment) => attachment.attachmentId === attachmentId,
+    );
+    if (!target || target.kind !== "context_note") {
+      return null;
+    }
+    return target;
+  }
+
+  private pickContextAttachment(attachments: Attachment[]): Attachment | null {
+    const contextAttachments = attachments.filter(
+      (attachment) => attachment.kind === "context_note",
+    );
+    if (contextAttachments.length === 0) {
+      return null;
+    }
+    contextAttachments.sort((left, right) =>
+      right.createdAt.localeCompare(left.createdAt),
+    );
+    return contextAttachments[0] ?? null;
   }
 }
