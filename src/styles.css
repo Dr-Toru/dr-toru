@@ -994,6 +994,7 @@ body {
 /* ===== Recording Transcript ===== */
 
 #screen-recording .view-body {
+  position: relative;
   display: flex;
   flex-direction: column;
   padding: 0;
@@ -1024,6 +1025,51 @@ body {
 
 #screen-recording .transcript::placeholder {
   color: var(--text-muted);
+}
+
+/* ===== Typing Indicator ===== */
+
+#screen-recording .typing-indicator {
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+#screen-recording .typing-indicator .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: typingPulse 1.4s ease-in-out infinite;
+}
+
+#screen-recording .typing-indicator .dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+#screen-recording .typing-indicator .dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes typingPulse {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+#transcript[data-recording]::placeholder {
+  visibility: hidden;
 }
 
 /* ===== FAB link reset ===== */

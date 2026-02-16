@@ -135,6 +135,7 @@ window.addEventListener("DOMContentLoaded", () => {
     transcribeBtn: mustBtn("recordBtn"),
     timerEl: mustEl("recordingTimer"),
     barEls,
+    typingIndicatorEl: mustEl("typingIndicator"),
     recordingService,
     onToggleRecording: () => toggleRecording(),
     onRecordingsChanged: () => fireRecordingsChanged(),

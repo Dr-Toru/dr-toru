@@ -106,6 +106,17 @@
             aria-label="Running transcript"
             placeholder="Tap Transcribe to begin dictation…"
           ></textarea>
+          <div
+            id="typingIndicator"
+            class="typing-indicator"
+            role="status"
+            aria-label="Preparing transcription"
+            hidden
+          >
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </div>
         </div>
         <div class="folder-actions">
           <button

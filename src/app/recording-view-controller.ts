@@ -16,6 +16,7 @@ export interface RecordingViewControllerOptions {
   transcribeBtn: HTMLButtonElement;
   timerEl: HTMLElement;
   barEls: readonly HTMLElement[];
+  typingIndicatorEl: HTMLElement;
   recordingService: RecordingService;
   onToggleRecording: () => Promise<void>;
   onRecordingsChanged: () => void;
@@ -39,6 +40,7 @@ export class RecordingViewController {
   private readonly transcribeBtn: HTMLButtonElement;
   private readonly timerEl: HTMLElement;
   private readonly barEls: readonly HTMLElement[];
+  private readonly typingIndicatorEl: HTMLElement;
   private readonly recordingService: RecordingService;
   private readonly onToggleRecording: () => Promise<void>;
   private readonly onRecordingsChanged: () => void;
@@ -56,6 +58,7 @@ export class RecordingViewController {
     this.transcribeBtn = options.transcribeBtn;
     this.timerEl = options.timerEl;
     this.barEls = options.barEls;
+    this.typingIndicatorEl = options.typingIndicatorEl;
     this.recordingService = options.recordingService;
     this.onToggleRecording = options.onToggleRecording;
     this.onRecordingsChanged = options.onRecordingsChanged;
@@ -114,9 +117,11 @@ export class RecordingViewController {
       this.recordingStartTime = Date.now();
       this.updateTimer();
       this.timerInterval = setInterval(() => this.updateTimer(), 1000);
+      this.showTypingIndicator();
     } else {
       this.clearTimerInterval();
       this.resetBars();
+      this.hideTypingIndicator();
     }
     this.render();
   }
@@ -134,6 +139,9 @@ export class RecordingViewController {
 
   setLiveTranscript(transcript: string): void {
     this.liveTranscript = transcript;
+    if (transcript) {
+      this.hideTypingIndicator();
+    }
     this.renderTranscript();
   }
 
@@ -218,6 +226,16 @@ export class RecordingViewController {
     for (const bar of this.barEls) {
       bar.style.height = `${MIN_BAR_HEIGHT}px`;
     }
+  }
+
+  private showTypingIndicator(): void {
+    this.typingIndicatorEl.hidden = false;
+    this.transcriptEl.dataset.recording = "";
+  }
+
+  private hideTypingIndicator(): void {
+    this.typingIndicatorEl.hidden = true;
+    delete this.transcriptEl.dataset.recording;
   }
 
   private resetTimer(): void {

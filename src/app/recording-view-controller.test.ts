@@ -242,6 +242,72 @@ describe("setLevel and bar management", () => {
   });
 });
 
+describe("typing indicator", () => {
+  it("shows indicator when recording starts", () => {
+    const service = makeServiceStub();
+    const { controller, typingIndicatorEl } = makeController(service);
+
+    controller.setRecording(true);
+    expect(typingIndicatorEl.hidden).toBe(false);
+  });
+
+  it("hides indicator when non-empty transcript arrives", () => {
+    const service = makeServiceStub();
+    const { controller, typingIndicatorEl } = makeController(service);
+
+    controller.setRecording(true);
+    expect(typingIndicatorEl.hidden).toBe(false);
+
+    controller.setLiveTranscript("hello");
+    expect(typingIndicatorEl.hidden).toBe(true);
+  });
+
+  it("hides indicator when recording stops", () => {
+    const service = makeServiceStub();
+    const { controller, typingIndicatorEl } = makeController(service);
+
+    controller.setRecording(true);
+    expect(typingIndicatorEl.hidden).toBe(false);
+
+    controller.setRecording(false);
+    expect(typingIndicatorEl.hidden).toBe(true);
+  });
+
+  it("does not hide indicator on empty transcript", () => {
+    const service = makeServiceStub();
+    const { controller, typingIndicatorEl } = makeController(service);
+
+    controller.setRecording(true);
+    controller.setLiveTranscript("");
+    expect(typingIndicatorEl.hidden).toBe(false);
+  });
+
+  it("reappears on second recording", () => {
+    const service = makeServiceStub();
+    const { controller, typingIndicatorEl } = makeController(service);
+
+    controller.setRecording(true);
+    controller.setLiveTranscript("text");
+    expect(typingIndicatorEl.hidden).toBe(true);
+
+    controller.setRecording(false);
+
+    controller.setRecording(true);
+    expect(typingIndicatorEl.hidden).toBe(false);
+  });
+
+  it("sets data-recording attribute on transcript when recording", () => {
+    const service = makeServiceStub();
+    const { controller, transcriptEl } = makeController(service);
+
+    controller.setRecording(true);
+    expect(transcriptEl.dataset.recording).toBe("");
+
+    controller.setRecording(false);
+    expect(transcriptEl.dataset.recording).toBeUndefined();
+  });
+});
+
 function makeBars(count = 4): HTMLElement[] {
   return Array.from({ length: count }, () => {
     const el = document.createElement("span");
@@ -259,22 +325,26 @@ function makeController(
   transcriptEl: HTMLTextAreaElement;
   timerEl: HTMLElement;
   barEls: HTMLElement[];
+  typingIndicatorEl: HTMLElement;
 } {
   const transcriptEl = document.createElement("textarea");
   const transcribeBtn = document.createElement("button");
   const timerEl = document.createElement("span");
   timerEl.textContent = "0:00";
+  const typingIndicatorEl = document.createElement("div");
+  typingIndicatorEl.hidden = true;
   const controller = new RecordingViewController({
     transcriptEl,
     transcribeBtn,
     timerEl,
     barEls,
+    typingIndicatorEl,
     recordingService: service,
     onToggleRecording: async () => undefined,
     onRecordingsChanged: () => undefined,
     onError,
   });
-  return { controller, transcriptEl, timerEl, barEls };
+  return { controller, transcriptEl, timerEl, barEls, typingIndicatorEl };
 }
 
 function makeServiceStub(
