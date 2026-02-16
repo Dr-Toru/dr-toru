@@ -21,8 +21,15 @@ import {
 } from "./plugins";
 import { getRecordingStore } from "./storage";
 
-const CHUNK_SECS = 4;
-const STRIDE_SECS = 1;
+const ROUTES = ["transcription", "list", "settings"] as const;
+type RouteName = (typeof ROUTES)[number];
+const TAB_ROUTES = ["list", "transcription"] as const;
+type TabRoute = (typeof TAB_ROUTES)[number];
+const DEFAULT_ROUTE: TabRoute = "transcription";
+const SPLASH_FADE_MS = 280;
+
+const CHUNK_SECS = readNumericSetting("toru.chunk.secs", 4);
+const STRIDE_SECS = readNumericSetting("toru.stride.secs", 1);
 const SAMPLE_RATE = 16000;
 const CHUNK_SAMPLES = Math.floor(CHUNK_SECS * SAMPLE_RATE);
 const STRIDE_SAMPLES = Math.floor(STRIDE_SECS * SAMPLE_RATE);
@@ -518,5 +525,16 @@ function isDebugMetricsEnabled(): boolean {
     return window.localStorage.getItem("toru.debug.metrics") === "1";
   } catch {
     return false;
+  }
+}
+
+function readNumericSetting(key: string, fallback: number): number {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === null) return fallback;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  } catch {
+    return fallback;
   }
 }

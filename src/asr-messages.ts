@@ -3,6 +3,8 @@ export interface LoadRequest {
   modelUrl: string;
   vocabUrl: string;
   ortDir: string;
+  kenlmDir?: string;
+  lmUrl?: string;
 }
 
 export interface TranscribeRequest {

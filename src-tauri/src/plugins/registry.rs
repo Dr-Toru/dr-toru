@@ -75,6 +75,14 @@ pub(super) fn builtin_ort_asr_plugin() -> PluginManifest {
                     "631bd152b5beca9a74d21bd1c3ff53fecf63d10d11aae72e491cacdfbf69a756".to_string(),
                 ),
             ),
+            (
+                "lmPath".to_string(),
+                Value::String("models/lm_6.kenlm".to_string()),
+            ),
+            (
+                "kenlmWasmPath".to_string(),
+                Value::String("kenlm/kenlm.js".to_string()),
+            ),
         ]))),
     }
 }

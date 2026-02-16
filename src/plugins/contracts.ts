@@ -40,6 +40,8 @@ export const BUILTIN_ORT_ASR_PLUGIN: PluginManifest = {
     vocabPath: "models/medasr_lasr_vocab.json",
     vocabSha256:
       "631bd152b5beca9a74d21bd1c3ff53fecf63d10d11aae72e491cacdfbf69a756",
+    lmPath: "models/lm_6.kenlm",
+    kenlmWasmPath: "kenlm/kenlm.js",
   },
 };
 

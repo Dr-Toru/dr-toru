@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
 .eslintcache
 node_modules/.cache/prettier
 
@@ -20,6 +21,12 @@ node_modules/.cache/prettier
 .idea
 .DS_Store
 *.suo
+
+# KenLM build intermediates
+build/
+
+# Large model files (download separately)
+public/models/*.kenlm
 *.ntvs*
 *.njsproj
 *.sln

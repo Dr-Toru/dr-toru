@@ -118,7 +118,25 @@ class OrtRuntimeAdapter implements RuntimeAdapter {
       this.appDataDir,
       this.appOrigin,
     );
-    await this.asrClient.load(modelUrl, vocabUrl, this.ortDir);
+
+    const lmPath = this.manifest.metadata?.lmPath;
+    const kenlmWasmPath = this.manifest.metadata?.kenlmWasmPath;
+
+    let lmUrl: string | undefined;
+    let kenlmDir: string | undefined;
+    if (typeof lmPath === "string" && lmPath.trim()) {
+      lmUrl = resolveAssetUrl(lmPath, this.appDataDir, this.appOrigin);
+    }
+    if (typeof kenlmWasmPath === "string" && kenlmWasmPath.trim()) {
+      const resolved = resolveAssetUrl(
+        kenlmWasmPath,
+        this.appDataDir,
+        this.appOrigin,
+      );
+      kenlmDir = resolved.replace(/[^/]+$/, "");
+    }
+
+    await this.asrClient.load(modelUrl, vocabUrl, this.ortDir, lmUrl, kenlmDir);
   }
 
   async health(): Promise<RuntimeHealth> {

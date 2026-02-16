@@ -14,7 +14,7 @@ describe("mergeChunkText", () => {
 
   it("appends non-overlapping text", () => {
     expect(mergeChunkText("the patient", "reports pain")).toBe(
-      "the patient reports pain",
+      "the patient\nreports pain",
     );
   });
 
@@ -45,6 +45,6 @@ describe("mergeChunkText", () => {
   });
 
   it("trims whitespace from next text", () => {
-    expect(mergeChunkText("hello", "  world  ")).toBe("hello world");
+    expect(mergeChunkText("hello", "  world  ")).toBe("hello\nworld");
   });
 });

@@ -37,6 +37,8 @@ export class AsrClient {
     modelUrl: string,
     vocabUrl: string,
     ortDir: string,
+    lmUrl?: string,
+    kenlmDir?: string,
   ): Promise<void> {
     if (this.readyValue) {
       return;
@@ -49,7 +51,14 @@ export class AsrClient {
     this.loadPromise = new Promise<void>((resolve, reject) => {
       this.loadResolve = resolve;
       this.loadReject = reject;
-      const message: LoadRequest = { type: "load", modelUrl, vocabUrl, ortDir };
+      const message: LoadRequest = {
+        type: "load",
+        modelUrl,
+        vocabUrl,
+        ortDir,
+        lmUrl,
+        kenlmDir,
+      };
       target.postMessage(message satisfies MainToWorkerMessage);
     });
 
