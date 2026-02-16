@@ -10,6 +10,8 @@ export interface DictationControllerOptions {
   strideSecs: number;
   silenceRms: number;
   silencePeak: number;
+  speechHoldChunks: number;
+  silenceProbeEvery: number;
   debugMetrics: boolean;
   onStatus: (message: string) => void;
   onTranscript: (text: string) => void;
@@ -24,6 +26,7 @@ export class DictationController {
   private transcriptText = "";
   private metricChunkId = 0;
   private silentChunkSkips = 0;
+  private speechHoldRemaining = 0;
 
   constructor(private readonly options: DictationControllerOptions) {}
 
@@ -73,6 +76,7 @@ export class DictationController {
         this.transcriptText = "";
         this.metricChunkId = 0;
         this.silentChunkSkips = 0;
+        this.speechHoldRemaining = 0;
         this.debugMetric("recording-start", {
           chunkSecs: this.options.chunkSecs,
           strideSecs: this.options.strideSecs,
@@ -141,15 +145,44 @@ export class DictationController {
   }
 
   private queueChunk(samples: Float32Array): Promise<void> {
-    if (isSilent(samples, this.options.silenceRms, this.options.silencePeak)) {
+    const silent = isSilent(
+      samples,
+      this.options.silenceRms,
+      this.options.silencePeak,
+    );
+
+    if (silent) {
       this.silentChunkSkips += 1;
-      if (this.silentChunkSkips === 1 || this.silentChunkSkips % 10 === 0) {
-        this.debugMetric("chunk-silent-skip", {
+      const shouldProbe =
+        this.silentChunkSkips % this.options.silenceProbeEvery === 0;
+      const shouldDecode = this.speechHoldRemaining > 0 || shouldProbe;
+
+      if (this.speechHoldRemaining > 0) {
+        this.speechHoldRemaining -= 1;
+      }
+
+      if (!shouldDecode) {
+        if (this.silentChunkSkips === 1 || this.silentChunkSkips % 10 === 0) {
+          this.debugMetric("chunk-silent-skip", {
+            count: this.silentChunkSkips,
+            hold: this.speechHoldRemaining,
+            chunkSecs: roundMetric(samples.length / this.options.sampleRate),
+          });
+        }
+        return asrQueue.waitForIdle();
+      }
+
+      if (shouldProbe || this.silentChunkSkips === 1) {
+        this.debugMetric("chunk-silent-pass", {
           count: this.silentChunkSkips,
+          hold: this.speechHoldRemaining,
+          probe: shouldProbe ? "1" : "0",
           chunkSecs: roundMetric(samples.length / this.options.sampleRate),
         });
       }
-      return asrQueue.waitForIdle();
+    } else {
+      this.silentChunkSkips = 0;
+      this.speechHoldRemaining = this.options.speechHoldChunks;
     }
 
     const metricId = ++this.metricChunkId;
@@ -230,6 +263,11 @@ export class DictationController {
   }
 }
 
+const MAX_WORD_OVERLAP = 20;
+const MIN_SINGLE_TOKEN_OVERLAP_LEN = 4;
+const MAX_CHAR_OVERLAP = 24;
+const MIN_CHAR_OVERLAP = 4;
+
 export function mergeChunkText(currentText: string, nextText: string): string {
   const next = nextText.trim();
   if (!next) {
@@ -241,8 +279,47 @@ export function mergeChunkText(currentText: string, nextText: string): string {
 
   const currentWords = currentText.split(/\s+/);
   const nextWords = next.split(/\s+/);
-  const maxOverlap = Math.min(currentWords.length, nextWords.length, 20);
-  let overlapCount = 0;
+  const overlapCount = findWordOverlap(currentWords, nextWords);
+  if (overlapCount > 0) {
+    const suffix = nextWords.slice(overlapCount).join(" ");
+    return suffix ? appendMergeChunk(currentText, suffix) : currentText;
+  }
+
+  const charOverlap = findCharOverlap(currentText, next);
+  if (charOverlap > 0) {
+    const suffix = next.slice(charOverlap).trimStart();
+    return suffix ? `${currentText}${suffix}` : currentText;
+  }
+
+  return appendMergeChunk(currentText, next);
+}
+
+function normalizeMergeToken(token: string): string {
+  return token
+    .toLowerCase()
+    .replace(/^[^\w]+|[^\w]+$/g, "")
+    .trim();
+}
+
+function appendMergeChunk(currentText: string, suffix: string): string {
+  if (!suffix) {
+    return currentText;
+  }
+  if (!currentText) {
+    return suffix;
+  }
+  if (/\s$/.test(currentText) || /^[,.;:!?)]/.test(suffix)) {
+    return `${currentText}${suffix}`;
+  }
+  return `${currentText} ${suffix}`;
+}
+
+function findWordOverlap(currentWords: string[], nextWords: string[]): number {
+  const maxOverlap = Math.min(
+    currentWords.length,
+    nextWords.length,
+    MAX_WORD_OVERLAP,
+  );
 
   for (let size = maxOverlap; size > 0; size -= 1) {
     let match = true;
@@ -251,28 +328,47 @@ export function mergeChunkText(currentText: string, nextText: string): string {
         currentWords[currentWords.length - size + idx],
       );
       const right = normalizeMergeToken(nextWords[idx]);
-      if (left !== right) {
+      if (!left || !right || left !== right) {
         match = false;
         break;
       }
     }
 
-    if (match) {
-      overlapCount = size;
-      break;
+    if (!match) {
+      continue;
     }
+
+    if (size === 1) {
+      const token = normalizeMergeToken(currentWords[currentWords.length - 1]);
+      if (token.length < MIN_SINGLE_TOKEN_OVERLAP_LEN) {
+        return 0;
+      }
+    }
+
+    return size;
   }
 
-  const separator = overlapCount > 0 ? " " : "\n";
-  const suffix = nextWords.slice(overlapCount).join(" ");
-  return suffix ? `${currentText}${separator}${suffix}` : currentText;
+  return 0;
 }
 
-function normalizeMergeToken(token: string): string {
-  return token
-    .toLowerCase()
-    .replace(/^[^\w]+|[^\w]+$/g, "")
-    .trim();
+function findCharOverlap(currentText: string, nextText: string): number {
+  const left = currentText.toLowerCase();
+  const right = nextText.toLowerCase();
+  const maxSize = Math.min(left.length, right.length, MAX_CHAR_OVERLAP);
+
+  for (let size = maxSize; size >= MIN_CHAR_OVERLAP; size -= 1) {
+    const tail = left.slice(-size);
+    const head = right.slice(0, size);
+    if (tail !== head) {
+      continue;
+    }
+    if (!/[a-z0-9]/i.test(head)) {
+      continue;
+    }
+    return size;
+  }
+
+  return 0;
 }
 
 function roundMetric(value: number): number {

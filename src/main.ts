@@ -21,14 +21,28 @@ import {
 } from "./plugins";
 import { getRecordingStore } from "./storage";
 
-const CHUNK_SECS = readNumericSetting("toru.chunk.secs", 4);
-const STRIDE_SECS = readNumericSetting("toru.stride.secs", 1);
+const CHUNK_SECS = Math.max(2, readNumericSetting("toru.chunk.secs", 6));
+const STRIDE_SECS = Math.min(
+  readNumericSetting("toru.stride.secs", 1.5),
+  Math.max(0.5, CHUNK_SECS - 0.5),
+);
 const SAMPLE_RATE = 16000;
 const CHUNK_SAMPLES = Math.floor(CHUNK_SECS * SAMPLE_RATE);
 const STRIDE_SAMPLES = Math.floor(STRIDE_SECS * SAMPLE_RATE);
-const CHUNK_STEP_SAMPLES = Math.max(1, CHUNK_SAMPLES - STRIDE_SAMPLES);
-const SILENCE_RMS = 0.004;
-const SILENCE_PEAK = 0.02;
+const CHUNK_STEP_SAMPLES = Math.max(
+  Math.floor(0.75 * SAMPLE_RATE),
+  CHUNK_SAMPLES - STRIDE_SAMPLES,
+);
+const SILENCE_RMS = readNumericSetting("toru.silence.rms", 0.0025);
+const SILENCE_PEAK = readNumericSetting("toru.silence.peak", 0.012);
+const SILENCE_HOLD_CHUNKS = Math.max(
+  0,
+  Math.floor(readNumericSetting("toru.silence.hold.chunks", 2)),
+);
+const SILENCE_PROBE_EVERY = Math.max(
+  1,
+  Math.floor(readNumericSetting("toru.silence.probe.every", 8)),
+);
 const DEBUG_METRICS = isDebugMetricsEnabled();
 
 const capture = new AudioCapture({
@@ -196,6 +210,8 @@ window.addEventListener("DOMContentLoaded", () => {
     strideSecs: STRIDE_SECS,
     silenceRms: SILENCE_RMS,
     silencePeak: SILENCE_PEAK,
+    speechHoldChunks: SILENCE_HOLD_CHUNKS,
+    silenceProbeEvery: SILENCE_PROBE_EVERY,
     debugMetrics: DEBUG_METRICS,
     onStatus: () => undefined,
     onTranscript: (text) => {

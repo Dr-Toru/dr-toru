@@ -14,7 +14,7 @@ describe("mergeChunkText", () => {
 
   it("appends non-overlapping text", () => {
     expect(mergeChunkText("the patient", "reports pain")).toBe(
-      "the patient\nreports pain",
+      "the patient reports pain",
     );
   });
 
@@ -45,6 +45,18 @@ describe("mergeChunkText", () => {
   });
 
   it("trims whitespace from next text", () => {
-    expect(mergeChunkText("hello", "  world  ")).toBe("hello\nworld");
+    expect(mergeChunkText("hello", "  world  ")).toBe("hello world");
+  });
+
+  it("avoids weak single-word dedupe on short tokens", () => {
+    expect(mergeChunkText("patient is", "is resting")).toBe(
+      "patient is is resting",
+    );
+  });
+
+  it("stitches split words using char overlap", () => {
+    expect(mergeChunkText("hypertens", "tension noted")).toBe(
+      "hypertension noted",
+    );
   });
 });
