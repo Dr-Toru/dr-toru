@@ -24,10 +24,3 @@ node_modules/.cache/prettier
 
 # KenLM build intermediates
 build/
-
-# Large model files (download separately)
-public/models/*.kenlm
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
