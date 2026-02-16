@@ -3,6 +3,7 @@ import { RecordingService } from "./recording-service";
 export interface RecordingViewControllerOptions {
   transcriptEl: HTMLTextAreaElement;
   transcribeBtn: HTMLButtonElement;
+  timerEl: HTMLElement;
   recordingService: RecordingService;
   onToggleRecording: () => Promise<void>;
   onRecordingsChanged: () => void;
@@ -24,6 +25,7 @@ export type OpenRouteResult =
 export class RecordingViewController {
   private readonly transcriptEl: HTMLTextAreaElement;
   private readonly transcribeBtn: HTMLButtonElement;
+  private readonly timerEl: HTMLElement;
   private readonly recordingService: RecordingService;
   private readonly onToggleRecording: () => Promise<void>;
   private readonly onRecordingsChanged: () => void;
@@ -33,10 +35,13 @@ export class RecordingViewController {
   private recording = false;
   private available = false;
   private toggling = false;
+  private timerInterval: ReturnType<typeof setInterval> | null = null;
+  private recordingStartTime: number | null = null;
 
   constructor(options: RecordingViewControllerOptions) {
     this.transcriptEl = options.transcriptEl;
     this.transcribeBtn = options.transcribeBtn;
+    this.timerEl = options.timerEl;
     this.recordingService = options.recordingService;
     this.onToggleRecording = options.onToggleRecording;
     this.onRecordingsChanged = options.onRecordingsChanged;
@@ -58,6 +63,7 @@ export class RecordingViewController {
       }
 
       if (recordingId === null) {
+        this.resetTimer();
         this.context = createEmptyContext(
           this.recordingService.createDraftRecordingId(),
         );
@@ -90,6 +96,13 @@ export class RecordingViewController {
 
   setRecording(recording: boolean): void {
     this.recording = recording;
+    if (recording) {
+      this.recordingStartTime = Date.now();
+      this.updateTimer();
+      this.timerInterval = setInterval(() => this.updateTimer(), 1000);
+    } else {
+      this.clearTimerInterval();
+    }
     this.render();
   }
 
@@ -152,6 +165,7 @@ export class RecordingViewController {
     this.transcribeBtn.textContent = this.recording ? "Stop" : "Transcribe";
     this.transcribeBtn.classList.toggle("recording", this.recording);
     this.transcribeBtn.disabled = !this.available || this.toggling;
+    this.timerEl.classList.toggle("recording", this.recording);
     this.renderTranscript();
   }
 
@@ -160,6 +174,33 @@ export class RecordingViewController {
     const text = appendTranscript(base, this.liveTranscript);
     this.transcriptEl.value = text;
   }
+
+  private updateTimer(): void {
+    if (this.recordingStartTime === null) return;
+    const elapsed = Date.now() - this.recordingStartTime;
+    this.timerEl.textContent = formatElapsed(elapsed);
+  }
+
+  private clearTimerInterval(): void {
+    if (this.timerInterval !== null) {
+      clearInterval(this.timerInterval);
+      this.timerInterval = null;
+    }
+  }
+
+  private resetTimer(): void {
+    this.clearTimerInterval();
+    this.recordingStartTime = null;
+    this.timerEl.textContent = "0:00";
+    this.timerEl.classList.remove("recording");
+  }
+}
+
+export function formatElapsed(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 function createEmptyContext(recordingId: string): RecordingContext {
