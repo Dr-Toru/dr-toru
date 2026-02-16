@@ -230,12 +230,15 @@ async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
     }
 
     const seq = ++routeSeq;
-    const key = routeKey(route);
-    if (key === currentRouteStateKey) {
-      if (syncHash) {
-        syncRouteHash(route);
+    let nextRoute = route;
+    if (route.name !== "recording") {
+      const key = routeKey(route);
+      if (key === currentRouteStateKey) {
+        if (syncHash) {
+          syncRouteHash(route);
+        }
+        return;
       }
-      return;
     }
 
     if (route.name === "recording") {
@@ -258,33 +261,42 @@ async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
       if (opened.status === "error") {
         return;
       }
+      nextRoute = { name: "recording", recordingId: opened.recordingId };
     }
 
-    if (currentRoute?.name === "list" && route.name !== "list") {
+    const key = routeKey(nextRoute);
+    if (key === currentRouteStateKey) {
+      if (syncHash) {
+        syncRouteHash(nextRoute);
+      }
+      return;
+    }
+
+    if (currentRoute?.name === "list" && nextRoute.name !== "list") {
       listController.unmount();
     }
 
-    currentRoute = route;
+    currentRoute = nextRoute;
     currentRouteStateKey = key;
 
-    if (route.name === "list") {
+    if (nextRoute.name === "list") {
       listController.mount();
     }
 
     for (const name of Object.keys(screenEls) as RouteName[]) {
-      const isActive = name === route.name;
+      const isActive = name === nextRoute.name;
       const screen = screenEls[name];
       screen.hidden = !isActive;
       screen.setAttribute("aria-hidden", String(!isActive));
     }
 
-    const active = screenEls[route.name];
+    const active = screenEls[nextRoute.name];
     active.classList.remove("fade-in");
     void active.offsetWidth;
     active.classList.add("fade-in");
 
     for (const navBtn of navBtns) {
-      const isActive = navBtn.dataset.route === route.name;
+      const isActive = navBtn.dataset.route === nextRoute.name;
       navBtn.classList.toggle("is-active", isActive);
       if (isActive) {
         navBtn.setAttribute("aria-current", "page");
@@ -293,16 +305,16 @@ async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
       }
     }
 
-    const settingsActive = route.name === "settings";
+    const settingsActive = nextRoute.name === "settings";
     settingsBtn.classList.toggle("is-active", settingsActive);
     settingsBtn.setAttribute("aria-pressed", String(settingsActive));
 
-    if (route.name !== "settings") {
-      lastMainRoute = route;
+    if (nextRoute.name !== "settings") {
+      lastMainRoute = nextRoute;
     }
 
     if (syncHash) {
-      syncRouteHash(route);
+      syncRouteHash(nextRoute);
     }
   } catch (error) {
     reportUnexpectedError(error, "Navigation failed");
