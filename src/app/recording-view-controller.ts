@@ -1,9 +1,21 @@
 import { RecordingService } from "./recording-service";
 
+const MIN_BAR_HEIGHT = 4;
+const MAX_BAR_HEIGHT = 20;
+const LOUD_SPEECH_RMS = 0.15;
+const BAR_SCALE = [0.7, 1.0, 0.85, 0.6] as const;
+
+export function levelToHeight(rms: number): number {
+  if (rms <= 0) return MIN_BAR_HEIGHT;
+  const normalized = Math.sqrt(Math.min(rms / LOUD_SPEECH_RMS, 1));
+  return MIN_BAR_HEIGHT + (MAX_BAR_HEIGHT - MIN_BAR_HEIGHT) * normalized;
+}
+
 export interface RecordingViewControllerOptions {
   transcriptEl: HTMLTextAreaElement;
   transcribeBtn: HTMLButtonElement;
   timerEl: HTMLElement;
+  barEls: readonly HTMLElement[];
   recordingService: RecordingService;
   onToggleRecording: () => Promise<void>;
   onRecordingsChanged: () => void;
@@ -26,6 +38,7 @@ export class RecordingViewController {
   private readonly transcriptEl: HTMLTextAreaElement;
   private readonly transcribeBtn: HTMLButtonElement;
   private readonly timerEl: HTMLElement;
+  private readonly barEls: readonly HTMLElement[];
   private readonly recordingService: RecordingService;
   private readonly onToggleRecording: () => Promise<void>;
   private readonly onRecordingsChanged: () => void;
@@ -42,6 +55,7 @@ export class RecordingViewController {
     this.transcriptEl = options.transcriptEl;
     this.transcribeBtn = options.transcribeBtn;
     this.timerEl = options.timerEl;
+    this.barEls = options.barEls;
     this.recordingService = options.recordingService;
     this.onToggleRecording = options.onToggleRecording;
     this.onRecordingsChanged = options.onRecordingsChanged;
@@ -102,8 +116,20 @@ export class RecordingViewController {
       this.timerInterval = setInterval(() => this.updateTimer(), 1000);
     } else {
       this.clearTimerInterval();
+      this.resetBars();
     }
     this.render();
+  }
+
+  setLevel(rms: number): void {
+    if (!this.recording || this.barEls.length === 0) return;
+    const base = levelToHeight(rms);
+    for (let i = 0; i < this.barEls.length; i++) {
+      const bar = this.barEls[i];
+      if (!bar) continue;
+      const scale = BAR_SCALE[i] ?? 1;
+      bar.style.height = `${Math.max(MIN_BAR_HEIGHT, base * scale)}px`;
+    }
   }
 
   setLiveTranscript(transcript: string): void {
@@ -185,6 +211,12 @@ export class RecordingViewController {
     if (this.timerInterval !== null) {
       clearInterval(this.timerInterval);
       this.timerInterval = null;
+    }
+  }
+
+  private resetBars(): void {
+    for (const bar of this.barEls) {
+      bar.style.height = `${MIN_BAR_HEIGHT}px`;
     }
   }
 

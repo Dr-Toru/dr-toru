@@ -238,49 +238,13 @@ body {
   height: 4px;
   border-radius: 1.5px;
   background: var(--text-muted);
-  transition: background 0.2s;
+  transition:
+    background 0.2s,
+    height 100ms ease-out;
 }
 
-/* Activate waveform when recordBtn has .recording class */
 #screen-recording:has(.action-record.recording) .status-indicator .bar {
   background: var(--success);
-  animation: waveform 0.6s ease-in-out infinite alternate;
-}
-
-#screen-recording:has(.action-record.recording)
-  .status-indicator
-  .bar:nth-child(1) {
-  animation-delay: 0s;
-}
-
-#screen-recording:has(.action-record.recording)
-  .status-indicator
-  .bar:nth-child(2) {
-  animation-delay: 0.15s;
-}
-
-#screen-recording:has(.action-record.recording)
-  .status-indicator
-  .bar:nth-child(3) {
-  animation-delay: 0.3s;
-}
-
-#screen-recording:has(.action-record.recording)
-  .status-indicator
-  .bar:nth-child(4) {
-  animation-delay: 0.45s;
-}
-
-@keyframes waveform {
-  0% {
-    height: 4px;
-  }
-  50% {
-    height: 16px;
-  }
-  100% {
-    height: 6px;
-  }
 }
 
 /* ===== Local Badge ===== */

@@ -17,6 +17,7 @@ export interface DictationControllerOptions {
   onTranscript: (text: string) => void;
   onRecordingChange: (recording: boolean) => void;
   onRecordingComplete?: (transcript: string) => Promise<void>;
+  onLevel?: (rms: number) => void;
 }
 
 export class DictationController {
@@ -85,6 +86,7 @@ export class DictationController {
         try {
           await this.options.capture.start(
             (chunk) => void this.queueChunk(chunk),
+            this.options.onLevel,
           );
           this.options.onTranscript("");
           this.isRecordingValue = true;

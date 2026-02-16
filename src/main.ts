@@ -124,10 +124,17 @@ window.addEventListener("DOMContentLoaded", () => {
   const store = getRecordingStore();
   const recordingService = new RecordingService(store);
 
+  const barEls = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      "#screen-recording .status-indicator .bar",
+    ),
+  );
+
   recordingView = new RecordingViewController({
     transcriptEl: mustTextarea("transcript"),
     transcribeBtn: mustBtn("recordBtn"),
     timerEl: mustEl("recordingTimer"),
+    barEls,
     recordingService,
     onToggleRecording: () => toggleRecording(),
     onRecordingsChanged: () => fireRecordingsChanged(),
@@ -218,6 +225,7 @@ window.addEventListener("DOMContentLoaded", () => {
     onTranscript: (text) => {
       recordingView.setLiveTranscript(text);
     },
+    onLevel: (rms) => recordingView.setLevel(rms),
     onRecordingChange: (recording) => recordingView.setRecording(recording),
     onRecordingComplete: (transcript) =>
       recordingView.onRecordingComplete(transcript),

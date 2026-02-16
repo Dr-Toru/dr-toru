@@ -2,10 +2,12 @@
 import { describe, expect, it } from "vitest";
 import { vi } from "vitest";
 
+import { computeRms } from "../audio/capture";
 import type { RecordingService } from "./recording-service";
 import {
   RecordingViewController,
   formatElapsed,
+  levelToHeight,
 } from "./recording-view-controller";
 
 describe("RecordingViewController", () => {
@@ -128,13 +130,135 @@ describe("formatElapsed", () => {
   });
 });
 
+describe("computeRms", () => {
+  it("returns 0 for empty input", () => {
+    expect(computeRms(new Float32Array([]))).toBe(0);
+  });
+
+  it("returns 0 for silence", () => {
+    expect(computeRms(new Float32Array([0, 0, 0, 0]))).toBe(0);
+  });
+
+  it("returns correct RMS for known signal", () => {
+    const samples = new Float32Array([1, -1, 1, -1]);
+    expect(computeRms(samples)).toBeCloseTo(1, 5);
+  });
+
+  it("returns correct RMS for a 0.5 signal", () => {
+    const samples = new Float32Array([0.5, 0.5, 0.5, 0.5]);
+    expect(computeRms(samples)).toBeCloseTo(0.5, 5);
+  });
+});
+
+describe("levelToHeight", () => {
+  it("returns MIN_BAR_HEIGHT for 0", () => {
+    expect(levelToHeight(0)).toBe(4);
+  });
+
+  it("returns MIN_BAR_HEIGHT for negative values", () => {
+    expect(levelToHeight(-0.1)).toBe(4);
+  });
+
+  it("returns MAX_BAR_HEIGHT for LOUD_SPEECH_RMS (0.15)", () => {
+    expect(levelToHeight(0.15)).toBe(20);
+  });
+
+  it("clamps at MAX_BAR_HEIGHT for values above LOUD_SPEECH_RMS", () => {
+    expect(levelToHeight(1.0)).toBe(20);
+  });
+
+  it("produces intermediate values for moderate speech", () => {
+    const height = levelToHeight(0.03);
+    expect(height).toBeGreaterThan(4);
+    expect(height).toBeLessThan(20);
+  });
+
+  it("uses sqrt curve (quiet speech still visible)", () => {
+    const quiet = levelToHeight(0.005);
+    const mid = levelToHeight(0.075);
+    expect(quiet).toBeGreaterThan(4);
+    expect(mid).toBeGreaterThan(quiet);
+    expect(mid).toBeLessThan(20);
+  });
+});
+
+describe("setLevel and bar management", () => {
+  it("sets different heights on each bar using BAR_SCALE", () => {
+    const service = makeServiceStub();
+    const { controller, barEls } = makeController(service);
+
+    controller.setRecording(true);
+    controller.setLevel(0.05);
+
+    const heights = barEls.map((b) => parseFloat(b.style.height));
+    expect(heights.length).toBe(4);
+    // bars should not all be the same
+    expect(new Set(heights).size).toBeGreaterThan(1);
+    // all should be >= MIN_BAR_HEIGHT
+    for (const h of heights) {
+      expect(h).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it("returns MIN_BAR_HEIGHT for all bars when rms is 0", () => {
+    const service = makeServiceStub();
+    const { controller, barEls } = makeController(service);
+
+    controller.setRecording(true);
+    controller.setLevel(0);
+
+    for (const bar of barEls) {
+      expect(parseFloat(bar.style.height)).toBe(4);
+    }
+  });
+
+  it("is a no-op when not recording", () => {
+    const service = makeServiceStub();
+    const { controller, barEls } = makeController(service);
+
+    controller.setLevel(0.1);
+
+    for (const bar of barEls) {
+      expect(bar.style.height).toBe("4px");
+    }
+  });
+
+  it("resets bars to MIN_BAR_HEIGHT when recording stops", () => {
+    const service = makeServiceStub();
+    const { controller, barEls } = makeController(service);
+
+    controller.setRecording(true);
+    controller.setLevel(0.1);
+
+    // Verify bars were set above minimum
+    const heightsBefore = barEls.map((b) => parseFloat(b.style.height));
+    expect(Math.max(...heightsBefore)).toBeGreaterThan(4);
+
+    controller.setRecording(false);
+
+    for (const bar of barEls) {
+      expect(parseFloat(bar.style.height)).toBe(4);
+    }
+  });
+});
+
+function makeBars(count = 4): HTMLElement[] {
+  return Array.from({ length: count }, () => {
+    const el = document.createElement("span");
+    el.style.height = "4px";
+    return el;
+  });
+}
+
 function makeController(
   service: RecordingService,
   onError: (error: unknown, context: string) => void = () => undefined,
+  barEls: HTMLElement[] = makeBars(),
 ): {
   controller: RecordingViewController;
   transcriptEl: HTMLTextAreaElement;
   timerEl: HTMLElement;
+  barEls: HTMLElement[];
 } {
   const transcriptEl = document.createElement("textarea");
   const transcribeBtn = document.createElement("button");
@@ -144,12 +268,13 @@ function makeController(
     transcriptEl,
     transcribeBtn,
     timerEl,
+    barEls,
     recordingService: service,
     onToggleRecording: async () => undefined,
     onRecordingsChanged: () => undefined,
     onError,
   });
-  return { controller, transcriptEl, timerEl };
+  return { controller, transcriptEl, timerEl, barEls };
 }
 
 function makeServiceStub(
