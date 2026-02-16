@@ -21,13 +21,6 @@ import {
 } from "./plugins";
 import { getRecordingStore } from "./storage";
 
-const ROUTES = ["transcription", "list", "settings"] as const;
-type RouteName = (typeof ROUTES)[number];
-const TAB_ROUTES = ["list", "transcription"] as const;
-type TabRoute = (typeof TAB_ROUTES)[number];
-const DEFAULT_ROUTE: TabRoute = "transcription";
-const SPLASH_FADE_MS = 280;
-
 const CHUNK_SECS = readNumericSetting("toru.chunk.secs", 4);
 const STRIDE_SECS = readNumericSetting("toru.stride.secs", 1);
 const SAMPLE_RATE = 16000;
