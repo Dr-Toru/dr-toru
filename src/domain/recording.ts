@@ -9,10 +9,11 @@ export type AttachmentKind =
   | "transcript_raw"
   | "transcript_corrected"
   | "audio_capture"
-  | "context_note";
+  | "context_note"
+  | "llm_artifact";
 export type TextAttachmentKind = Extract<
   AttachmentKind,
-  "transcript_raw" | "transcript_corrected" | "context_note"
+  "transcript_raw" | "transcript_corrected" | "context_note" | "llm_artifact"
 >;
 
 export interface Attachment {

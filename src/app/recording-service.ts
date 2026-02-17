@@ -42,6 +42,26 @@ export interface LoadedContextResult {
   context: string;
 }
 
+export interface SaveArtifactInput {
+  recordingId: string;
+  artifactType: string;
+  content: string;
+  sourceTranscriptId: string | null;
+  sourceContextId: string | null;
+}
+
+export interface SaveArtifactResult {
+  recordingId: string;
+  attachmentId: string;
+}
+
+export interface LoadedArtifact {
+  attachmentId: string;
+  artifactType: string;
+  content: string;
+  createdAt: string;
+}
+
 export class RecordingService {
   constructor(private readonly store: RecordingStore) {}
 
@@ -240,6 +260,89 @@ export class RecordingService {
       attachmentId,
       context: input.context,
     };
+  }
+
+  async saveArtifact(input: SaveArtifactInput): Promise<SaveArtifactResult> {
+    if (!input.content.trim()) {
+      throw new Error("artifact content is required");
+    }
+
+    const now = new Date().toISOString();
+    const recording =
+      (await this.store.getRecording(input.recordingId)) ??
+      createRecording({ createdAt: now, recordingId: input.recordingId });
+    const attachmentId = createUlid();
+
+    const written = await this.store.writeAttachmentText({
+      recordingId: input.recordingId,
+      attachmentId,
+      extension: "txt",
+      text: input.content,
+    });
+
+    const attachment = createTextAttachment({
+      attachmentId,
+      kind: "llm_artifact",
+      role: "derived",
+      createdAt: now,
+      createdBy: "llm",
+      path: written.path,
+      sourceAttachmentId: input.sourceTranscriptId,
+      metadata: {
+        artifactType: input.artifactType,
+        sourceContextId: input.sourceContextId,
+        sizeBytes: written.sizeBytes,
+      },
+    });
+    recording.attachments.push(attachment);
+    recording.updatedAt = now;
+
+    await this.store.saveRecording(recording);
+    return { recordingId: input.recordingId, attachmentId };
+  }
+
+  async loadArtifacts(recordingId: string): Promise<LoadedArtifact[]> {
+    const recording = await this.store.getRecording(recordingId);
+    if (!recording) {
+      return [];
+    }
+
+    const artifacts = recording.attachments.filter(
+      (a) => a.kind === "llm_artifact",
+    );
+    artifacts.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+    const results: LoadedArtifact[] = [];
+    for (const att of artifacts) {
+      try {
+        const content = await this.store.readText(att.path);
+        results.push({
+          attachmentId: att.attachmentId,
+          artifactType: String(att.metadata.artifactType ?? "unknown"),
+          content,
+          createdAt: att.createdAt,
+        });
+      } catch {
+        // skip unreadable artifacts
+      }
+    }
+    return results;
+  }
+
+  async deleteArtifact(input: {
+    recordingId: string;
+    attachmentId: string;
+  }): Promise<void> {
+    const recording = await this.store.getRecording(input.recordingId);
+    if (!recording) {
+      return;
+    }
+
+    recording.attachments = recording.attachments.filter(
+      (a) => a.attachmentId !== input.attachmentId,
+    );
+    recording.updatedAt = new Date().toISOString();
+    await this.store.saveRecording(recording);
   }
 
   private findAttachment(

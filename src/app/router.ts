@@ -1,9 +1,10 @@
-const ROUTE_NAMES = ["recording", "list", "settings"] as const;
+const ROUTE_NAMES = ["recording", "list", "settings", "detail"] as const;
 
 export type RouteName = (typeof ROUTE_NAMES)[number];
 export type TabRouteName = "list" | "recording";
 export type AppRoute =
   | { name: "recording"; recordingId: string | null }
+  | { name: "detail"; recordingId: string; attachmentId: string }
   | { name: "list" }
   | { name: "settings" };
 
@@ -26,10 +27,24 @@ export function parseRoute(hash: string): AppRoute {
   }
 
   const parts = value.split("/");
-  const [rawName, rawId] = parts;
+  const [rawName, rawId, rawThird] = parts;
   if (!isRouteName(rawName)) {
     return { name: "list" };
   }
+
+  if (rawName === "detail") {
+    if (
+      parts.length !== 3 ||
+      !rawId ||
+      !SAFE_ID.test(rawId) ||
+      !rawThird ||
+      !SAFE_ID.test(rawThird)
+    ) {
+      return { name: "list" };
+    }
+    return { name: "detail", recordingId: rawId, attachmentId: rawThird };
+  }
+
   if (rawName !== "recording") {
     if (parts.length > 1) {
       return { name: "list" };
@@ -47,6 +62,9 @@ export function parseRoute(hash: string): AppRoute {
 }
 
 export function routeToHash(route: AppRoute): string {
+  if (route.name === "detail") {
+    return `#detail/${route.recordingId}/${route.attachmentId}`;
+  }
   if (route.name !== "recording") {
     return `#${route.name}`;
   }
@@ -57,6 +75,9 @@ export function routeToHash(route: AppRoute): string {
 }
 
 export function routeKey(route: AppRoute): string {
+  if (route.name === "detail") {
+    return `detail:${route.recordingId}:${route.attachmentId}`;
+  }
   if (route.name !== "recording") {
     return route.name;
   }

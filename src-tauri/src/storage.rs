@@ -16,6 +16,7 @@ pub enum AttachmentKind {
     TranscriptCorrected,
     AudioCapture,
     ContextNote,
+    LlmArtifact,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

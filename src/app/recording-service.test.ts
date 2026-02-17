@@ -53,6 +53,104 @@ describe("RecordingService", () => {
     ).rejects.toThrow("transcript is required");
   });
 
+  it("saves and loads an llm_artifact", async () => {
+    const store = new NoopRecordingStore();
+    const service = new RecordingService(store);
+    const recordingId = service.createDraftRecordingId();
+
+    await service.saveTranscript({
+      recordingId,
+      transcript: "Patient reports headache.",
+    });
+
+    const result = await service.saveArtifact({
+      recordingId,
+      artifactType: "soap",
+      content: "SUBJECTIVE: Headache\nOBJECTIVE: ...",
+      sourceTranscriptId: null,
+      sourceContextId: null,
+    });
+
+    expect(result.recordingId).toBe(recordingId);
+    expect(result.attachmentId).toBeTruthy();
+
+    const artifacts = await service.loadArtifacts(recordingId);
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]?.artifactType).toBe("soap");
+    expect(artifacts[0]?.content).toBe("SUBJECTIVE: Headache\nOBJECTIVE: ...");
+    expect(artifacts[0]?.attachmentId).toBe(result.attachmentId);
+
+    const recording = await store.getRecording(recordingId);
+    const att = recording?.attachments.find((a) => a.kind === "llm_artifact");
+    expect(att?.role).toBe("derived");
+    expect(att?.createdBy).toBe("llm");
+    expect(att?.metadata.artifactType).toBe("soap");
+  });
+
+  it("deletes an artifact", async () => {
+    const store = new NoopRecordingStore();
+    const service = new RecordingService(store);
+    const recordingId = service.createDraftRecordingId();
+
+    const saved = await service.saveArtifact({
+      recordingId,
+      artifactType: "progress",
+      content: "Progress note content",
+      sourceTranscriptId: null,
+      sourceContextId: null,
+    });
+
+    await service.deleteArtifact({
+      recordingId,
+      attachmentId: saved.attachmentId,
+    });
+
+    const artifacts = await service.loadArtifacts(recordingId);
+    expect(artifacts).toHaveLength(0);
+  });
+
+  it("supports multiple artifacts per recording", async () => {
+    const store = new NoopRecordingStore();
+    const service = new RecordingService(store);
+    const recordingId = service.createDraftRecordingId();
+
+    await service.saveArtifact({
+      recordingId,
+      artifactType: "soap",
+      content: "SOAP content",
+      sourceTranscriptId: null,
+      sourceContextId: null,
+    });
+    await service.saveArtifact({
+      recordingId,
+      artifactType: "referral",
+      content: "Referral content",
+      sourceTranscriptId: null,
+      sourceContextId: null,
+    });
+
+    const artifacts = await service.loadArtifacts(recordingId);
+    expect(artifacts).toHaveLength(2);
+    expect(artifacts[0]?.artifactType).toBe("soap");
+    expect(artifacts[1]?.artifactType).toBe("referral");
+  });
+
+  it("rejects empty artifact content", async () => {
+    const store = new NoopRecordingStore();
+    const service = new RecordingService(store);
+    const recordingId = service.createDraftRecordingId();
+
+    await expect(
+      service.saveArtifact({
+        recordingId,
+        artifactType: "soap",
+        content: "   ",
+        sourceTranscriptId: null,
+        sourceContextId: null,
+      }),
+    ).rejects.toThrow("artifact content is required");
+  });
+
   it("drops attachment binding when transcript read fails", async () => {
     const store = new NoopRecordingStore();
     const service = new RecordingService(store);

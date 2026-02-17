@@ -46,6 +46,41 @@ describe("router", () => {
     );
   });
 
+  it("parses detail routes", () => {
+    expect(parseRoute("#detail/rec-1/att-1")).toEqual({
+      name: "detail",
+      recordingId: "rec-1",
+      attachmentId: "att-1",
+    });
+  });
+
+  it("drops invalid detail routes", () => {
+    expect(parseRoute("#detail")).toEqual({ name: "list" });
+    expect(parseRoute("#detail/rec-1")).toEqual({ name: "list" });
+    expect(parseRoute("#detail/rec-1/att-1/extra")).toEqual({ name: "list" });
+    expect(parseRoute("#detail/inv!lid/att-1")).toEqual({ name: "list" });
+  });
+
+  it("serializes detail routes", () => {
+    expect(
+      routeToHash({
+        name: "detail",
+        recordingId: "rec-1",
+        attachmentId: "att-1",
+      }),
+    ).toBe("#detail/rec-1/att-1");
+  });
+
+  it("builds detail route keys", () => {
+    expect(
+      routeKey({
+        name: "detail",
+        recordingId: "rec-1",
+        attachmentId: "att-1",
+      }),
+    ).toBe("detail:rec-1:att-1");
+  });
+
   it("detects tab routes", () => {
     expect(isTabRouteName("list")).toBe(true);
     expect(isTabRouteName("recording")).toBe(true);
