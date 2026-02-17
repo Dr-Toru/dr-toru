@@ -27,6 +27,7 @@ describe("sanitizeAsrRuntimeConfig", () => {
     ).toEqual({
       ortThreads: 8,
       decode: {
+        beamSearchEnabled: true,
         beamWidth: 1,
         lmAlpha: 0,
         lmBeta: 5,
@@ -41,6 +42,7 @@ describe("sanitizeAsrRuntimeConfig", () => {
       sanitizeAsrRuntimeConfig({
         ortThreads: 3,
         decode: {
+          beamSearchEnabled: false,
           beamWidth: 12,
           lmAlpha: 0.7,
           lmBeta: 2.1,
@@ -51,6 +53,7 @@ describe("sanitizeAsrRuntimeConfig", () => {
     ).toEqual({
       ortThreads: 3,
       decode: {
+        beamSearchEnabled: false,
         beamWidth: 12,
         lmAlpha: 0.7,
         lmBeta: 2.1,

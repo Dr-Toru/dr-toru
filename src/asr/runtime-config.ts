@@ -9,6 +9,7 @@ export type PartialAsrRuntimeConfig = Partial<
 export const DEFAULT_ASR_RUNTIME_CONFIG: AsrRuntimeConfig = {
   ortThreads: 2,
   decode: {
+    beamSearchEnabled: true,
     beamWidth: 8,
     lmAlpha: 0.5,
     lmBeta: 1.5,
@@ -46,6 +47,10 @@ function withFallbackInt(
   return Math.round(withFallback(value, fallback, min, max));
 }
 
+function withFallbackBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
 export function sanitizeAsrRuntimeConfig(
   input: PartialAsrRuntimeConfig | undefined,
 ): AsrRuntimeConfig {
@@ -58,6 +63,10 @@ export function sanitizeAsrRuntimeConfig(
       8,
     ),
     decode: {
+      beamSearchEnabled: withFallbackBoolean(
+        decode?.beamSearchEnabled,
+        DEFAULT_ASR_RUNTIME_CONFIG.decode.beamSearchEnabled,
+      ),
       beamWidth: withFallbackInt(
         decode?.beamWidth,
         DEFAULT_ASR_RUNTIME_CONFIG.decode.beamWidth,

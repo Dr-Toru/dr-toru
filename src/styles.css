@@ -176,6 +176,15 @@ button {
   font-size: 0.84rem;
 }
 
+.setting-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  color: #374151;
+  font-size: 0.88rem;
+}
+
 .setting-field input {
   font: inherit;
   border: 1px solid #d1d5db;
@@ -208,6 +217,14 @@ button {
   border: 1px solid #d1d5db;
   background: #ffffff;
   color: #111827;
+}
+
+.diagnostics-output {
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 0.76rem;
+  line-height: 1.35;
 }
 
 textarea.transcript {

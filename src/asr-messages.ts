@@ -1,4 +1,5 @@
 export interface AsrDecodeConfig {
+  beamSearchEnabled: boolean;
   beamWidth: number;
   lmAlpha: number;
   lmBeta: number;

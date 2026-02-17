@@ -58,9 +58,15 @@ describe("readAsrSettings", () => {
     const storage = createMemoryStorage({
       "toru.chunk.secs": "nope",
       "toru.asr.decode.beam.width": "n/a",
+      "toru.asr.enabled": "wat",
+      "toru.asr.decode.beam.enabled": "wat",
     });
 
     const settings = readAsrSettings(storage);
+    expect(settings.asrEnabled).toBe(DEFAULT_ASR_SETTINGS.asrEnabled);
+    expect(settings.runtimeConfig.decode.beamSearchEnabled).toBe(
+      DEFAULT_ASR_SETTINGS.runtimeConfig.decode.beamSearchEnabled,
+    );
     expect(settings.chunkSecs).toBe(DEFAULT_ASR_SETTINGS.chunkSecs);
     expect(settings.runtimeConfig.decode.beamWidth).toBe(
       DEFAULT_ASR_SETTINGS.runtimeConfig.decode.beamWidth,
@@ -75,12 +81,14 @@ describe("writeAsrSettings", () => {
     writeAsrSettings(
       {
         ...DEFAULT_ASR_SETTINGS,
+        asrEnabled: false,
         chunkSecs: 30,
         strideSecs: 30,
         runtimeConfig: {
           ...DEFAULT_ASR_SETTINGS.runtimeConfig,
           decode: {
             ...DEFAULT_ASR_SETTINGS.runtimeConfig.decode,
+            beamSearchEnabled: false,
             beamWidth: 64,
           },
         },
@@ -89,13 +97,17 @@ describe("writeAsrSettings", () => {
     );
 
     const loaded = readAsrSettings(storage);
+    expect(loaded.asrEnabled).toBe(false);
     expect(loaded.chunkSecs).toBe(20);
     expect(loaded.strideSecs).toBe(19.5);
+    expect(loaded.runtimeConfig.decode.beamSearchEnabled).toBe(false);
     expect(loaded.runtimeConfig.decode.beamWidth).toBe(32);
 
     const snapshot = storage.snapshot();
+    expect(snapshot["toru.asr.enabled"]).toBe("0");
     expect(snapshot["toru.chunk.secs"]).toBe("20");
     expect(snapshot["toru.stride.secs"]).toBe("19.5");
+    expect(snapshot["toru.asr.decode.beam.enabled"]).toBe("0");
     expect(snapshot["toru.asr.decode.beam.width"]).toBe("32");
   });
 });

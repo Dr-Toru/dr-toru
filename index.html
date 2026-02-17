@@ -12,7 +12,12 @@
       <header class="app-header">
         <h1>Dr. Toru</h1>
         <div class="header-tools">
-          <span id="asrLoading" class="asr-loading" hidden>Loading ASR...</span>
+          <span id="asrLoading" class="asr-loading" hidden
+            >Loading ASR model...</span
+          >
+          <span id="beamLoading" class="asr-loading" hidden
+            >Loading beam search...</span
+          >
           <button
             id="settingsBtn"
             class="header-btn"
@@ -60,6 +65,17 @@
           <p id="pluginSummary" class="placeholder">
             Plugin registry loading...
           </p>
+          <h3>ASR Runtime</h3>
+          <div class="settings-grid">
+            <label class="setting-toggle">
+              <input id="asrEnabled" type="checkbox" />
+              <span>Enable ASR</span>
+            </label>
+            <label class="setting-toggle">
+              <input id="asrBeamSearchEnabled" type="checkbox" />
+              <span>Enable Beam Search (KenLM)</span>
+            </label>
+          </div>
           <h3>ASR Quality</h3>
           <div class="settings-grid">
             <label class="setting-field">
@@ -186,6 +202,19 @@
             </button>
           </div>
           <p id="llmServiceStatus" class="status">LLM service: unavailable</p>
+          <h3>Diagnostics</h3>
+          <p id="diagnosticsSummary" class="status">
+            Collecting runtime breadcrumbs...
+          </p>
+          <div class="actions">
+            <button id="refreshDiagnosticsBtn" type="button">
+              Refresh Diagnostics
+            </button>
+            <button id="clearDiagnosticsBtn" type="button">
+              Clear Diagnostics
+            </button>
+          </div>
+          <pre id="diagnosticsOutput" class="transcript diagnostics-output"></pre>
           <h3>LLM Test</h3>
           <textarea
             id="llmInput"

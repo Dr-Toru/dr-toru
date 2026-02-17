@@ -18,6 +18,7 @@ import {
   type AppRoute,
   type RouteName,
 } from "./app/router";
+import { SessionDiagnostics } from "./app/session-diagnostics";
 import {
   createPluginPlatform,
   formatLlmStatus,
@@ -25,6 +26,7 @@ import {
   type PluginPlatform,
   type PluginPlatformState,
 } from "./plugins";
+import { asrQueue } from "./runtime/queues";
 import { getRecordingStore } from "./storage";
 
 const SAMPLE_RATE = 16000;
@@ -54,13 +56,20 @@ let llmStatusEl: HTMLElement;
 let llmOutputEl: HTMLElement;
 let appErrorEl: HTMLElement;
 let asrLoadingEl: HTMLElement;
+let beamLoadingEl: HTMLElement;
+let diagnosticsSummaryEl: HTMLElement;
+let diagnosticsOutputEl: HTMLElement;
 let settingsBtn: HTMLButtonElement;
 let importPluginBtn: HTMLButtonElement;
 let toggleLlmBtn: HTMLButtonElement;
 let runLlmBtn: HTMLButtonElement;
+let refreshDiagnosticsBtn: HTMLButtonElement;
+let clearDiagnosticsBtn: HTMLButtonElement;
 let llmInputEl: HTMLTextAreaElement;
 let saveAsrSettingsBtn: HTMLButtonElement;
 let asrSettingsStatusEl: HTMLElement;
+let asrEnabledInput: HTMLInputElement;
+let asrBeamSearchEnabledInput: HTMLInputElement;
 let asrChunkSecsInput: HTMLInputElement;
 let asrStrideSecsInput: HTMLInputElement;
 let asrSilenceRmsInput: HTMLInputElement;
@@ -80,6 +89,8 @@ let currentRouteStateKey = "";
 let lastMainRoute: AppRoute = { name: "list" };
 let routeSeq = 0;
 let asrLoadTask: Promise<boolean> | null = null;
+let asrLoadPhase: "idle" | "asr" | "beam" = "idle";
+let diagnostics: SessionDiagnostics | null = null;
 
 window.addEventListener("DOMContentLoaded", () => {
   pluginSummaryEl = mustEl("pluginSummary");
@@ -87,13 +98,20 @@ window.addEventListener("DOMContentLoaded", () => {
   llmOutputEl = mustEl("llmOutput");
   appErrorEl = mustEl("appError");
   asrLoadingEl = mustEl("asrLoading");
+  beamLoadingEl = mustEl("beamLoading");
+  diagnosticsSummaryEl = mustEl("diagnosticsSummary");
+  diagnosticsOutputEl = mustEl("diagnosticsOutput");
   settingsBtn = mustBtn("settingsBtn");
   importPluginBtn = mustBtn("importPluginBtn");
   toggleLlmBtn = mustBtn("toggleLlmBtn");
   runLlmBtn = mustBtn("runLlmBtn");
+  refreshDiagnosticsBtn = mustBtn("refreshDiagnosticsBtn");
+  clearDiagnosticsBtn = mustBtn("clearDiagnosticsBtn");
   saveAsrSettingsBtn = mustBtn("saveAsrSettingsBtn");
   llmInputEl = mustTextarea("llmInput");
   asrSettingsStatusEl = mustEl("asrSettingsStatus");
+  asrEnabledInput = mustInput("asrEnabled");
+  asrBeamSearchEnabledInput = mustInput("asrBeamSearchEnabled");
   asrChunkSecsInput = mustInput("asrChunkSecs");
   asrStrideSecsInput = mustInput("asrStrideSecs");
   asrSilenceRmsInput = mustInput("asrSilenceRms");
@@ -106,6 +124,12 @@ window.addEventListener("DOMContentLoaded", () => {
   asrLmBetaInput = mustInput("asrLmBeta");
   asrMinTokenLogpInput = mustInput("asrMinTokenLogp");
   asrBeamPruneLogpInput = mustInput("asrBeamPruneLogp");
+  asrEnabledInput.addEventListener("change", () => {
+    updateAsrSettingsFieldState();
+  });
+  asrBeamSearchEnabledInput.addEventListener("change", () => {
+    updateAsrSettingsFieldState();
+  });
   renderAsrSettingsForm(asrSettings);
   screenEls = {
     recording: mustEl("screen-recording"),
@@ -181,16 +205,32 @@ window.addEventListener("DOMContentLoaded", () => {
   saveAsrSettingsBtn.addEventListener("click", () => {
     saveAsrSettings();
   });
+  refreshDiagnosticsBtn.addEventListener("click", () => {
+    renderDiagnostics();
+  });
+  clearDiagnosticsBtn.addEventListener("click", () => {
+    diagnostics?.clear();
+    renderDiagnostics();
+  });
 
   window.addEventListener("error", (event) => {
+    diagnostics?.recordEvent("window-error", {
+      context: "runtime-error",
+      message: String(event.error ?? event.message),
+    });
     reportUnexpectedError(event.error ?? event.message, "Runtime error");
   });
   window.addEventListener("unhandledrejection", (event) => {
     event.preventDefault();
+    diagnostics?.recordEvent("window-error", {
+      context: "unhandled-rejection",
+      message: String(event.reason),
+    });
     reportUnexpectedError(event.reason, "Unhandled async error");
   });
 
   window.addEventListener("beforeunload", () => {
+    diagnostics?.stop(true);
     void dictation.shutdown();
     void pluginPlatform.shutdown();
     listController.unmount();
@@ -202,12 +242,21 @@ window.addEventListener("DOMContentLoaded", () => {
     appOrigin: appBase.href,
     asrRuntimeConfig: asrSettings.runtimeConfig,
     asrEvents: {
-      onStatus: () => undefined,
+      onStatus: (message) => {
+        updateAsrLoadPhaseFromStatus(message);
+        if (
+          message.toLowerCase().includes("failed") ||
+          message.toLowerCase().includes("unavailable") ||
+          message.toLowerCase().includes("error")
+        ) {
+          diagnostics?.recordEvent("asr-status", { message });
+        }
+      },
       onCrash: (message) => {
+        asrLoadPhase = "idle";
+        diagnostics?.recordEvent("asr-crash", { message });
         dictation.handleAsrCrash(message);
-        recordingView.setTranscribeAvailable(
-          Boolean(pluginState?.features.transcription),
-        );
+        recordingView.setTranscribeAvailable(isAsrTranscriptionEnabled());
       },
     },
   });
@@ -243,12 +292,23 @@ window.addEventListener("DOMContentLoaded", () => {
     onRecordingComplete: (transcript) =>
       recordingView.onRecordingComplete(transcript),
   });
+  diagnostics = new SessionDiagnostics(window.localStorage);
+  diagnostics.start(() => collectDiagnosticsBeat());
+  const previousUnclean = diagnostics.getPreviousUncleanSummary();
+  if (previousUnclean) {
+    showAppError(
+      `Previous session ended unexpectedly at ${previousUnclean}. Open Settings for diagnostics.`,
+    );
+  }
+  renderDiagnostics();
 
   void initializeStorage();
   void setRoute(parseRoute(window.location.hash), true);
   void initializePlugins()
     .then(() => {
-      void loadModel();
+      if (asrSettings.asrEnabled) {
+        void loadModel();
+      }
     })
     .catch((error) => reportUnexpectedError(error, "Startup failed"));
 });
@@ -316,6 +376,7 @@ async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
 
     currentRoute = nextRoute;
     currentRouteStateKey = key;
+    diagnostics?.recordEvent("route-change", { route: key });
 
     if (nextRoute.name === "list") {
       listController.mount();
@@ -353,6 +414,9 @@ async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
 
     if (syncHash) {
       syncRouteHash(nextRoute);
+    }
+    if (nextRoute.name === "settings") {
+      renderDiagnostics();
     }
   } catch (error) {
     reportUnexpectedError(error, "Navigation failed");
@@ -405,9 +469,12 @@ function renderPluginStatus(): void {
     return;
   }
 
-  pluginSummaryEl.textContent = formatPluginSummary(pluginState);
+  const summary = formatPluginSummary(pluginState);
+  pluginSummaryEl.textContent = asrSettings.asrEnabled
+    ? summary
+    : `${summary} | ASR disabled in settings`;
   llmStatusEl.textContent = formatLlmStatus(pluginState);
-  recordingView.setTranscribeAvailable(pluginState.features.transcription);
+  recordingView.setTranscribeAvailable(isAsrTranscriptionEnabled());
   updateAsrLoadingIndicator();
   updateLlmControls();
 }
@@ -436,7 +503,7 @@ async function importPlugin(): Promise<void> {
     });
     llmStatusEl.textContent = `Imported plugin: ${imported.name}`;
     await initializePlugins();
-    if (imported.kind === "asr") {
+    if (imported.kind === "asr" && asrSettings.asrEnabled) {
       void loadModel();
     }
   } catch (error) {
@@ -479,6 +546,7 @@ function saveAsrSettings(): void {
 
   try {
     const nextSettings = sanitizeAsrSettings({
+      asrEnabled: asrEnabledInput.checked,
       chunkSecs: asrChunkSecsInput.valueAsNumber,
       strideSecs: asrStrideSecsInput.valueAsNumber,
       silenceRms: asrSilenceRmsInput.valueAsNumber,
@@ -488,6 +556,7 @@ function saveAsrSettings(): void {
       runtimeConfig: {
         ortThreads: asrOrtThreadsInput.valueAsNumber,
         decode: {
+          beamSearchEnabled: asrBeamSearchEnabledInput.checked,
           beamWidth: asrBeamWidthInput.valueAsNumber,
           lmAlpha: asrLmAlphaInput.valueAsNumber,
           lmBeta: asrLmBetaInput.valueAsNumber,
@@ -511,6 +580,9 @@ function saveAsrSettings(): void {
 }
 
 function renderAsrSettingsForm(settings: AsrSettings): void {
+  asrEnabledInput.checked = settings.asrEnabled;
+  asrBeamSearchEnabledInput.checked =
+    settings.runtimeConfig.decode.beamSearchEnabled;
   asrChunkSecsInput.value = String(settings.chunkSecs);
   asrStrideSecsInput.value = String(settings.strideSecs);
   asrSilenceRmsInput.value = String(settings.silenceRms);
@@ -527,8 +599,30 @@ function renderAsrSettingsForm(settings: AsrSettings): void {
   asrBeamPruneLogpInput.value = String(
     settings.runtimeConfig.decode.beamPruneLogp,
   );
+  updateAsrSettingsFieldState();
   asrSettingsStatusEl.textContent =
     "Tune ASR values here. Saving reloads the app and applies new settings.";
+}
+
+function updateAsrSettingsFieldState(): void {
+  const asrEnabled = asrEnabledInput.checked;
+  const beamEnabled = asrBeamSearchEnabledInput.checked;
+
+  asrBeamSearchEnabledInput.disabled = !asrEnabled;
+  asrChunkSecsInput.disabled = !asrEnabled;
+  asrStrideSecsInput.disabled = !asrEnabled;
+  asrSilenceRmsInput.disabled = !asrEnabled;
+  asrSilencePeakInput.disabled = !asrEnabled;
+  asrSilenceHoldInput.disabled = !asrEnabled;
+  asrSilenceProbeInput.disabled = !asrEnabled;
+  asrOrtThreadsInput.disabled = !asrEnabled;
+
+  const decodeEnabled = asrEnabled && beamEnabled;
+  asrBeamWidthInput.disabled = !decodeEnabled;
+  asrLmAlphaInput.disabled = !decodeEnabled;
+  asrLmBetaInput.disabled = !decodeEnabled;
+  asrMinTokenLogpInput.disabled = !decodeEnabled;
+  asrBeamPruneLogpInput.disabled = !decodeEnabled;
 }
 
 function mustEl(id: string): HTMLElement {
@@ -566,6 +660,7 @@ function mustInput(id: string): HTMLInputElement {
 function reportUnexpectedError(error: unknown, context: string): void {
   console.error(`${context}:`, error);
   const message = error instanceof Error ? error.message : String(error);
+  diagnostics?.recordEvent("app-error", { context, message });
   showAppError(`${context}: ${message}`);
 }
 
@@ -574,20 +669,57 @@ function showAppError(message: string): void {
   appErrorEl.hidden = false;
 }
 
+function updateAsrLoadPhaseFromStatus(message: string): void {
+  const normalized = message.toLowerCase();
+  const previousPhase = asrLoadPhase;
+  if (normalized.includes("language model")) {
+    asrLoadPhase = "beam";
+  } else if (
+    normalized.includes("vocab") ||
+    normalized.includes("onnx") ||
+    normalized.includes("inference") ||
+    normalized.includes("model")
+  ) {
+    asrLoadPhase = "asr";
+  }
+  if (previousPhase !== asrLoadPhase) {
+    diagnostics?.recordEvent("asr-load-phase", { phase: asrLoadPhase });
+  }
+  updateAsrLoadingIndicator();
+}
+
 function updateAsrLoadingIndicator(): void {
-  const hasTranscription = Boolean(pluginState?.features.transcription);
+  const hasTranscription = isAsrTranscriptionEnabled();
   const isReady = hasTranscription && pluginPlatform.isAsrReady();
   const isLoading = asrLoadTask !== null;
-  asrLoadingEl.hidden = !(hasTranscription && isLoading && !isReady);
+  const showLoading = hasTranscription && isLoading && !isReady;
+
+  const showBeamLoading =
+    showLoading &&
+    asrLoadPhase === "beam" &&
+    asrSettings.runtimeConfig.decode.beamSearchEnabled;
+  const showAsrLoading = showLoading && !showBeamLoading;
+
+  asrLoadingEl.hidden = !showAsrLoading;
+  beamLoadingEl.hidden = !showBeamLoading;
 }
 
 async function loadModel(): Promise<boolean> {
+  if (!asrSettings.asrEnabled) {
+    asrLoadPhase = "idle";
+    recordingView.setTranscribeAvailable(false);
+    updateAsrLoadingIndicator();
+    return false;
+  }
+
   if (pluginPlatform.isAsrReady()) {
+    asrLoadPhase = "idle";
     updateAsrLoadingIndicator();
     return true;
   }
 
   if (!pluginState?.features.transcription) {
+    asrLoadPhase = "idle";
     recordingView.setTranscribeAvailable(false);
     updateAsrLoadingIndicator();
     return false;
@@ -597,6 +729,7 @@ async function loadModel(): Promise<boolean> {
     return asrLoadTask;
   }
 
+  asrLoadPhase = "asr";
   asrLoadTask = (async () => {
     const loaded = await dictation.loadModel();
     pluginState = await pluginPlatform.status();
@@ -610,6 +743,7 @@ async function loadModel(): Promise<boolean> {
     })
     .finally(() => {
       asrLoadTask = null;
+      asrLoadPhase = "idle";
       updateAsrLoadingIndicator();
     });
 
@@ -618,7 +752,7 @@ async function loadModel(): Promise<boolean> {
 }
 
 async function toggleRecording(): Promise<void> {
-  if (!pluginState?.features.transcription) {
+  if (!isAsrTranscriptionEnabled()) {
     return;
   }
 
@@ -630,6 +764,67 @@ async function toggleRecording(): Promise<void> {
   }
 
   await dictation.toggleRecording();
+}
+
+function isAsrTranscriptionEnabled(): boolean {
+  return asrSettings.asrEnabled && Boolean(pluginState?.features.transcription);
+}
+
+function renderDiagnostics(): void {
+  if (!diagnostics) {
+    diagnosticsSummaryEl.textContent = "Diagnostics unavailable.";
+    diagnosticsOutputEl.textContent = "";
+    return;
+  }
+  diagnosticsSummaryEl.textContent = diagnostics.getSummary();
+  diagnosticsOutputEl.textContent = diagnostics.getReport(100);
+}
+
+function collectDiagnosticsBeat(): Record<string, string | number | boolean> {
+  const memory = readHeapMemory();
+  return {
+    route: currentRouteStateKey || routeKey(parseRoute(window.location.hash)),
+    recording: dictation?.isRecording ?? false,
+    asrEnabled: asrSettings.asrEnabled,
+    beamEnabled: asrSettings.runtimeConfig.decode.beamSearchEnabled,
+    asrReady: pluginPlatform?.isAsrReady() ?? false,
+    asrLoadPhase,
+    queueDepth: asrQueue.depth,
+    queuePending: asrQueue.pendingCount,
+    queueActive: asrQueue.activeCount,
+    captureBufferedSamples: capture.bufferedSamples,
+    hasTranscription: isAsrTranscriptionEnabled(),
+    heapUsedMb: memory.usedMb,
+    heapTotalMb: memory.totalMb,
+    heapLimitMb: memory.limitMb,
+  };
+}
+
+function readHeapMemory(): {
+  usedMb: number;
+  totalMb: number;
+  limitMb: number;
+} {
+  const perf = performance as Performance & {
+    memory?: {
+      usedJSHeapSize: number;
+      totalJSHeapSize: number;
+      jsHeapSizeLimit: number;
+    };
+  };
+  const memory = perf.memory;
+  if (!memory) {
+    return { usedMb: -1, totalMb: -1, limitMb: -1 };
+  }
+  return {
+    usedMb: roundToOneDecimal(memory.usedJSHeapSize / (1024 * 1024)),
+    totalMb: roundToOneDecimal(memory.totalJSHeapSize / (1024 * 1024)),
+    limitMb: roundToOneDecimal(memory.jsHeapSizeLimit / (1024 * 1024)),
+  };
+}
+
+function roundToOneDecimal(value: number): number {
+  return Math.round(value * 10) / 10;
 }
 
 function isDebugMetricsEnabled(): boolean {

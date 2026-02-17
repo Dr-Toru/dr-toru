@@ -6,6 +6,7 @@ import {
 } from "./runtime-config";
 
 export interface AsrSettings {
+  asrEnabled: boolean;
   chunkSecs: number;
   strideSecs: number;
   silenceRms: number;
@@ -25,6 +26,7 @@ interface StorageLike {
 }
 
 const STORAGE_KEYS = {
+  asrEnabled: "toru.asr.enabled",
   chunkSecs: "toru.chunk.secs",
   strideSecs: "toru.stride.secs",
   silenceRms: "toru.silence.rms",
@@ -32,6 +34,7 @@ const STORAGE_KEYS = {
   silenceHoldChunks: "toru.silence.hold.chunks",
   silenceProbeEvery: "toru.silence.probe.every",
   ortThreads: "toru.asr.ort.threads",
+  beamSearchEnabled: "toru.asr.decode.beam.enabled",
   beamWidth: "toru.asr.decode.beam.width",
   lmAlpha: "toru.asr.decode.lm.alpha",
   lmBeta: "toru.asr.decode.lm.beta",
@@ -40,6 +43,7 @@ const STORAGE_KEYS = {
 } as const;
 
 export const DEFAULT_ASR_SETTINGS: AsrSettings = {
+  asrEnabled: true,
   chunkSecs: 6,
   strideSecs: 1.5,
   silenceRms: 0.0025,
@@ -57,8 +61,31 @@ function toNumber(raw: string | null): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function toBoolean(raw: string | null): boolean | undefined {
+  if (raw === null) {
+    return undefined;
+  }
+  if (raw === "1") {
+    return true;
+  }
+  if (raw === "0") {
+    return false;
+  }
+  if (raw === "true") {
+    return true;
+  }
+  if (raw === "false") {
+    return false;
+  }
+  return undefined;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function booleanWithFallback(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 function numberWithFallback(
@@ -95,6 +122,10 @@ export function sanitizeAsrSettings(
   const strideFallback = Math.min(DEFAULT_ASR_SETTINGS.strideSecs, strideMax);
 
   return {
+    asrEnabled: booleanWithFallback(
+      input?.asrEnabled,
+      DEFAULT_ASR_SETTINGS.asrEnabled,
+    ),
     chunkSecs,
     strideSecs: numberWithFallback(
       input?.strideSecs,
@@ -140,6 +171,7 @@ export function readAsrSettings(
   const target = storage ?? window.localStorage;
 
   return sanitizeAsrSettings({
+    asrEnabled: toBoolean(target.getItem(STORAGE_KEYS.asrEnabled)),
     chunkSecs: toNumber(target.getItem(STORAGE_KEYS.chunkSecs)),
     strideSecs: toNumber(target.getItem(STORAGE_KEYS.strideSecs)),
     silenceRms: toNumber(target.getItem(STORAGE_KEYS.silenceRms)),
@@ -149,6 +181,9 @@ export function readAsrSettings(
     runtimeConfig: {
       ortThreads: toNumber(target.getItem(STORAGE_KEYS.ortThreads)),
       decode: {
+        beamSearchEnabled: toBoolean(
+          target.getItem(STORAGE_KEYS.beamSearchEnabled),
+        ),
         beamWidth: toNumber(target.getItem(STORAGE_KEYS.beamWidth)),
         lmAlpha: toNumber(target.getItem(STORAGE_KEYS.lmAlpha)),
         lmBeta: toNumber(target.getItem(STORAGE_KEYS.lmBeta)),
@@ -171,6 +206,10 @@ export function writeAsrSettings(
   const target = storage ?? window.localStorage;
   const normalized = sanitizeAsrSettings(settings);
 
+  target.setItem(
+    STORAGE_KEYS.asrEnabled,
+    normalized.asrEnabled ? "1" : "0",
+  );
   target.setItem(STORAGE_KEYS.chunkSecs, String(normalized.chunkSecs));
   target.setItem(STORAGE_KEYS.strideSecs, String(normalized.strideSecs));
   target.setItem(STORAGE_KEYS.silenceRms, String(normalized.silenceRms));
@@ -186,6 +225,10 @@ export function writeAsrSettings(
   target.setItem(
     STORAGE_KEYS.ortThreads,
     String(normalized.runtimeConfig.ortThreads),
+  );
+  target.setItem(
+    STORAGE_KEYS.beamSearchEnabled,
+    normalized.runtimeConfig.decode.beamSearchEnabled ? "1" : "0",
   );
   target.setItem(
     STORAGE_KEYS.beamWidth,

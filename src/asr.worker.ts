@@ -113,9 +113,16 @@ async function loadModel(message: LoadRequest): Promise<void> {
       graphOptimizationLevel: "all",
     });
 
-    // Load KenLM language model (optional — graceful fallback to greedy)
-    if (message.lmUrl && message.kenlmDir) {
+    // Load KenLM language model only when beam search is enabled.
+    if (
+      runtimeConfig.decode.beamSearchEnabled &&
+      message.lmUrl &&
+      message.kenlmDir
+    ) {
       await loadKenLM(message.kenlmDir, message.lmUrl);
+    } else {
+      kenlmModule = null;
+      kenlmStateSize = 0;
     }
 
     send({ type: "load-success" });
@@ -268,20 +275,23 @@ async function transcribe(message: TranscribeRequest): Promise<void> {
     return;
   }
 
+  let inputTensor: ort.Tensor | null = null;
+  let maskTensor: ort.Tensor | null = null;
+  let outputs: Record<string, ort.Tensor> | null = null;
   try {
     const features = extractMelFeatures(message.samples);
-    const inputTensor = new ort.Tensor(
+    inputTensor = new ort.Tensor(
       "float32",
       features.data,
       features.shape,
     );
-    const maskTensor = new ort.Tensor(
+    maskTensor = new ort.Tensor(
       "bool",
       new Uint8Array(features.shape[1]).fill(1),
       [1, features.shape[1]],
     );
 
-    const outputs = await session.run({
+    outputs = await session.run({
       input_features: inputTensor,
       attention_mask: maskTensor,
     });
@@ -302,7 +312,11 @@ async function transcribe(message: TranscribeRequest): Promise<void> {
     const vocabSize = logits.dims[2];
 
     let text: string;
-    if (kenlmModule && kenlmStateSize > 0) {
+    if (
+      runtimeConfig.decode.beamSearchEnabled &&
+      kenlmModule &&
+      kenlmStateSize > 0
+    ) {
       try {
         const logProbs = logSoftmax(rawLogits, frames, vocabSize);
         text = decodeBeamSearchLM(
@@ -322,6 +336,7 @@ async function transcribe(message: TranscribeRequest): Promise<void> {
     } else {
       text = decodeCTC(rawLogits, logits.dims, vocab);
     }
+    text = stripLeadingBracketArtifact(text);
 
     send({
       type: "transcribe-success",
@@ -335,6 +350,14 @@ async function transcribe(message: TranscribeRequest): Promise<void> {
       requestId: message.requestId,
       message: msg,
     });
+  } finally {
+    disposeTensor(inputTensor);
+    disposeTensor(maskTensor);
+    if (outputs) {
+      for (const tensor of Object.values(outputs)) {
+        disposeTensor(tensor);
+      }
+    }
   }
 }
 
@@ -926,4 +949,30 @@ function buildSpecialTokenIds(tokens: string[]): Set<number> {
     }
   }
   return ids;
+}
+
+function stripLeadingBracketArtifact(text: string): string {
+  const original = text.trim();
+  if (!original.startsWith("[")) {
+    return original;
+  }
+
+  const closeIdx = original.indexOf("]");
+  if (closeIdx !== -1 && closeIdx <= 24) {
+    return original;
+  }
+
+  const stripped = original.replace(/^\[+/, "").trimStart();
+  return stripped || original;
+}
+
+function disposeTensor(tensor: ort.Tensor | null): void {
+  if (!tensor) {
+    return;
+  }
+  try {
+    tensor.dispose();
+  } catch {
+    // Ignore dispose errors; tensor might already be detached by runtime.
+  }
 }
