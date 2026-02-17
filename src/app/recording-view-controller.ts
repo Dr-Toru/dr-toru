@@ -1,4 +1,6 @@
+import type { LoadedArtifact } from "./recording-service";
 import { RecordingService } from "./recording-service";
+import { findTemplate } from "./artifact-prompts";
 
 const MIN_BAR_HEIGHT = 4;
 const MAX_BAR_HEIGHT = 20;
@@ -18,9 +20,11 @@ export interface RecordingViewControllerOptions {
   timerEl: HTMLElement;
   barEls: readonly HTMLElement[];
   typingIndicatorEl: HTMLElement;
+  artifactCardsEl: HTMLElement;
   recordingService: RecordingService;
   onToggleRecording: () => Promise<void>;
   onRecordingsChanged: () => void;
+  onArtifactTap: (recordingId: string, attachmentId: string) => void;
   onError: (error: unknown, context: string) => void;
 }
 
@@ -45,9 +49,14 @@ export class RecordingViewController {
   private readonly timerEl: HTMLElement;
   private readonly barEls: readonly HTMLElement[];
   private readonly typingIndicatorEl: HTMLElement;
+  private readonly artifactCardsEl: HTMLElement;
   private readonly recordingService: RecordingService;
   private readonly onToggleRecording: () => Promise<void>;
   private readonly onRecordingsChanged: () => void;
+  private readonly onArtifactTap: (
+    recordingId: string,
+    attachmentId: string,
+  ) => void;
   private readonly onError: (error: unknown, context: string) => void;
   private context: RecordingContext | null = null;
   private liveTranscript = "";
@@ -65,9 +74,11 @@ export class RecordingViewController {
     this.timerEl = options.timerEl;
     this.barEls = options.barEls;
     this.typingIndicatorEl = options.typingIndicatorEl;
+    this.artifactCardsEl = options.artifactCardsEl;
     this.recordingService = options.recordingService;
     this.onToggleRecording = options.onToggleRecording;
     this.onRecordingsChanged = options.onRecordingsChanged;
+    this.onArtifactTap = options.onArtifactTap;
     this.onError = options.onError;
     this.transcribeBtn.addEventListener("click", () => {
       void this.toggleRecording();
@@ -97,6 +108,7 @@ export class RecordingViewController {
         );
         this.liveTranscript = "";
         this.contextNoteEl.value = "";
+        this.renderArtifactCards([]);
         this.render();
         return { status: "opened", recordingId: this.context.recordingId };
       }
@@ -113,6 +125,9 @@ export class RecordingViewController {
           };
           this.liveTranscript = "";
           this.contextNoteEl.value = this.context.contextText;
+          const artifacts =
+            await this.recordingService.loadArtifacts(recordingId);
+          this.renderArtifactCards(artifacts);
           this.render();
           return { status: "opened", recordingId: loaded.recordingId };
         }
@@ -195,6 +210,63 @@ export class RecordingViewController {
       this.liveTranscript = chunk;
       this.renderTranscript();
       throw error;
+    }
+  }
+
+  getRecordingId(): string | null {
+    return this.context?.recordingId ?? null;
+  }
+
+  getTranscriptText(): string {
+    return this.context?.transcript ?? "";
+  }
+
+  getContextText(): string {
+    return this.context?.contextText ?? "";
+  }
+
+  getTranscriptAttachmentId(): string | null {
+    return this.context?.attachmentId ?? null;
+  }
+
+  getContextAttachmentId(): string | null {
+    return this.context?.contextAttachmentId ?? null;
+  }
+
+  async refreshArtifacts(): Promise<void> {
+    if (!this.context) return;
+    try {
+      const artifacts = await this.recordingService.loadArtifacts(
+        this.context.recordingId,
+      );
+      this.renderArtifactCards(artifacts);
+    } catch (error) {
+      this.onError(error, "Failed to load artifacts");
+    }
+  }
+
+  private renderArtifactCards(artifacts: LoadedArtifact[]): void {
+    this.artifactCardsEl.innerHTML = "";
+    const recordingId = this.context?.recordingId;
+    if (!recordingId) return;
+
+    for (const artifact of artifacts) {
+      const btn = document.createElement("button");
+      btn.className = "artifact-card";
+      btn.setAttribute("role", "listitem");
+      btn.dataset.attachmentId = artifact.attachmentId;
+
+      const template = findTemplate(artifact.artifactType);
+      const typeName = template?.title ?? artifact.artifactType;
+      const preview = artifact.content.slice(0, 120);
+      const dateStr = formatArtifactDate(artifact.createdAt);
+
+      btn.innerHTML = `<div class="artifact-card-header"><span class="artifact-card-type">${escapeHtml(typeName)}</span><span class="artifact-card-date">${escapeHtml(dateStr)}</span></div><span class="artifact-card-preview">${escapeHtml(preview)}</span>`;
+
+      btn.addEventListener("click", () => {
+        this.onArtifactTap(recordingId, artifact.attachmentId);
+      });
+      this.artifactCardsEl.appendChild(btn);
     }
   }
 
@@ -327,6 +399,24 @@ function mapLoadedContext(loaded: {
     attachmentId: loaded.attachmentId,
     transcript: loaded.transcript,
   };
+}
+
+function formatArtifactDate(iso: string): string {
+  try {
+    const date = new Date(iso);
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return "";
+  }
+}
+
+function escapeHtml(text: string): string {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 function appendTranscript(current: string, next: string): string {

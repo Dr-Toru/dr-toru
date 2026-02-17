@@ -129,6 +129,20 @@
             <span class="dot"></span>
             <span class="dot"></span>
           </div>
+          <div
+            id="artifactCards"
+            class="artifact-cards-container"
+            role="list"
+            aria-label="Generated documents"
+          ></div>
+          <div
+            id="processingOverlay"
+            class="processing-overlay"
+            aria-live="polite"
+          >
+            <div class="spinner"></div>
+            <p>Generating document…</p>
+          </div>
         </div>
         <div class="folder-actions">
           <button
@@ -139,6 +153,57 @@
           >
             Transcribe
           </button>
+          <button
+            id="createBtn"
+            class="action-btn action-create"
+            type="button"
+            disabled
+          >
+            Create
+          </button>
+        </div>
+      </section>
+
+      <section
+        id="screen-detail"
+        class="view"
+        data-screen="detail"
+        hidden
+        aria-hidden="true"
+      >
+        <header class="view-header">
+          <button
+            id="detailBackBtn"
+            class="back-btn"
+            type="button"
+            aria-label="Back to recording"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </button>
+          <div class="view-header-content">
+            <span id="detailType" class="detail-type">Document</span>
+            <span id="detailDate" class="detail-date"></span>
+          </div>
+          <div class="detail-actions">
+            <button id="detailCopyBtn" class="copy-btn" type="button">
+              Copy
+            </button>
+            <button id="detailDeleteBtn" class="delete-btn" type="button">
+              Delete
+            </button>
+          </div>
+        </header>
+        <div class="view-body">
+          <div id="detailContent" class="detail-content"></div>
         </div>
       </section>
 
@@ -190,6 +255,19 @@
           <div id="llmOutput" class="transcript">(No LLM output)</div>
         </div>
       </section>
+      <div class="menu-overlay" id="create-overlay"></div>
+      <div
+        class="slide-sheet create-sheet"
+        id="create-sheet"
+        role="dialog"
+        aria-label="Create document"
+      >
+        <div class="sheet-handle"></div>
+        <div class="sheet-content">
+          <h3 class="sheet-section-title">Create Document</h3>
+          <div class="template-list" id="template-list"></div>
+        </div>
+      </div>
     </main>
   </body>
 </html>

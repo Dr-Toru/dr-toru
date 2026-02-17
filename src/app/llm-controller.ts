@@ -53,6 +53,27 @@ export class LlmController {
     return this.state;
   }
 
+  async runWithPrompt(systemPrompt: string, input: string): Promise<string> {
+    if (!this.state?.activeLlm) {
+      throw new Error("No active LLM provider");
+    }
+    if (!this.state.llmRunning) {
+      throw new Error("Start the LLM service first");
+    }
+    if (!input.trim()) {
+      throw new Error("No input text provided");
+    }
+
+    const text = await this.platform.runLlm(
+      "generate",
+      input.trim(),
+      systemPrompt,
+    );
+    this.state = await this.platform.status();
+    this.onStateChange(this.state);
+    return text;
+  }
+
   async run(input: string, action = "correct"): Promise<void> {
     if (!this.state?.activeLlm) {
       this.onOutput("(No active LLM provider)");

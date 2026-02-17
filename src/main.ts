@@ -1,4 +1,6 @@
 import { AudioCapture } from "./audio/capture";
+import { ARTIFACT_TEMPLATES } from "./app/artifact-prompts";
+import { DetailViewController } from "./app/detail-view-controller";
 import { DictationController } from "./app/dictation-controller";
 import { ListController, fireRecordingsChanged } from "./app/list";
 import { LlmController } from "./app/llm-controller";
@@ -57,7 +59,9 @@ let pluginPlatform: PluginPlatform;
 let pluginState: PluginPlatformState | null = null;
 let dictation: DictationController;
 let llm: LlmController;
+let recordingService: RecordingService;
 let recordingView: RecordingViewController;
+let detailView: DetailViewController;
 let listController: ListController;
 
 let pluginSummaryEl: HTMLElement;
@@ -69,7 +73,13 @@ let settingsBtn: HTMLButtonElement;
 let importPluginBtn: HTMLButtonElement;
 let toggleLlmBtn: HTMLButtonElement;
 let runLlmBtn: HTMLButtonElement;
+let createBtn: HTMLButtonElement;
+let detailBackBtn: HTMLButtonElement;
 let llmInputEl: HTMLTextAreaElement;
+let createOverlayEl: HTMLElement;
+let createSheetEl: HTMLElement;
+let templateListEl: HTMLElement;
+let processingOverlayEl: HTMLElement;
 let navBtns: HTMLButtonElement[] = [];
 let screenEls: Record<RouteName, HTMLElement>;
 let currentRoute: AppRoute | null = null;
@@ -88,11 +98,18 @@ window.addEventListener("DOMContentLoaded", () => {
   importPluginBtn = mustBtn("importPluginBtn");
   toggleLlmBtn = mustBtn("toggleLlmBtn");
   runLlmBtn = mustBtn("runLlmBtn");
+  createBtn = mustBtn("createBtn");
+  detailBackBtn = mustBtn("detailBackBtn");
   llmInputEl = mustTextarea("llmInput");
+  createOverlayEl = mustEl("create-overlay");
+  createSheetEl = mustEl("create-sheet");
+  templateListEl = mustEl("template-list");
+  processingOverlayEl = mustEl("processingOverlay");
   screenEls = {
     recording: mustEl("screen-recording"),
     list: mustEl("screen-list"),
     settings: mustEl("screen-settings"),
+    detail: mustEl("screen-detail"),
   };
 
   navBtns = Array.from(
@@ -122,7 +139,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   const store = getRecordingStore();
-  const recordingService = new RecordingService(store);
+  recordingService = new RecordingService(store);
 
   const barEls = Array.from(
     document.querySelectorAll<HTMLElement>(
@@ -137,9 +154,27 @@ window.addEventListener("DOMContentLoaded", () => {
     timerEl: mustEl("recordingTimer"),
     barEls,
     typingIndicatorEl: mustEl("typingIndicator"),
+    artifactCardsEl: mustEl("artifactCards"),
     recordingService,
     onToggleRecording: () => toggleRecording(),
     onRecordingsChanged: () => fireRecordingsChanged(),
+    onArtifactTap: (recordingId, attachmentId) => {
+      void setRoute({ name: "detail", recordingId, attachmentId }, true);
+    },
+    onError: (error, context) => reportUnexpectedError(error, context),
+  });
+
+  detailView = new DetailViewController({
+    contentEl: mustEl("detailContent"),
+    typeEl: mustEl("detailType"),
+    dateEl: mustEl("detailDate"),
+    copyBtn: mustBtn("detailCopyBtn"),
+    deleteBtn: mustBtn("detailDeleteBtn"),
+    recordingService,
+    onDeleted: (recordingId) => {
+      void setRoute({ name: "recording", recordingId }, true);
+      fireRecordingsChanged();
+    },
     onError: (error, context) => reportUnexpectedError(error, context),
   });
 
@@ -150,6 +185,29 @@ window.addEventListener("DOMContentLoaded", () => {
       void setRoute({ name: "recording", recordingId }, true);
     },
   });
+
+  // Create button → open sheet
+  createBtn.addEventListener("click", () => {
+    openCreateSheet();
+  });
+
+  // Detail back button → return to recording
+  detailBackBtn.addEventListener("click", () => {
+    const rid = recordingView.getRecordingId();
+    if (rid) {
+      void setRoute({ name: "recording", recordingId: rid }, true);
+    } else {
+      void setRoute({ name: "list" }, true);
+    }
+  });
+
+  // Close sheet on overlay click
+  createOverlayEl.addEventListener("click", () => {
+    closeCreateSheet();
+  });
+
+  // Populate template list
+  renderTemplateList();
 
   window.addEventListener("hashchange", () => {
     void setRoute(parseRoute(window.location.hash), false);
@@ -247,7 +305,8 @@ async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
     if (
       dictation.isRecording &&
       currentRoute?.name === "recording" &&
-      route.name !== "recording"
+      route.name !== "recording" &&
+      route.name !== "detail"
     ) {
       showAppError("Stop recording before leaving the recording view.");
       if (currentRoute) {
@@ -289,6 +348,24 @@ async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
         return;
       }
       nextRoute = { name: "recording", recordingId: opened.recordingId };
+    }
+
+    if (route.name === "detail") {
+      const found = await detailView.openRoute(
+        route.recordingId,
+        route.attachmentId,
+      );
+      if (seq !== routeSeq) {
+        return;
+      }
+      if (!found) {
+        showAppError("Document not found");
+        await setRoute(
+          { name: "recording", recordingId: route.recordingId },
+          true,
+        );
+        return;
+      }
     }
 
     const key = routeKey(nextRoute);
@@ -336,7 +413,7 @@ async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
     settingsBtn.classList.toggle("is-active", settingsActive);
     settingsBtn.setAttribute("aria-pressed", String(settingsActive));
 
-    if (nextRoute.name !== "settings") {
+    if (nextRoute.name !== "settings" && nextRoute.name !== "detail") {
       lastMainRoute = nextRoute;
     }
 
@@ -399,6 +476,7 @@ function renderPluginStatus(): void {
   recordingView.setTranscribeAvailable(pluginState.features.transcription);
   updateAsrLoadingIndicator();
   updateLlmControls();
+  updateCreateButton();
 }
 
 async function importPlugin(): Promise<void> {
@@ -457,6 +535,81 @@ async function runLlmTest(): Promise<void> {
   } finally {
     runLlmBtn.disabled = false;
   }
+}
+
+function openCreateSheet(): void {
+  createOverlayEl.classList.add("visible");
+  createSheetEl.classList.add("open");
+}
+
+function closeCreateSheet(): void {
+  createOverlayEl.classList.remove("visible");
+  createSheetEl.classList.remove("open");
+}
+
+function renderTemplateList(): void {
+  templateListEl.innerHTML = "";
+  for (const template of ARTIFACT_TEMPLATES) {
+    const btn = document.createElement("button");
+    btn.className = "template-btn";
+    btn.innerHTML = `<div class="template-info"><span class="template-name">${template.title}</span><span class="template-desc">${template.description}</span></div>`;
+    btn.addEventListener("click", () => {
+      closeCreateSheet();
+      void generateArtifact(template.type, template.systemPrompt);
+    });
+    templateListEl.appendChild(btn);
+  }
+}
+
+async function generateArtifact(
+  artifactType: string,
+  systemPrompt: string,
+): Promise<void> {
+  const recordingId = recordingView.getRecordingId();
+  if (!recordingId) return;
+
+  const transcript = recordingView.getTranscriptText();
+  if (!transcript.trim()) {
+    showAppError("No transcript to generate from. Record a dictation first.");
+    return;
+  }
+
+  const context = recordingView.getContextText();
+  let input = "";
+  if (context.trim()) {
+    input += `CONTEXT:\n${context.trim()}\n\n`;
+  }
+  input += `TRANSCRIPT:\n${transcript.trim()}`;
+
+  processingOverlayEl.classList.add("visible");
+  try {
+    const output = await llm.runWithPrompt(systemPrompt, input);
+    if (!output || !output.trim()) {
+      showAppError("LLM returned empty output");
+      return;
+    }
+
+    await recordingService.saveArtifact({
+      recordingId,
+      artifactType,
+      content: output.trim(),
+      sourceTranscriptId: recordingView.getTranscriptAttachmentId(),
+      sourceContextId: recordingView.getContextAttachmentId(),
+    });
+
+    await recordingView.refreshArtifacts();
+    fireRecordingsChanged();
+  } catch (error) {
+    reportUnexpectedError(error, "Artifact generation failed");
+  } finally {
+    processingOverlayEl.classList.remove("visible");
+  }
+}
+
+function updateCreateButton(): void {
+  const hasTranscript = Boolean(recordingView.getTranscriptText().trim());
+  const llmRunning = llm.isRunning();
+  createBtn.disabled = !hasTranscript || !llmRunning;
 }
 
 function mustEl(id: string): HTMLElement {

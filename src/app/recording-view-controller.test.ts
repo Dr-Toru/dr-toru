@@ -466,6 +466,7 @@ function makeController(
   timerEl.textContent = "0:00";
   const typingIndicatorEl = document.createElement("div");
   typingIndicatorEl.hidden = true;
+  const artifactCardsEl = document.createElement("div");
   const onRecordingsChanged = vi.fn();
   const controller = new RecordingViewController({
     transcriptEl,
@@ -474,9 +475,11 @@ function makeController(
     timerEl,
     barEls,
     typingIndicatorEl,
+    artifactCardsEl,
     recordingService: service,
     onToggleRecording: async () => undefined,
     onRecordingsChanged,
+    onArtifactTap: () => undefined,
     onError,
   });
   return {
@@ -498,6 +501,7 @@ function makeServiceStub(
     createDraftRecordingId: () => `draft-${++seq}`,
     loadTranscript: async () => null,
     loadContext: async () => null,
+    loadArtifacts: async () => [],
     saveTranscript: async (input: {
       recordingId: string;
       transcript: string;
