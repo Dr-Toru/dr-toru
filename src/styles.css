@@ -243,7 +243,7 @@ body {
     height 100ms ease-out;
 }
 
-#screen-recording:has(.action-record.recording) .status-indicator .bar {
+#screen-recording:has(.header-record-btn.recording) .status-indicator .bar {
   background: var(--success);
 }
 
@@ -430,50 +430,53 @@ body {
   white-space: pre-wrap;
 }
 
-/* ===== Folder Actions (Sticky Bottom Bar) ===== */
+/* ===== Header Record Button ===== */
 
-.folder-actions {
-  display: flex;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  padding-bottom: calc(var(--space-3) + var(--safe-bottom));
-  background: var(--bg-primary);
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.action-btn {
-  flex: 1;
+.header-record-btn {
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  background: var(--bg-elevated);
+  background: none;
+  color: var(--accent-primary);
   border: 1.5px solid var(--border);
-  border-radius: var(--radius-lg);
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
+  border-radius: 50%;
   cursor: pointer;
+  flex-shrink: 0;
   transition: all 0.2s ease;
-  min-height: 48px;
 }
 
-.action-btn:active {
-  transform: scale(0.98);
-}
-
-.action-icon {
+.header-record-btn svg {
   width: 18px;
   height: 18px;
-  flex-shrink: 0;
 }
 
-.action-record.recording {
+.header-record-btn .icon-stop {
+  display: none;
+}
+
+.header-record-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.header-record-btn:not(:disabled):active {
+  transform: scale(0.9);
+}
+
+.header-record-btn.recording {
   background: var(--error);
   border-color: var(--error);
   color: white;
+}
+
+.header-record-btn.recording .icon-mic {
+  display: none;
+}
+
+.header-record-btn.recording .icon-stop {
+  display: block;
 }
 
 /* ===== Detail View (Level 3) ===== */
@@ -991,24 +994,19 @@ body {
   color: var(--text-primary);
 }
 
-/* ===== Context Card ===== */
+/* ===== Section Blocks (Context, Transcript) ===== */
 
-#screen-recording .context-card {
-  flex-shrink: 0;
-  margin: var(--space-3) var(--space-4) 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-elevated);
-  overflow: hidden;
-}
-
-#screen-recording .context-card-header {
-  padding: var(--space-2) var(--space-3);
+#screen-recording .section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--border);
   background: var(--bg-secondary);
+  flex-shrink: 0;
 }
 
-#screen-recording .context-card-label {
+#screen-recording .section-label {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
@@ -1016,9 +1014,40 @@ body {
   letter-spacing: 0.05em;
 }
 
-#screen-recording .context-card-input {
+.section-action-btn {
+  padding: var(--space-1) var(--space-3);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+.section-action-btn:active {
+  background: var(--bg-elevated);
+}
+
+.section-action-btn.copied {
+  background: var(--success);
+  border-color: var(--success);
+  color: white;
+}
+
+.transcript-area:has(.transcript-bubbles.is-empty) .section-action-btn {
+  display: none;
+}
+
+#screen-recording .section-block {
+  flex-shrink: 0;
+}
+
+#screen-recording .section-input {
   width: 100%;
-  padding: var(--space-3);
+  padding: var(--space-3) var(--space-4);
   border: none;
   background: transparent;
   font-family: inherit;
@@ -1029,56 +1058,116 @@ body {
   outline: none;
 }
 
-#screen-recording .context-card-input::placeholder {
+#screen-recording .section-input::placeholder {
   color: var(--text-muted);
 }
 
 /* ===== Recording Transcript ===== */
 
 #screen-recording .view-body {
-  position: relative;
   display: flex;
   flex-direction: column;
   padding: 0;
 }
 
-#screen-recording .transcript {
+#screen-recording .transcript-area {
+  position: relative;
   flex: 1;
-  width: 100%;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== Transcript Bubbles ===== */
+
+.transcript-bubbles {
+  flex: 1;
+  overflow-y: auto;
   padding: var(--space-4);
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  font-family: inherit;
-  font-size: 15px;
-  line-height: 2;
-  color: var(--text-primary);
-  resize: none;
-  outline: none;
-  cursor: default;
-  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  background: var(--bg-secondary);
+  -webkit-overflow-scrolling: touch;
 }
 
-#screen-recording .transcript:focus {
-  border: none;
-  box-shadow: none;
+/* ===== Transcript Blank State ===== */
+
+.transcript-blank-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-8);
+  pointer-events: none;
 }
 
-#screen-recording .transcript::placeholder {
+.transcript-bubbles:not(.is-empty) ~ .transcript-blank-state {
+  display: none;
+}
+
+.blank-state-text {
+  font-size: 14px;
   color: var(--text-muted);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.blank-state-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-xl);
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: all 0.2s ease;
+}
+
+.blank-state-btn:active {
+  background: var(--accent-hover);
+  transform: scale(0.97);
+}
+
+.blank-state-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.transcript-bubble {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  max-width: 100%;
+  word-wrap: break-word;
+  animation: fadeIn 0.2s ease;
 }
 
 /* ===== Typing Indicator ===== */
 
 #screen-recording .typing-indicator {
-  position: absolute;
-  top: var(--space-4);
-  left: var(--space-4);
   display: flex;
   align-items: center;
   gap: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
   pointer-events: none;
+  width: fit-content;
 }
 
 #screen-recording .typing-indicator .dot {
@@ -1108,10 +1197,6 @@ body {
     opacity: 1;
     transform: scale(1.2);
   }
-}
-
-#transcript[data-recording]::placeholder {
-  visibility: hidden;
 }
 
 /* ===== FAB link reset ===== */

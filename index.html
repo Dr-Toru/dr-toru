@@ -97,48 +97,104 @@
               <span class="bar"></span>
             </div>
           </div>
+          <button
+            id="recordBtn"
+            class="header-record-btn"
+            type="button"
+            disabled
+            aria-label="Toggle recording"
+          >
+            <svg
+              class="icon-mic"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+            <svg
+              class="icon-stop"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              stroke="none"
+            >
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+          </button>
         </header>
         <div class="view-body">
-          <div class="context-card">
-            <div class="context-card-header">
-              <span class="context-card-label">Context</span>
+          <div class="section-block">
+            <div class="section-header">
+              <span class="section-label">Context</span>
             </div>
             <textarea
               id="contextNote"
-              class="context-card-input"
+              class="section-input"
               aria-label="Clinical context notes"
-              placeholder="Add clinical context..."
+              placeholder="e.g., 52yo F, follow-up HTN, on lisinopril 10mg..."
               rows="3"
             ></textarea>
           </div>
-          <textarea
-            id="transcript"
-            class="transcript context-input"
-            readonly
-            aria-label="Running transcript"
-            placeholder="Tap Transcribe to begin dictation…"
-          ></textarea>
-          <div
-            id="typingIndicator"
-            class="typing-indicator"
-            role="status"
-            aria-label="Preparing transcription"
-            hidden
-          >
-            <span class="dot"></span>
-            <span class="dot"></span>
-            <span class="dot"></span>
+          <div class="transcript-area">
+            <div class="section-header">
+              <span class="section-label">Transcript</span>
+              <button
+                id="copyTranscriptBtn"
+                class="section-action-btn"
+                type="button"
+              >
+                Copy
+              </button>
+            </div>
+            <div
+              id="transcript"
+              class="transcript-bubbles"
+              role="log"
+              aria-live="polite"
+              aria-label="Running transcript"
+            ></div>
+            <div id="transcriptBlankState" class="transcript-blank-state">
+              <p class="blank-state-text">
+                Record a dictation to generate a transcript
+              </p>
+              <button id="blankRecordBtn" class="blank-state-btn" type="button">
+                <svg
+                  class="blank-state-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path
+                    d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
+                  />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" y1="19" x2="12" y2="23" />
+                  <line x1="8" y1="23" x2="16" y2="23" />
+                </svg>
+                Transcribe
+              </button>
+            </div>
+            <div
+              id="typingIndicator"
+              class="typing-indicator"
+              role="status"
+              aria-label="Preparing transcription"
+              hidden
+            >
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
           </div>
-        </div>
-        <div class="folder-actions">
-          <button
-            id="recordBtn"
-            class="action-btn action-record"
-            type="button"
-            disabled
-          >
-            Transcribe
-          </button>
         </div>
       </section>
 

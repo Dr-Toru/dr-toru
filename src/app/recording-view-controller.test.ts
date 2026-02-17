@@ -101,7 +101,7 @@ describe("RecordingViewController", () => {
       controller.onRecordingComplete("unsaved text"),
     ).rejects.toThrow("disk error");
     expect(onError).toHaveBeenCalledTimes(1);
-    expect(transcriptEl.value).toBe("unsaved text");
+    expect(transcriptEl.textContent).toBe("unsaved text");
   });
 });
 
@@ -251,7 +251,7 @@ describe("typing indicator", () => {
     expect(typingIndicatorEl.hidden).toBe(false);
   });
 
-  it("hides indicator when non-empty transcript arrives", () => {
+  it("keeps indicator visible while recording even after transcript arrives", () => {
     const service = makeServiceStub();
     const { controller, typingIndicatorEl } = makeController(service);
 
@@ -259,7 +259,7 @@ describe("typing indicator", () => {
     expect(typingIndicatorEl.hidden).toBe(false);
 
     controller.setLiveTranscript("hello");
-    expect(typingIndicatorEl.hidden).toBe(true);
+    expect(typingIndicatorEl.hidden).toBe(false);
   });
 
   it("hides indicator when recording stops", () => {
@@ -288,23 +288,25 @@ describe("typing indicator", () => {
 
     controller.setRecording(true);
     controller.setLiveTranscript("text");
-    expect(typingIndicatorEl.hidden).toBe(true);
+    expect(typingIndicatorEl.hidden).toBe(false);
 
     controller.setRecording(false);
+    expect(typingIndicatorEl.hidden).toBe(true);
 
     controller.setRecording(true);
     expect(typingIndicatorEl.hidden).toBe(false);
   });
 
-  it("sets data-recording attribute on transcript when recording", () => {
+  it("renders live transcript text in a bubble element", () => {
     const service = makeServiceStub();
     const { controller, transcriptEl } = makeController(service);
 
     controller.setRecording(true);
-    expect(transcriptEl.dataset.recording).toBe("");
+    controller.setLiveTranscript("hello world");
 
-    controller.setRecording(false);
-    expect(transcriptEl.dataset.recording).toBeUndefined();
+    const bubbles = transcriptEl.querySelectorAll(".transcript-bubble");
+    expect(bubbles.length).toBe(1);
+    expect(bubbles[0]!.textContent).toBe("hello world");
   });
 });
 
@@ -452,14 +454,14 @@ function makeController(
   barEls: HTMLElement[] = makeBars(),
 ): {
   controller: RecordingViewController;
-  transcriptEl: HTMLTextAreaElement;
+  transcriptEl: HTMLElement;
   contextNoteEl: HTMLTextAreaElement;
   timerEl: HTMLElement;
   barEls: HTMLElement[];
   typingIndicatorEl: HTMLElement;
   onRecordingsChanged: ReturnType<typeof vi.fn>;
 } {
-  const transcriptEl = document.createElement("textarea");
+  const transcriptEl = document.createElement("div");
   const contextNoteEl = document.createElement("textarea");
   const transcribeBtn = document.createElement("button");
   const timerEl = document.createElement("span");

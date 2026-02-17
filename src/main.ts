@@ -131,7 +131,7 @@ window.addEventListener("DOMContentLoaded", () => {
   );
 
   recordingView = new RecordingViewController({
-    transcriptEl: mustTextarea("transcript"),
+    transcriptEl: mustEl("transcript"),
     contextNoteEl: mustTextarea("contextNote"),
     transcribeBtn: mustBtn("recordBtn"),
     timerEl: mustEl("recordingTimer"),
@@ -141,6 +141,25 @@ window.addEventListener("DOMContentLoaded", () => {
     onToggleRecording: () => toggleRecording(),
     onRecordingsChanged: () => fireRecordingsChanged(),
     onError: (error, context) => reportUnexpectedError(error, context),
+  });
+
+  mustBtn("blankRecordBtn").addEventListener("click", () => {
+    void toggleRecording();
+  });
+
+  const copyBtn = mustBtn("copyTranscriptBtn");
+  copyBtn.addEventListener("click", () => {
+    const transcriptEl = mustEl("transcript");
+    const text = transcriptEl.textContent?.trim();
+    if (!text) return;
+    void navigator.clipboard.writeText(text).then(() => {
+      copyBtn.textContent = "Copied";
+      copyBtn.classList.add("copied");
+      setTimeout(() => {
+        copyBtn.textContent = "Copy";
+        copyBtn.classList.remove("copied");
+      }, 1500);
+    });
   });
 
   listController = new ListController({

@@ -310,10 +310,7 @@ function appendMergeChunk(currentText: string, suffix: string): string {
   if (!currentText) {
     return suffix;
   }
-  if (/\s$/.test(currentText) || /^[,.;:!?)]/.test(suffix)) {
-    return `${currentText}${suffix}`;
-  }
-  return `${currentText} ${suffix}`;
+  return `${currentText}\n${suffix}`;
 }
 
 function findWordOverlap(currentWords: string[], nextWords: string[]): number {

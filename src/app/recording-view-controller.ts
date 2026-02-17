@@ -12,7 +12,7 @@ export function levelToHeight(rms: number): number {
 }
 
 export interface RecordingViewControllerOptions {
-  transcriptEl: HTMLTextAreaElement;
+  transcriptEl: HTMLElement;
   contextNoteEl: HTMLTextAreaElement;
   transcribeBtn: HTMLButtonElement;
   timerEl: HTMLElement;
@@ -39,7 +39,7 @@ export type OpenRouteResult =
   | { status: "error" };
 
 export class RecordingViewController {
-  private readonly transcriptEl: HTMLTextAreaElement;
+  private readonly transcriptEl: HTMLElement;
   private readonly contextNoteEl: HTMLTextAreaElement;
   private readonly transcribeBtn: HTMLButtonElement;
   private readonly timerEl: HTMLElement;
@@ -158,9 +158,6 @@ export class RecordingViewController {
 
   setLiveTranscript(transcript: string): void {
     this.liveTranscript = transcript;
-    if (transcript) {
-      this.hideTypingIndicator();
-    }
     this.renderTranscript();
   }
 
@@ -215,7 +212,6 @@ export class RecordingViewController {
   }
 
   private render(): void {
-    this.transcribeBtn.textContent = this.recording ? "Stop" : "Transcribe";
     this.transcribeBtn.classList.toggle("recording", this.recording);
     this.transcribeBtn.disabled = !this.available || this.toggling;
     this.timerEl.classList.toggle("recording", this.recording);
@@ -223,9 +219,43 @@ export class RecordingViewController {
   }
 
   private renderTranscript(): void {
+    const el = this.transcriptEl;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+
+    // Temporarily detach typing indicator so it doesn't count as a bubble
+    if (this.typingIndicatorEl.parentElement === el) {
+      el.removeChild(this.typingIndicatorEl);
+    }
+
     const base = this.context?.transcript ?? "";
-    const text = appendTranscript(base, this.liveTranscript);
-    this.transcriptEl.value = text;
+    const full = appendTranscript(base, this.liveTranscript);
+    const lines = full ? full.split("\n").filter(Boolean) : [];
+
+    while (el.children.length > lines.length) {
+      el.lastElementChild?.remove();
+    }
+    for (let i = 0; i < lines.length; i++) {
+      let bubble = el.children[i] as HTMLElement | undefined;
+      if (!bubble) {
+        bubble = document.createElement("div");
+        bubble.className = "transcript-bubble";
+        el.appendChild(bubble);
+      }
+      if (bubble.textContent !== lines[i]) {
+        bubble.textContent = lines[i]!;
+      }
+    }
+
+    // Append typing indicator as last bubble when recording
+    if (!this.typingIndicatorEl.hidden) {
+      el.appendChild(this.typingIndicatorEl);
+    }
+
+    el.classList.toggle("is-empty", lines.length === 0 && !this.recording);
+
+    if (atBottom) {
+      el.scrollTop = el.scrollHeight;
+    }
   }
 
   private updateTimer(): void {
@@ -249,12 +279,10 @@ export class RecordingViewController {
 
   private showTypingIndicator(): void {
     this.typingIndicatorEl.hidden = false;
-    this.transcriptEl.dataset.recording = "";
   }
 
   private hideTypingIndicator(): void {
     this.typingIndicatorEl.hidden = true;
-    delete this.transcriptEl.dataset.recording;
   }
 
   private scheduleContextSave(): void {
