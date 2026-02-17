@@ -17,6 +17,7 @@ export class AudioCapture {
   private pcmCount = 0;
   private onChunk: ChunkCallback | null = null;
   private onLevel: LevelCallback | null = null;
+  private monitoring = false;
 
   constructor(private readonly config: CaptureConfig) {}
 
@@ -24,11 +25,44 @@ export class AudioCapture {
     return this.pcmCount;
   }
 
+  get isMonitoring(): boolean {
+    return this.monitoring;
+  }
+
+  /** Open the mic for level monitoring only (no buffering). */
+  async monitor(onLevel: LevelCallback): Promise<void> {
+    if (this.monitoring) return;
+    this.onLevel = onLevel;
+    this.monitoring = true;
+
+    this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
+    this.sourceNode = this.audioCtx.createMediaStreamSource(this.micStream);
+
+    this.scriptNode = this.audioCtx.createScriptProcessor(2048, 1, 1);
+    this.scriptNode.onaudioprocess = (event) => this.onAudioProcess(event);
+    this.sourceNode.connect(this.scriptNode);
+    this.scriptNode.connect(this.audioCtx.destination);
+  }
+
+  /** Stop level monitoring and release the mic. */
+  async stopMonitor(): Promise<void> {
+    if (!this.monitoring) return;
+    this.monitoring = false;
+    await this.stop();
+  }
+
   async start(onChunk: ChunkCallback, onLevel?: LevelCallback): Promise<void> {
     this.onChunk = onChunk;
-    this.onLevel = onLevel ?? null;
+    if (onLevel) this.onLevel = onLevel;
     this.pcmBuffer = [];
     this.pcmCount = 0;
+
+    // If already monitoring, just transition — mic is already open
+    if (this.monitoring) {
+      this.monitoring = false;
+      return;
+    }
 
     this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });

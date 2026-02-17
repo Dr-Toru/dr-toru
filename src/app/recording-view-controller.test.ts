@@ -101,7 +101,8 @@ describe("RecordingViewController", () => {
       controller.onRecordingComplete("unsaved text"),
     ).rejects.toThrow("disk error");
     expect(onError).toHaveBeenCalledTimes(1);
-    expect(transcriptEl.textContent).toBe("unsaved text");
+    const chunkText = transcriptEl.querySelector(".chunk-text");
+    expect(chunkText!.textContent).toBe("unsaved text");
   });
 });
 
@@ -297,16 +298,17 @@ describe("typing indicator", () => {
     expect(typingIndicatorEl.hidden).toBe(false);
   });
 
-  it("renders live transcript text in a bubble element", () => {
+  it("renders live transcript text in a chunk element", () => {
     const service = makeServiceStub();
     const { controller, transcriptEl } = makeController(service);
 
     controller.setRecording(true);
     controller.setLiveTranscript("hello world");
 
-    const bubbles = transcriptEl.querySelectorAll(".transcript-bubble");
-    expect(bubbles.length).toBe(1);
-    expect(bubbles[0]!.textContent).toBe("hello world");
+    const chunks = transcriptEl.querySelectorAll(".transcript-chunk");
+    expect(chunks.length).toBe(1);
+    const text = chunks[0]!.querySelector(".chunk-text");
+    expect(text!.textContent).toBe("hello world");
   });
 });
 

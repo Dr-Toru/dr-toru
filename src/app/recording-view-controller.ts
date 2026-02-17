@@ -56,7 +56,11 @@ export class RecordingViewController {
   private toggling = false;
   private timerInterval: ReturnType<typeof setInterval> | null = null;
   private recordingStartTime: number | null = null;
+  private elapsedOffset = 0;
   private contextSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private timestampEl: HTMLElement | null = null;
+  private stoppedEl: HTMLElement | null = null;
+  private chunkTimestamps: string[] = [];
 
   constructor(options: RecordingViewControllerOptions) {
     this.transcriptEl = options.transcriptEl;
@@ -134,10 +138,15 @@ export class RecordingViewController {
     this.recording = recording;
     if (recording) {
       this.recordingStartTime = Date.now();
+      this.addTimestamp();
       this.updateTimer();
       this.timerInterval = setInterval(() => this.updateTimer(), 1000);
       this.showTypingIndicator();
     } else {
+      if (this.recordingStartTime !== null) {
+        this.elapsedOffset += Date.now() - this.recordingStartTime;
+      }
+      this.addStoppedTimestamp();
       this.clearTimerInterval();
       this.resetBars();
       this.hideTypingIndicator();
@@ -213,6 +222,10 @@ export class RecordingViewController {
 
   private render(): void {
     this.transcribeBtn.classList.toggle("recording", this.recording);
+    this.transcribeBtn.classList.toggle(
+      "has-transcript",
+      !!this.context?.transcript,
+    );
     this.transcribeBtn.disabled = !this.available || this.toggling;
     this.timerEl.classList.toggle("recording", this.recording);
     this.renderTranscript();
@@ -222,31 +235,59 @@ export class RecordingViewController {
     const el = this.transcriptEl;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
 
-    // Temporarily detach typing indicator so it doesn't count as a bubble
+    // Temporarily detach non-chunk elements so they don't interfere with reconciliation
     if (this.typingIndicatorEl.parentElement === el) {
       el.removeChild(this.typingIndicatorEl);
+    }
+    if (this.timestampEl?.parentElement === el) {
+      el.removeChild(this.timestampEl);
+    }
+    if (this.stoppedEl?.parentElement === el) {
+      el.removeChild(this.stoppedEl);
     }
 
     const base = this.context?.transcript ?? "";
     const full = appendTranscript(base, this.liveTranscript);
     const lines = full ? full.split("\n").filter(Boolean) : [];
 
+    // Record elapsed timestamp for new lines
+    for (let i = this.chunkTimestamps.length; i < lines.length; i++) {
+      this.chunkTimestamps.push(this.currentElapsed());
+    }
+
     while (el.children.length > lines.length) {
       el.lastElementChild?.remove();
     }
     for (let i = 0; i < lines.length; i++) {
-      let bubble = el.children[i] as HTMLElement | undefined;
-      if (!bubble) {
-        bubble = document.createElement("div");
-        bubble.className = "transcript-bubble";
-        el.appendChild(bubble);
+      let chunk = el.children[i] as HTMLElement | undefined;
+      if (!chunk) {
+        chunk = document.createElement("div");
+        chunk.className = "transcript-chunk";
+        const time = document.createElement("span");
+        time.className = "chunk-time";
+        time.textContent = this.chunkTimestamps[i] ?? "";
+        const text = document.createElement("p");
+        text.className = "chunk-text";
+        chunk.append(time, text);
+        el.appendChild(chunk);
       }
-      if (bubble.textContent !== lines[i]) {
-        bubble.textContent = lines[i]!;
+      const textEl = chunk.querySelector(".chunk-text");
+      if (textEl && textEl.textContent !== lines[i]) {
+        textEl.textContent = lines[i]!;
       }
     }
 
-    // Append typing indicator as last bubble when recording
+    // Insert "started" timestamp before chunks
+    if (this.timestampEl) {
+      el.insertBefore(this.timestampEl, el.firstChild);
+    }
+
+    // Append "stopped" timestamp after chunks
+    if (this.stoppedEl) {
+      el.appendChild(this.stoppedEl);
+    }
+
+    // Append typing indicator as last element when recording
     if (!this.typingIndicatorEl.hidden) {
       el.appendChild(this.typingIndicatorEl);
     }
@@ -260,7 +301,7 @@ export class RecordingViewController {
 
   private updateTimer(): void {
     if (this.recordingStartTime === null) return;
-    const elapsed = Date.now() - this.recordingStartTime;
+    const elapsed = this.elapsedOffset + (Date.now() - this.recordingStartTime);
     this.timerEl.textContent = formatElapsed(elapsed);
   }
 
@@ -275,6 +316,44 @@ export class RecordingViewController {
     for (const bar of this.barEls) {
       bar.style.height = `${MIN_BAR_HEIGHT}px`;
     }
+  }
+
+  private currentElapsed(): string {
+    if (this.recordingStartTime === null) return "0:00";
+    const ms = this.elapsedOffset + (Date.now() - this.recordingStartTime);
+    return formatElapsed(ms);
+  }
+
+  private addStoppedTimestamp(): void {
+    if (!this.stoppedEl) {
+      this.stoppedEl = document.createElement("div");
+      this.stoppedEl.className = "transcript-timestamp";
+    }
+    const now = new Date();
+    const time = now.toLocaleString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      month: "numeric",
+      day: "numeric",
+      year: "numeric",
+    });
+    this.stoppedEl.textContent = `Transcript stopped ${time}`;
+  }
+
+  private addTimestamp(): void {
+    if (!this.timestampEl) {
+      this.timestampEl = document.createElement("div");
+      this.timestampEl.className = "transcript-timestamp";
+    }
+    const now = new Date();
+    const time = now.toLocaleString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      month: "numeric",
+      day: "numeric",
+      year: "numeric",
+    });
+    this.timestampEl.textContent = `Transcript started ${time}`;
   }
 
   private showTypingIndicator(): void {
@@ -323,6 +402,12 @@ export class RecordingViewController {
   private resetTimer(): void {
     this.clearTimerInterval();
     this.recordingStartTime = null;
+    this.elapsedOffset = 0;
+    this.timestampEl?.remove();
+    this.timestampEl = null;
+    this.stoppedEl?.remove();
+    this.stoppedEl = null;
+    this.chunkTimestamps = [];
     this.timerEl.textContent = "0:00";
     this.timerEl.classList.remove("recording");
   }
