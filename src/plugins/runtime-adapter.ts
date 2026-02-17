@@ -1,6 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 
 import { AsrClient, type AsrClientEvents } from "../asr/client";
+import type { AsrRuntimeConfig } from "../asr-messages";
 import type { PluginManifest } from "./contracts";
 
 export interface RuntimeHealth {
@@ -38,6 +39,7 @@ export interface RuntimeFactoryOptions {
   /** Absolute URL for the webview origin (e.g. "https://tauri.localhost/"). */
   appOrigin: string;
   events: AsrClientEvents;
+  asrRuntimeConfig: AsrRuntimeConfig;
 }
 
 // Resolve manifest asset paths to absolute URLs suitable for fetch()
@@ -86,6 +88,7 @@ export function createRuntimeAdapter(
         options.ortDir,
         options.appDataDir,
         options.appOrigin,
+        options.asrRuntimeConfig,
       );
     }
     case "llm":
@@ -104,6 +107,7 @@ class OrtRuntimeAdapter implements RuntimeAdapter {
     private readonly ortDir: string,
     private readonly appDataDir: string,
     private readonly appOrigin: string,
+    private readonly asrRuntimeConfig: AsrRuntimeConfig,
   ) {}
 
   async init(): Promise<void> {
@@ -136,7 +140,14 @@ class OrtRuntimeAdapter implements RuntimeAdapter {
       kenlmDir = resolved.replace(/[^/]+$/, "");
     }
 
-    await this.asrClient.load(modelUrl, vocabUrl, this.ortDir, lmUrl, kenlmDir);
+    await this.asrClient.load(
+      modelUrl,
+      vocabUrl,
+      this.ortDir,
+      lmUrl,
+      kenlmDir,
+      this.asrRuntimeConfig,
+    );
   }
 
   async health(): Promise<RuntimeHealth> {

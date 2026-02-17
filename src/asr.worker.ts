@@ -7,6 +7,10 @@ import type {
   TranscribeRequest,
   WorkerToMainMessage,
 } from "./asr-messages";
+import {
+  DEFAULT_ASR_RUNTIME_CONFIG,
+  sanitizeAsrRuntimeConfig,
+} from "./asr/runtime-config";
 import type { KenLMModule } from "./kenlm";
 
 interface MedasrVocab {
@@ -33,13 +37,6 @@ const MEL_LOWER = 125;
 const MEL_UPPER = 7500;
 const MODEL_CACHE_NAME = "asr-model-cache-v1";
 const LM_MEMFS_PATH = "/lm.kenlm";
-
-// Beam search configuration
-const BEAM_WIDTH = 8;
-const LM_ALPHA = 0.5;
-const LM_BETA = 1.5;
-const MIN_TOKEN_LOGP = -5.0;
-const BEAM_PRUNE_LOGP = -10.0;
 const LOG10_TO_LN = Math.log(10);
 
 const hannWindow = new Float64Array(FRAME_LEN);
@@ -55,6 +52,7 @@ let kenlmModule: KenLMModule | null = null;
 let kenlmStateSize = 0;
 
 let specialTokenIds: Set<number> | null = null;
+let runtimeConfig = DEFAULT_ASR_RUNTIME_CONFIG;
 
 function send(message: WorkerToMainMessage): void {
   workerScope.postMessage(message);
@@ -71,6 +69,8 @@ workerScope.onmessage = (event: MessageEvent<MainToWorkerMessage>) => {
 };
 
 async function loadModel(message: LoadRequest): Promise<void> {
+  runtimeConfig = sanitizeAsrRuntimeConfig(message.runtimeConfig);
+
   if (session && vocab) {
     send({ type: "load-success" });
     return;
@@ -82,7 +82,7 @@ async function loadModel(message: LoadRequest): Promise<void> {
   loadTask = (async () => {
     send({ type: "status", message: "Loading vocab in background..." });
     ort.env.wasm.wasmPaths = message.ortDir;
-    ort.env.wasm.numThreads = 2;
+    ort.env.wasm.numThreads = runtimeConfig.ortThreads;
 
     const vocabResult = await loadJsonWithCache<MedasrVocab>(
       message.vocabUrl,
@@ -542,7 +542,10 @@ function beamCtcScore(b: Beam): number {
 
 /** Combined score used for beam ranking. */
 function beamTotalScore(b: Beam): number {
-  return beamCtcScore(b) + LM_ALPHA * b.lmScore + LM_BETA * b.wordCount;
+  const decode = runtimeConfig.decode;
+  return (
+    beamCtcScore(b) + decode.lmAlpha * b.lmScore + decode.lmBeta * b.wordCount
+  );
 }
 
 // Pre-allocated WASM buffer for token strings in scoreTokenKenLM.
@@ -649,7 +652,10 @@ function decodeBeamSearchLM(
 
     const candidateTokens: number[] = [argmaxIdx];
     for (let v = 0; v < vocabSize; v += 1) {
-      if (v !== argmaxIdx && logProbs[frameOffset + v] >= MIN_TOKEN_LOGP) {
+      if (
+        v !== argmaxIdx &&
+        logProbs[frameOffset + v] >= runtimeConfig.decode.minTokenLogp
+      ) {
         if (!specialTokenIds!.has(v) || v === blankId) {
           candidateTokens.push(v);
         }
@@ -745,7 +751,7 @@ function decodeBeamSearchLM(
       mod._free(beam.lmStatePtr);
     }
 
-    // Prune: sort by total score, keep top BEAM_WIDTH
+    // Prune: sort by total score, keep top configured beam width.
     let nextBeams = Array.from(nextMap.values());
     const bestScore = nextBeams.reduce(
       (best, b) => Math.max(best, beamTotalScore(b)),
@@ -754,17 +760,19 @@ function decodeBeamSearchLM(
 
     // Score-based pruning
     nextBeams = nextBeams.filter(
-      (b) => beamTotalScore(b) >= bestScore + BEAM_PRUNE_LOGP,
+      (b) =>
+        beamTotalScore(b) >= bestScore + runtimeConfig.decode.beamPruneLogp,
     );
 
     // Top-K pruning
+    const beamWidth = runtimeConfig.decode.beamWidth;
     nextBeams.sort((a, b) => beamTotalScore(b) - beamTotalScore(a));
-    if (nextBeams.length > BEAM_WIDTH) {
+    if (nextBeams.length > beamWidth) {
       // Free pruned beam states
-      for (let i = BEAM_WIDTH; i < nextBeams.length; i += 1) {
+      for (let i = beamWidth; i < nextBeams.length; i += 1) {
         mod._free(nextBeams[i].lmStatePtr);
       }
-      nextBeams = nextBeams.slice(0, BEAM_WIDTH);
+      nextBeams = nextBeams.slice(0, beamWidth);
     }
 
     beams = nextBeams;

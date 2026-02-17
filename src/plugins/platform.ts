@@ -1,4 +1,5 @@
 import type { AsrClientEvents } from "../asr/client";
+import type { AsrRuntimeConfig } from "../asr-messages";
 import type { PluginManifest } from "./contracts";
 import { PluginService } from "./service";
 import { createRuntimeAdapter, type RuntimeAdapter } from "./runtime-adapter";
@@ -13,6 +14,7 @@ export interface PluginPlatformOptions {
   workerUrl: URL;
   ortDir: string;
   appOrigin: string;
+  asrRuntimeConfig: AsrRuntimeConfig;
   asrEvents: AsrClientEvents;
 }
 
@@ -320,6 +322,7 @@ export class PluginPlatform {
         ortDir: this.options.ortDir,
         appDataDir: this.resolvedDataDir,
         appOrigin: this.options.appOrigin,
+        asrRuntimeConfig: this.options.asrRuntimeConfig,
         events: {
           onStatus: (message) => this.options.asrEvents.onStatus(message),
           onCrash: (message) => {
@@ -342,6 +345,7 @@ export class PluginPlatform {
         ortDir: this.options.ortDir,
         appDataDir: this.resolvedDataDir,
         appOrigin: this.options.appOrigin,
+        asrRuntimeConfig: this.options.asrRuntimeConfig,
         events: {
           onStatus: () => undefined,
           onCrash: (message) => {

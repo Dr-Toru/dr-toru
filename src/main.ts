@@ -1,4 +1,10 @@
 import { AudioCapture } from "./audio/capture";
+import {
+  readAsrSettings,
+  sanitizeAsrSettings,
+  writeAsrSettings,
+  type AsrSettings,
+} from "./asr/settings";
 import { DictationController } from "./app/dictation-controller";
 import { ListController, fireRecordingsChanged } from "./app/list";
 import { LlmController } from "./app/llm-controller";
@@ -21,34 +27,17 @@ import {
 } from "./plugins";
 import { getRecordingStore } from "./storage";
 
-const CHUNK_SECS = Math.max(2, readNumericSetting("toru.chunk.secs", 6));
-const STRIDE_SECS = Math.min(
-  readNumericSetting("toru.stride.secs", 1.5),
-  Math.max(0.5, CHUNK_SECS - 0.5),
-);
 const SAMPLE_RATE = 16000;
-const CHUNK_SAMPLES = Math.floor(CHUNK_SECS * SAMPLE_RATE);
-const STRIDE_SAMPLES = Math.floor(STRIDE_SECS * SAMPLE_RATE);
-const CHUNK_STEP_SAMPLES = Math.max(
-  Math.floor(0.75 * SAMPLE_RATE),
-  CHUNK_SAMPLES - STRIDE_SAMPLES,
-);
-const SILENCE_RMS = readNumericSetting("toru.silence.rms", 0.0025);
-const SILENCE_PEAK = readNumericSetting("toru.silence.peak", 0.012);
-const SILENCE_HOLD_CHUNKS = Math.max(
-  0,
-  Math.floor(readNumericSetting("toru.silence.hold.chunks", 2)),
-);
-const SILENCE_PROBE_EVERY = Math.max(
-  1,
-  Math.floor(readNumericSetting("toru.silence.probe.every", 8)),
-);
 const DEBUG_METRICS = isDebugMetricsEnabled();
+let asrSettings = loadAsrSettings();
 
 const capture = new AudioCapture({
   sampleRate: SAMPLE_RATE,
-  chunkSamples: CHUNK_SAMPLES,
-  stepSamples: CHUNK_STEP_SAMPLES,
+  chunkSamples: chunkSamplesFor(asrSettings.chunkSecs),
+  stepSamples: chunkStepSamplesFor(
+    asrSettings.chunkSecs,
+    asrSettings.strideSecs,
+  ),
 });
 const appBase = new URL("./", window.location.href);
 const ortDir = new URL("ort/", appBase).href;
@@ -70,6 +59,20 @@ let importPluginBtn: HTMLButtonElement;
 let toggleLlmBtn: HTMLButtonElement;
 let runLlmBtn: HTMLButtonElement;
 let llmInputEl: HTMLTextAreaElement;
+let saveAsrSettingsBtn: HTMLButtonElement;
+let asrSettingsStatusEl: HTMLElement;
+let asrChunkSecsInput: HTMLInputElement;
+let asrStrideSecsInput: HTMLInputElement;
+let asrSilenceRmsInput: HTMLInputElement;
+let asrSilencePeakInput: HTMLInputElement;
+let asrSilenceHoldInput: HTMLInputElement;
+let asrSilenceProbeInput: HTMLInputElement;
+let asrOrtThreadsInput: HTMLInputElement;
+let asrBeamWidthInput: HTMLInputElement;
+let asrLmAlphaInput: HTMLInputElement;
+let asrLmBetaInput: HTMLInputElement;
+let asrMinTokenLogpInput: HTMLInputElement;
+let asrBeamPruneLogpInput: HTMLInputElement;
 let navBtns: HTMLButtonElement[] = [];
 let screenEls: Record<RouteName, HTMLElement>;
 let currentRoute: AppRoute | null = null;
@@ -88,7 +91,22 @@ window.addEventListener("DOMContentLoaded", () => {
   importPluginBtn = mustBtn("importPluginBtn");
   toggleLlmBtn = mustBtn("toggleLlmBtn");
   runLlmBtn = mustBtn("runLlmBtn");
+  saveAsrSettingsBtn = mustBtn("saveAsrSettingsBtn");
   llmInputEl = mustTextarea("llmInput");
+  asrSettingsStatusEl = mustEl("asrSettingsStatus");
+  asrChunkSecsInput = mustInput("asrChunkSecs");
+  asrStrideSecsInput = mustInput("asrStrideSecs");
+  asrSilenceRmsInput = mustInput("asrSilenceRms");
+  asrSilencePeakInput = mustInput("asrSilencePeak");
+  asrSilenceHoldInput = mustInput("asrSilenceHoldChunks");
+  asrSilenceProbeInput = mustInput("asrSilenceProbeEvery");
+  asrOrtThreadsInput = mustInput("asrOrtThreads");
+  asrBeamWidthInput = mustInput("asrBeamWidth");
+  asrLmAlphaInput = mustInput("asrLmAlpha");
+  asrLmBetaInput = mustInput("asrLmBeta");
+  asrMinTokenLogpInput = mustInput("asrMinTokenLogp");
+  asrBeamPruneLogpInput = mustInput("asrBeamPruneLogp");
+  renderAsrSettingsForm(asrSettings);
   screenEls = {
     recording: mustEl("screen-recording"),
     list: mustEl("screen-list"),
@@ -160,6 +178,9 @@ window.addEventListener("DOMContentLoaded", () => {
       reportUnexpectedError(error, "LLM test failed"),
     );
   });
+  saveAsrSettingsBtn.addEventListener("click", () => {
+    saveAsrSettings();
+  });
 
   window.addEventListener("error", (event) => {
     reportUnexpectedError(event.error ?? event.message, "Runtime error");
@@ -179,6 +200,7 @@ window.addEventListener("DOMContentLoaded", () => {
     workerUrl: new URL("./asr.worker.ts", import.meta.url),
     ortDir,
     appOrigin: appBase.href,
+    asrRuntimeConfig: asrSettings.runtimeConfig,
     asrEvents: {
       onStatus: () => undefined,
       onCrash: (message) => {
@@ -206,12 +228,12 @@ window.addEventListener("DOMContentLoaded", () => {
     pluginPlatform,
     capture,
     sampleRate: SAMPLE_RATE,
-    chunkSecs: CHUNK_SECS,
-    strideSecs: STRIDE_SECS,
-    silenceRms: SILENCE_RMS,
-    silencePeak: SILENCE_PEAK,
-    speechHoldChunks: SILENCE_HOLD_CHUNKS,
-    silenceProbeEvery: SILENCE_PROBE_EVERY,
+    chunkSecs: asrSettings.chunkSecs,
+    strideSecs: asrSettings.strideSecs,
+    silenceRms: asrSettings.silenceRms,
+    silencePeak: asrSettings.silencePeak,
+    speechHoldChunks: asrSettings.silenceHoldChunks,
+    silenceProbeEvery: asrSettings.silenceProbeEvery,
     debugMetrics: DEBUG_METRICS,
     onStatus: () => undefined,
     onTranscript: (text) => {
@@ -448,6 +470,67 @@ async function runLlmTest(): Promise<void> {
   }
 }
 
+function saveAsrSettings(): void {
+  if (dictation?.isRecording) {
+    asrSettingsStatusEl.textContent =
+      "Stop recording before saving ASR settings.";
+    return;
+  }
+
+  try {
+    const nextSettings = sanitizeAsrSettings({
+      chunkSecs: asrChunkSecsInput.valueAsNumber,
+      strideSecs: asrStrideSecsInput.valueAsNumber,
+      silenceRms: asrSilenceRmsInput.valueAsNumber,
+      silencePeak: asrSilencePeakInput.valueAsNumber,
+      silenceHoldChunks: asrSilenceHoldInput.valueAsNumber,
+      silenceProbeEvery: asrSilenceProbeInput.valueAsNumber,
+      runtimeConfig: {
+        ortThreads: asrOrtThreadsInput.valueAsNumber,
+        decode: {
+          beamWidth: asrBeamWidthInput.valueAsNumber,
+          lmAlpha: asrLmAlphaInput.valueAsNumber,
+          lmBeta: asrLmBetaInput.valueAsNumber,
+          minTokenLogp: asrMinTokenLogpInput.valueAsNumber,
+          beamPruneLogp: asrBeamPruneLogpInput.valueAsNumber,
+        },
+      },
+    });
+
+    writeAsrSettings(nextSettings);
+    asrSettings = nextSettings;
+    renderAsrSettingsForm(nextSettings);
+    asrSettingsStatusEl.textContent =
+      "ASR settings saved. Reloading to apply updated runtime settings...";
+    window.setTimeout(() => {
+      window.location.reload();
+    }, 150);
+  } catch (error) {
+    reportUnexpectedError(error, "Failed to save ASR settings");
+  }
+}
+
+function renderAsrSettingsForm(settings: AsrSettings): void {
+  asrChunkSecsInput.value = String(settings.chunkSecs);
+  asrStrideSecsInput.value = String(settings.strideSecs);
+  asrSilenceRmsInput.value = String(settings.silenceRms);
+  asrSilencePeakInput.value = String(settings.silencePeak);
+  asrSilenceHoldInput.value = String(settings.silenceHoldChunks);
+  asrSilenceProbeInput.value = String(settings.silenceProbeEvery);
+  asrOrtThreadsInput.value = String(settings.runtimeConfig.ortThreads);
+  asrBeamWidthInput.value = String(settings.runtimeConfig.decode.beamWidth);
+  asrLmAlphaInput.value = String(settings.runtimeConfig.decode.lmAlpha);
+  asrLmBetaInput.value = String(settings.runtimeConfig.decode.lmBeta);
+  asrMinTokenLogpInput.value = String(
+    settings.runtimeConfig.decode.minTokenLogp,
+  );
+  asrBeamPruneLogpInput.value = String(
+    settings.runtimeConfig.decode.beamPruneLogp,
+  );
+  asrSettingsStatusEl.textContent =
+    "Tune ASR values here. Saving reloads the app and applies new settings.";
+}
+
 function mustEl(id: string): HTMLElement {
   const el = document.getElementById(id);
   if (!el) {
@@ -468,6 +551,14 @@ function mustTextarea(id: string): HTMLTextAreaElement {
   const el = mustEl(id);
   if (!(el instanceof HTMLTextAreaElement)) {
     throw new Error(`#${id} is not a textarea`);
+  }
+  return el;
+}
+
+function mustInput(id: string): HTMLInputElement {
+  const el = mustEl(id);
+  if (!(el instanceof HTMLInputElement)) {
+    throw new Error(`#${id} is not an input`);
   }
   return el;
 }
@@ -549,13 +640,21 @@ function isDebugMetricsEnabled(): boolean {
   }
 }
 
-function readNumericSetting(key: string, fallback: number): number {
+function loadAsrSettings(): AsrSettings {
   try {
-    const raw = window.localStorage.getItem(key);
-    if (raw === null) return fallback;
-    const parsed = Number(raw);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-  } catch {
-    return fallback;
+    return readAsrSettings();
+  } catch (error) {
+    console.error("Failed to read ASR settings from storage:", error);
+    return sanitizeAsrSettings(undefined);
   }
+}
+
+function chunkSamplesFor(chunkSecs: number): number {
+  return Math.floor(chunkSecs * SAMPLE_RATE);
+}
+
+function chunkStepSamplesFor(chunkSecs: number, strideSecs: number): number {
+  const chunkSamples = chunkSamplesFor(chunkSecs);
+  const strideSamples = Math.floor(strideSecs * SAMPLE_RATE);
+  return Math.max(Math.floor(0.75 * SAMPLE_RATE), chunkSamples - strideSamples);
 }

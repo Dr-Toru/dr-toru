@@ -264,7 +264,7 @@ export class DictationController {
 }
 
 const MAX_WORD_OVERLAP = 20;
-const MIN_SINGLE_TOKEN_OVERLAP_LEN = 4;
+const MIN_SINGLE_TOKEN_OVERLAP_LEN = 2;
 const MAX_CHAR_OVERLAP = 24;
 const MIN_CHAR_OVERLAP = 4;
 

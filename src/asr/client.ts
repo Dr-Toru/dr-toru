@@ -1,4 +1,5 @@
 import type {
+  AsrRuntimeConfig,
   LoadRequest,
   MainToWorkerMessage,
   TranscribeRequest,
@@ -39,6 +40,7 @@ export class AsrClient {
     ortDir: string,
     lmUrl?: string,
     kenlmDir?: string,
+    runtimeConfig?: AsrRuntimeConfig,
   ): Promise<void> {
     if (this.readyValue) {
       return;
@@ -58,6 +60,7 @@ export class AsrClient {
         ortDir,
         lmUrl,
         kenlmDir,
+        runtimeConfig,
       };
       target.postMessage(message satisfies MainToWorkerMessage);
     });

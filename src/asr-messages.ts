@@ -1,3 +1,16 @@
+export interface AsrDecodeConfig {
+  beamWidth: number;
+  lmAlpha: number;
+  lmBeta: number;
+  minTokenLogp: number;
+  beamPruneLogp: number;
+}
+
+export interface AsrRuntimeConfig {
+  ortThreads: number;
+  decode: AsrDecodeConfig;
+}
+
 export interface LoadRequest {
   type: "load";
   modelUrl: string;
@@ -5,6 +18,7 @@ export interface LoadRequest {
   ortDir: string;
   kenlmDir?: string;
   lmUrl?: string;
+  runtimeConfig?: AsrRuntimeConfig;
 }
 
 export interface TranscribeRequest {

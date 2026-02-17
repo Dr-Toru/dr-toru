@@ -48,9 +48,15 @@ describe("mergeChunkText", () => {
     expect(mergeChunkText("hello", "  world  ")).toBe("hello world");
   });
 
-  it("avoids weak single-word dedupe on short tokens", () => {
+  it("deduplicates short overlap words when they are likely stride repeats", () => {
     expect(mergeChunkText("patient is", "is resting")).toBe(
-      "patient is is resting",
+      "patient is resting",
+    );
+  });
+
+  it("keeps single-letter repeats to avoid over-aggressive merges", () => {
+    expect(mergeChunkText("vitamin a", "a deficiency noted")).toBe(
+      "vitamin a a deficiency noted",
     );
   });
 
