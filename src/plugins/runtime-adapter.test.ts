@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { DEFAULT_ASR_RUNTIME_CONFIG } from "../asr/runtime-config";
 import { BUILTIN_ORT_ASR_PLUGIN } from "./contracts";
 import { createRuntimeAdapter } from "./runtime-adapter";
 
@@ -8,6 +9,7 @@ const OPTIONS = {
   ortDir: "ort/",
   appDataDir: "",
   appOrigin: "http://localhost/",
+  asrRuntimeConfig: DEFAULT_ASR_RUNTIME_CONFIG,
   events: {
     onStatus: () => undefined,
     onCrash: () => undefined,

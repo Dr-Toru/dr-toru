@@ -1,4 +1,5 @@
 import type { AsrClientEvents } from "../asr/client";
+import type { AsrRuntimeConfig } from "../asr-messages";
 import type { PluginManifest } from "./contracts";
 import { PluginService } from "./service";
 import { createRuntimeAdapter, type RuntimeAdapter } from "./runtime-adapter";
@@ -13,6 +14,7 @@ export interface PluginPlatformOptions {
   workerUrl: URL;
   ortDir: string;
   appOrigin: string;
+  asrRuntimeConfig: AsrRuntimeConfig;
   asrEvents: AsrClientEvents;
 }
 
@@ -90,6 +92,7 @@ export class PluginPlatform {
   private asrRuntime: RuntimeAdapter | null = null;
   private llmRuntime: RuntimeAdapter | null = null;
   private asrReady = false;
+  private asrUnloadTask: Promise<void> | null = null;
 
   constructor(
     store: PluginRegistryStore,
@@ -156,6 +159,10 @@ export class PluginPlatform {
   }
 
   async loadAsr(): Promise<PluginManifest> {
+    if (this.asrUnloadTask) {
+      await this.asrUnloadTask;
+    }
+
     const state = await this.init();
     if (state.error) {
       throw new Error(state.error);
@@ -184,6 +191,28 @@ export class PluginPlatform {
       samples,
     });
     return result.text;
+  }
+
+  async unloadAsr(): Promise<void> {
+    this.asrReady = false;
+    if (this.asrUnloadTask) {
+      await this.asrUnloadTask;
+      return;
+    }
+
+    const runtime = this.asrRuntime;
+    if (!runtime) {
+      return;
+    }
+    this.asrRuntime = null;
+
+    const unloadTask = runtime.shutdown().finally(() => {
+      if (this.asrUnloadTask === unloadTask) {
+        this.asrUnloadTask = null;
+      }
+    });
+    this.asrUnloadTask = unloadTask;
+    await unloadTask;
   }
 
   async setLlmServiceRunning(running: boolean): Promise<PluginPlatformState> {
@@ -241,10 +270,8 @@ export class PluginPlatform {
   }
 
   async shutdown(): Promise<void> {
-    this.asrReady = false;
-    await this.asrRuntime?.shutdown().catch(() => undefined);
+    await this.unloadAsr().catch(() => undefined);
     await this.llmRuntime?.shutdown().catch(() => undefined);
-    this.asrRuntime = null;
     this.llmRuntime = null;
     this.llmHealth = null;
   }
@@ -320,6 +347,7 @@ export class PluginPlatform {
         ortDir: this.options.ortDir,
         appDataDir: this.resolvedDataDir,
         appOrigin: this.options.appOrigin,
+        asrRuntimeConfig: this.options.asrRuntimeConfig,
         events: {
           onStatus: (message) => this.options.asrEvents.onStatus(message),
           onCrash: (message) => {
@@ -342,6 +370,7 @@ export class PluginPlatform {
         ortDir: this.options.ortDir,
         appDataDir: this.resolvedDataDir,
         appOrigin: this.options.appOrigin,
+        asrRuntimeConfig: this.options.asrRuntimeConfig,
         events: {
           onStatus: () => undefined,
           onCrash: (message) => {

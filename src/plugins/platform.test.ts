@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { DEFAULT_ASR_RUNTIME_CONFIG } from "../asr/runtime-config";
 import { PluginPlatform } from "./platform";
 import { NoopPluginRegistryStore } from "./store";
 
@@ -8,6 +9,7 @@ function createPlatform(store = new NoopPluginRegistryStore()): PluginPlatform {
     workerUrl: new URL("http://localhost/asr.worker.ts"),
     ortDir: "ort/",
     appOrigin: "http://localhost/",
+    asrRuntimeConfig: DEFAULT_ASR_RUNTIME_CONFIG,
     asrEvents: {
       onStatus: () => undefined,
       onCrash: () => undefined,

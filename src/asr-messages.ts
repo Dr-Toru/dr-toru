@@ -1,3 +1,17 @@
+export interface AsrDecodeConfig {
+  beamSearchEnabled: boolean;
+  beamWidth: number;
+  lmAlpha: number;
+  lmBeta: number;
+  minTokenLogp: number;
+  beamPruneLogp: number;
+}
+
+export interface AsrRuntimeConfig {
+  ortThreads: number;
+  decode: AsrDecodeConfig;
+}
+
 export interface LoadRequest {
   type: "load";
   modelUrl: string;
@@ -5,6 +19,7 @@ export interface LoadRequest {
   ortDir: string;
   kenlmDir?: string;
   lmUrl?: string;
+  runtimeConfig?: AsrRuntimeConfig;
 }
 
 export interface TranscribeRequest {
@@ -13,7 +28,14 @@ export interface TranscribeRequest {
   samples: Float32Array;
 }
 
-export type MainToWorkerMessage = LoadRequest | TranscribeRequest;
+export interface ShutdownRequest {
+  type: "shutdown";
+}
+
+export type MainToWorkerMessage =
+  | LoadRequest
+  | TranscribeRequest
+  | ShutdownRequest;
 
 export interface StatusMessage {
   type: "status";
@@ -41,9 +63,14 @@ export interface TranscribeErrorMessage {
   message: string;
 }
 
+export interface ShutdownDoneMessage {
+  type: "shutdown-done";
+}
+
 export type WorkerToMainMessage =
   | StatusMessage
   | LoadSuccessMessage
   | LoadErrorMessage
   | TranscribeSuccessMessage
-  | TranscribeErrorMessage;
+  | TranscribeErrorMessage
+  | ShutdownDoneMessage;

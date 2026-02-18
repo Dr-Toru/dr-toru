@@ -15,7 +15,7 @@
       {
         "title": "Dr. Toru",
         "width": 800,
-        "height": 600
+        "height": 900
       }
     ],
     "security": {
@@ -29,6 +29,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": {
+      "../public/models": "models"
+    },
     "macOS": {
       "infoPlist": "Info.plist"
     },

@@ -1,6 +1,7 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 
 import { AsrClient, type AsrClientEvents } from "../asr/client";
+import type { AsrRuntimeConfig } from "../asr-messages";
 import type { PluginManifest } from "./contracts";
 
 export interface RuntimeHealth {
@@ -38,6 +39,7 @@ export interface RuntimeFactoryOptions {
   /** Absolute URL for the webview origin (e.g. "https://tauri.localhost/"). */
   appOrigin: string;
   events: AsrClientEvents;
+  asrRuntimeConfig: AsrRuntimeConfig;
 }
 
 // Resolve manifest asset paths to absolute URLs suitable for fetch()
@@ -80,12 +82,16 @@ export function createRuntimeAdapter(
           `Plugin ${manifest.pluginId} is missing metadata.vocabPath`,
         );
       }
+      if (isTauri()) {
+        return new NativeAsrRuntimeAdapter(manifest.pluginId, options.events);
+      }
       return new OrtRuntimeAdapter(
         manifest,
         new AsrClient(options.workerUrl, options.events),
         options.ortDir,
         options.appDataDir,
         options.appOrigin,
+        options.asrRuntimeConfig,
       );
     }
     case "llm":
@@ -104,6 +110,7 @@ class OrtRuntimeAdapter implements RuntimeAdapter {
     private readonly ortDir: string,
     private readonly appDataDir: string,
     private readonly appOrigin: string,
+    private readonly asrRuntimeConfig: AsrRuntimeConfig,
   ) {}
 
   async init(): Promise<void> {
@@ -136,7 +143,14 @@ class OrtRuntimeAdapter implements RuntimeAdapter {
       kenlmDir = resolved.replace(/[^/]+$/, "");
     }
 
-    await this.asrClient.load(modelUrl, vocabUrl, this.ortDir, lmUrl, kenlmDir);
+    await this.asrClient.load(
+      modelUrl,
+      vocabUrl,
+      this.ortDir,
+      lmUrl,
+      kenlmDir,
+      this.asrRuntimeConfig,
+    );
   }
 
   async health(): Promise<RuntimeHealth> {
@@ -159,7 +173,40 @@ class OrtRuntimeAdapter implements RuntimeAdapter {
   }
 
   async shutdown(): Promise<void> {
-    this.asrClient.terminate();
+    await this.asrClient.shutdown();
+  }
+}
+
+class NativeAsrRuntimeAdapter implements RuntimeAdapter {
+  constructor(
+    private readonly pluginId: string,
+    private readonly events: AsrClientEvents,
+  ) {}
+
+  async init(): Promise<void> {
+    this.events.onStatus("Loading native ASR model...");
+    await invoke<void>("plugin_asr_load", { pluginId: this.pluginId });
+    this.events.onStatus("Native ASR model loaded");
+  }
+
+  async health(): Promise<RuntimeHealth> {
+    return { ready: true, message: "Native ASR ready" };
+  }
+
+  async execute(request: RuntimeExecuteRequest): Promise<RuntimeExecuteResult> {
+    if (request.type !== "asr.transcribe") {
+      throw new Error(
+        `Native ASR runtime does not support request ${request.type}`,
+      );
+    }
+    return invoke<RuntimeExecuteResult>("plugin_asr_transcribe", {
+      pluginId: this.pluginId,
+      samples: Array.from(request.samples),
+    });
+  }
+
+  async shutdown(): Promise<void> {
+    await invoke<void>("plugin_asr_unload", { pluginId: this.pluginId });
   }
 }
 

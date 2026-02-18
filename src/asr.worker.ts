@@ -7,6 +7,10 @@ import type {
   TranscribeRequest,
   WorkerToMainMessage,
 } from "./asr-messages";
+import {
+  DEFAULT_ASR_RUNTIME_CONFIG,
+  sanitizeAsrRuntimeConfig,
+} from "./asr/runtime-config";
 import type { KenLMModule } from "./kenlm";
 
 interface MedasrVocab {
@@ -33,13 +37,6 @@ const MEL_LOWER = 125;
 const MEL_UPPER = 7500;
 const MODEL_CACHE_NAME = "asr-model-cache-v1";
 const LM_MEMFS_PATH = "/lm.kenlm";
-
-// Beam search configuration
-const BEAM_WIDTH = 8;
-const LM_ALPHA = 0.5;
-const LM_BETA = 1.5;
-const MIN_TOKEN_LOGP = -5.0;
-const BEAM_PRUNE_LOGP = -10.0;
 const LOG10_TO_LN = Math.log(10);
 
 const hannWindow = new Float64Array(FRAME_LEN);
@@ -55,6 +52,7 @@ let kenlmModule: KenLMModule | null = null;
 let kenlmStateSize = 0;
 
 let specialTokenIds: Set<number> | null = null;
+let runtimeConfig = DEFAULT_ASR_RUNTIME_CONFIG;
 
 function send(message: WorkerToMainMessage): void {
   workerScope.postMessage(message);
@@ -66,11 +64,17 @@ workerScope.onmessage = (event: MessageEvent<MainToWorkerMessage>) => {
     void loadModel(message);
     return;
   }
+  if (message.type === "shutdown") {
+    void releaseSession();
+    return;
+  }
 
   void transcribe(message);
 };
 
 async function loadModel(message: LoadRequest): Promise<void> {
+  runtimeConfig = sanitizeAsrRuntimeConfig(message.runtimeConfig);
+
   if (session && vocab) {
     send({ type: "load-success" });
     return;
@@ -82,7 +86,7 @@ async function loadModel(message: LoadRequest): Promise<void> {
   loadTask = (async () => {
     send({ type: "status", message: "Loading vocab in background..." });
     ort.env.wasm.wasmPaths = message.ortDir;
-    ort.env.wasm.numThreads = 2;
+    ort.env.wasm.numThreads = runtimeConfig.ortThreads;
 
     const vocabResult = await loadJsonWithCache<MedasrVocab>(
       message.vocabUrl,
@@ -112,10 +116,19 @@ async function loadModel(message: LoadRequest): Promise<void> {
       executionProviders: ["wasm"],
       graphOptimizationLevel: "all",
     });
+    // Release the JS-side model bytes now that WASM has its own copy.
+    (modelResult as { data: Uint8Array | null }).data = null;
 
-    // Load KenLM language model (optional — graceful fallback to greedy)
-    if (message.lmUrl && message.kenlmDir) {
+    // Load KenLM language model only when beam search is enabled.
+    if (
+      runtimeConfig.decode.beamSearchEnabled &&
+      message.lmUrl &&
+      message.kenlmDir
+    ) {
       await loadKenLM(message.kenlmDir, message.lmUrl);
+    } else {
+      kenlmModule = null;
+      kenlmStateSize = 0;
     }
 
     send({ type: "load-success" });
@@ -132,6 +145,23 @@ async function loadModel(message: LoadRequest): Promise<void> {
     });
 
   return loadTask;
+}
+
+async function releaseSession(): Promise<void> {
+  try {
+    if (session) {
+      await session.release();
+    }
+  } catch {
+    // Best-effort cleanup before termination.
+  }
+  session = null;
+  vocab = null;
+  specialTokenIds = null;
+  kenlmModule = null;
+  kenlmStateSize = 0;
+  loadTask = null;
+  send({ type: "shutdown-done" });
 }
 
 interface CachedLoadResult<T> {
@@ -268,20 +298,19 @@ async function transcribe(message: TranscribeRequest): Promise<void> {
     return;
   }
 
+  let inputTensor: ort.Tensor | null = null;
+  let maskTensor: ort.Tensor | null = null;
+  let outputs: Record<string, ort.Tensor> | null = null;
   try {
     const features = extractMelFeatures(message.samples);
-    const inputTensor = new ort.Tensor(
-      "float32",
-      features.data,
-      features.shape,
-    );
-    const maskTensor = new ort.Tensor(
+    inputTensor = new ort.Tensor("float32", features.data, features.shape);
+    maskTensor = new ort.Tensor(
       "bool",
       new Uint8Array(features.shape[1]).fill(1),
       [1, features.shape[1]],
     );
 
-    const outputs = await session.run({
+    outputs = await session.run({
       input_features: inputTensor,
       attention_mask: maskTensor,
     });
@@ -302,7 +331,11 @@ async function transcribe(message: TranscribeRequest): Promise<void> {
     const vocabSize = logits.dims[2];
 
     let text: string;
-    if (kenlmModule && kenlmStateSize > 0) {
+    if (
+      runtimeConfig.decode.beamSearchEnabled &&
+      kenlmModule &&
+      kenlmStateSize > 0
+    ) {
       try {
         const logProbs = logSoftmax(rawLogits, frames, vocabSize);
         text = decodeBeamSearchLM(
@@ -322,6 +355,7 @@ async function transcribe(message: TranscribeRequest): Promise<void> {
     } else {
       text = decodeCTC(rawLogits, logits.dims, vocab);
     }
+    text = stripLeadingBracketArtifact(text);
 
     send({
       type: "transcribe-success",
@@ -335,6 +369,14 @@ async function transcribe(message: TranscribeRequest): Promise<void> {
       requestId: message.requestId,
       message: msg,
     });
+  } finally {
+    disposeTensor(inputTensor);
+    disposeTensor(maskTensor);
+    if (outputs) {
+      for (const tensor of Object.values(outputs)) {
+        disposeTensor(tensor);
+      }
+    }
   }
 }
 
@@ -542,7 +584,10 @@ function beamCtcScore(b: Beam): number {
 
 /** Combined score used for beam ranking. */
 function beamTotalScore(b: Beam): number {
-  return beamCtcScore(b) + LM_ALPHA * b.lmScore + LM_BETA * b.wordCount;
+  const decode = runtimeConfig.decode;
+  return (
+    beamCtcScore(b) + decode.lmAlpha * b.lmScore + decode.lmBeta * b.wordCount
+  );
 }
 
 // Pre-allocated WASM buffer for token strings in scoreTokenKenLM.
@@ -649,7 +694,10 @@ function decodeBeamSearchLM(
 
     const candidateTokens: number[] = [argmaxIdx];
     for (let v = 0; v < vocabSize; v += 1) {
-      if (v !== argmaxIdx && logProbs[frameOffset + v] >= MIN_TOKEN_LOGP) {
+      if (
+        v !== argmaxIdx &&
+        logProbs[frameOffset + v] >= runtimeConfig.decode.minTokenLogp
+      ) {
         if (!specialTokenIds!.has(v) || v === blankId) {
           candidateTokens.push(v);
         }
@@ -745,7 +793,7 @@ function decodeBeamSearchLM(
       mod._free(beam.lmStatePtr);
     }
 
-    // Prune: sort by total score, keep top BEAM_WIDTH
+    // Prune: sort by total score, keep top configured beam width.
     let nextBeams = Array.from(nextMap.values());
     const bestScore = nextBeams.reduce(
       (best, b) => Math.max(best, beamTotalScore(b)),
@@ -754,17 +802,19 @@ function decodeBeamSearchLM(
 
     // Score-based pruning
     nextBeams = nextBeams.filter(
-      (b) => beamTotalScore(b) >= bestScore + BEAM_PRUNE_LOGP,
+      (b) =>
+        beamTotalScore(b) >= bestScore + runtimeConfig.decode.beamPruneLogp,
     );
 
     // Top-K pruning
+    const beamWidth = runtimeConfig.decode.beamWidth;
     nextBeams.sort((a, b) => beamTotalScore(b) - beamTotalScore(a));
-    if (nextBeams.length > BEAM_WIDTH) {
+    if (nextBeams.length > beamWidth) {
       // Free pruned beam states
-      for (let i = BEAM_WIDTH; i < nextBeams.length; i += 1) {
+      for (let i = beamWidth; i < nextBeams.length; i += 1) {
         mod._free(nextBeams[i].lmStatePtr);
       }
-      nextBeams = nextBeams.slice(0, BEAM_WIDTH);
+      nextBeams = nextBeams.slice(0, beamWidth);
     }
 
     beams = nextBeams;
@@ -918,4 +968,30 @@ function buildSpecialTokenIds(tokens: string[]): Set<number> {
     }
   }
   return ids;
+}
+
+function stripLeadingBracketArtifact(text: string): string {
+  const original = text.trim();
+  if (!original.startsWith("[")) {
+    return original;
+  }
+
+  const closeIdx = original.indexOf("]");
+  if (closeIdx !== -1 && closeIdx <= 24) {
+    return original;
+  }
+
+  const stripped = original.replace(/^\[+/, "").trimStart();
+  return stripped || original;
+}
+
+function disposeTensor(tensor: ort.Tensor | null): void {
+  if (!tensor) {
+    return;
+  }
+  try {
+    tensor.dispose();
+  } catch {
+    // Ignore dispose errors; tensor might already be detached by runtime.
+  }
 }

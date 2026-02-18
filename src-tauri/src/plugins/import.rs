@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::Read;
@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 
-use super::{err_to_string, PluginKind, PluginManifest, PluginImportRequest};
+use super::{err_to_string, PluginImportRequest, PluginKind, PluginManifest};
 
 const ASR_ORT_PACKAGE_SCHEMA: &str = "dr-toru.asr.ort-package.v1";
 
@@ -18,6 +18,8 @@ struct AsrOrtImportPackage {
     name: Option<String>,
     model_path: String,
     vocab_path: String,
+    lm_path: Option<String>,
+    kenlm_wasm_path: Option<String>,
 }
 
 fn sanitize_slug(value: &str) -> String {
@@ -106,6 +108,32 @@ fn find_onnx_vocab_path(source: &Path) -> Option<PathBuf> {
         .find(|candidate| candidate.exists() && candidate.is_file())
 }
 
+fn onnx_lm_candidate_names(stem: &str) -> Vec<String> {
+    vec![
+        "lm_6.kenlm".to_string(),
+        format!("{stem}.kenlm"),
+        format!("{stem}_lm.kenlm"),
+    ]
+}
+
+fn find_onnx_lm_path(source: &Path) -> Option<PathBuf> {
+    let stem = source.file_stem().and_then(|value| value.to_str())?;
+    let parent = source.parent()?;
+    onnx_lm_candidate_names(stem)
+        .into_iter()
+        .map(|name| parent.join(name))
+        .find(|candidate| candidate.exists() && candidate.is_file())
+}
+
+fn find_onnx_kenlm_js_path(source: &Path) -> Option<PathBuf> {
+    let parent = source.parent()?;
+    let candidate = parent.join("kenlm.js");
+    if candidate.exists() && candidate.is_file() {
+        return Some(candidate);
+    }
+    None
+}
+
 fn resolve_package_asset_path(package_file: &Path, value: &str) -> Result<PathBuf, String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -128,7 +156,18 @@ fn resolve_package_asset_path(package_file: &Path, value: &str) -> Result<PathBu
     Ok(resolved)
 }
 
-fn load_asr_ort_package(source: &Path) -> Result<(Option<String>, PathBuf, PathBuf), String> {
+fn load_asr_ort_package(
+    source: &Path,
+) -> Result<
+    (
+        Option<String>,
+        PathBuf,
+        PathBuf,
+        Option<PathBuf>,
+        Option<PathBuf>,
+    ),
+    String,
+> {
     let raw = fs::read_to_string(source).map_err(err_to_string)?;
     let package: AsrOrtImportPackage = serde_json::from_str(&raw).map_err(err_to_string)?;
 
@@ -150,11 +189,52 @@ fn load_asr_ort_package(source: &Path) -> Result<(Option<String>, PathBuf, PathB
         return Err("Package modelPath must reference a .onnx file".to_string());
     }
     let vocab_path = resolve_package_asset_path(source, &package.vocab_path)?;
+    let lm_path = package
+        .lm_path
+        .as_ref()
+        .map(|value| resolve_package_asset_path(source, value))
+        .transpose()?;
+    let kenlm_path = package
+        .kenlm_wasm_path
+        .as_ref()
+        .map(|value| resolve_package_asset_path(source, value))
+        .transpose()?;
+    let kenlm_js_path = match kenlm_path {
+        Some(path) => {
+            let ext = path
+                .extension()
+                .and_then(|value| value.to_str())
+                .map(|value| value.to_ascii_lowercase())
+                .ok_or_else(|| {
+                    "Package kenlmWasmPath must reference kenlm.js or kenlm.wasm".to_string()
+                })?;
+            if ext == "js" {
+                Some(path)
+            } else if ext == "wasm" {
+                let js_path = path.with_extension("js");
+                if !js_path.exists() || !js_path.is_file() {
+                    return Err(format!(
+                        "Package kenlmWasmPath references {} but {} is missing",
+                        path.display(),
+                        js_path.display()
+                    ));
+                }
+                Some(js_path)
+            } else {
+                return Err(
+                    "Package kenlmWasmPath must reference kenlm.js or kenlm.wasm".to_string(),
+                );
+            }
+        }
+        None => None,
+    };
 
     Ok((
         package.name.filter(|value| !value.trim().is_empty()),
         model_path,
         vocab_path,
+        lm_path,
+        kenlm_js_path,
     ))
 }
 
@@ -187,6 +267,8 @@ pub(super) fn imported_plugin_manifest(
     let mut display_name_fallback = source_stem.clone();
     let mut entrypoint_source = source.clone();
     let mut vocab_source: Option<PathBuf> = None;
+    let mut lm_source: Option<PathBuf> = None;
+    let mut kenlm_js_source: Option<PathBuf> = None;
     let mut metadata = None;
 
     if extension == "llamafile" {
@@ -205,13 +287,21 @@ pub(super) fn imported_plugin_manifest(
             ));
         };
         vocab_source = Some(found_vocab);
+        lm_source = find_onnx_lm_path(&source);
+        kenlm_js_source = find_onnx_kenlm_js_path(&source);
     } else if extension == "asrpkg" {
-        let (package_name, model_path, package_vocab_path) = load_asr_ort_package(&source)?;
+        let (package_name, model_path, package_vocab_path, package_lm_path, package_kenlm_path) =
+            load_asr_ort_package(&source)?;
         entrypoint_source = model_path;
         vocab_source = Some(package_vocab_path);
+        lm_source = package_lm_path;
+        kenlm_js_source = package_kenlm_path;
         if let Some(name) = package_name {
             display_name_fallback = name;
-        } else if let Some(stem) = entrypoint_source.file_stem().and_then(|value| value.to_str()) {
+        } else if let Some(stem) = entrypoint_source
+            .file_stem()
+            .and_then(|value| value.to_str())
+        {
             display_name_fallback = stem.to_string();
         }
     } else {
@@ -233,10 +323,37 @@ pub(super) fn imported_plugin_manifest(
             .as_ref()
             .ok_or_else(|| "ASR import requires a vocab file".to_string())?;
         let (relative_vocab_path, vocab_hash, _) = copy_imported_asset(app, &plugin_id, vocab)?;
-        metadata = Some(json!({
+        let mut asr_metadata = json!({
             "vocabPath": relative_vocab_path,
             "vocabSha256": vocab_hash
-        }));
+        });
+
+        if let Some(lm) = lm_source.as_ref() {
+            let (relative_lm_path, lm_hash, _) = copy_imported_asset(app, &plugin_id, lm)?;
+            if let Value::Object(fields) = &mut asr_metadata {
+                fields.insert("lmPath".to_string(), Value::String(relative_lm_path));
+                fields.insert("lmSha256".to_string(), Value::String(lm_hash));
+            }
+        }
+
+        if let Some(kenlm_js) = kenlm_js_source.as_ref() {
+            let (relative_kenlm_path, kenlm_hash, _) =
+                copy_imported_asset(app, &plugin_id, kenlm_js)?;
+            if let Value::Object(fields) = &mut asr_metadata {
+                fields.insert(
+                    "kenlmWasmPath".to_string(),
+                    Value::String(relative_kenlm_path),
+                );
+                fields.insert("kenlmWasmSha256".to_string(), Value::String(kenlm_hash));
+            }
+
+            let kenlm_wasm = kenlm_js.with_extension("wasm");
+            if kenlm_wasm.exists() && kenlm_wasm.is_file() {
+                let _ = copy_imported_asset(app, &plugin_id, &kenlm_wasm)?;
+            }
+        }
+
+        metadata = Some(asr_metadata);
     }
 
     let installed_at = SystemTime::now()

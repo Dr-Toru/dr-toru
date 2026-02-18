@@ -22,6 +22,9 @@
           <h1 class="view-title">Sessions</h1>
           <span class="local-badge">On-device</span>
           <span id="asrLoading" class="asr-loading" hidden>Loading ASR…</span>
+          <span id="beamLoading" class="asr-loading" hidden
+            >Loading beam search…</span
+          >
           <button
             id="settingsBtn"
             class="back-btn"
@@ -257,6 +260,139 @@
           <p id="pluginSummary" class="placeholder">
             Plugin registry loading...
           </p>
+          <h3>ASR Runtime</h3>
+          <div class="settings-grid">
+            <label class="setting-toggle">
+              <input id="asrEnabled" type="checkbox" />
+              <span>Enable ASR</span>
+            </label>
+            <label class="setting-toggle">
+              <input id="asrBeamSearchEnabled" type="checkbox" />
+              <span>Enable Beam Search (KenLM)</span>
+            </label>
+          </div>
+          <h3>ASR Quality</h3>
+          <div class="settings-grid">
+            <label class="setting-field">
+              <span>Chunk (secs)</span>
+              <input
+                id="asrChunkSecs"
+                type="number"
+                min="2"
+                max="20"
+                step="0.5"
+              />
+            </label>
+            <label class="setting-field">
+              <span>Stride (secs)</span>
+              <input
+                id="asrStrideSecs"
+                type="number"
+                min="0.5"
+                max="19.5"
+                step="0.5"
+              />
+            </label>
+            <label class="setting-field">
+              <span>Silence RMS</span>
+              <input
+                id="asrSilenceRms"
+                type="number"
+                min="0.0001"
+                max="0.05"
+                step="0.0001"
+              />
+            </label>
+            <label class="setting-field">
+              <span>Silence Peak</span>
+              <input
+                id="asrSilencePeak"
+                type="number"
+                min="0.0001"
+                max="0.2"
+                step="0.0001"
+              />
+            </label>
+            <label class="setting-field">
+              <span>Speech Hold (chunks)</span>
+              <input
+                id="asrSilenceHoldChunks"
+                type="number"
+                min="0"
+                max="12"
+                step="1"
+              />
+            </label>
+            <label class="setting-field">
+              <span>Silence Probe Every</span>
+              <input
+                id="asrSilenceProbeEvery"
+                type="number"
+                min="1"
+                max="50"
+                step="1"
+              />
+            </label>
+            <label class="setting-field">
+              <span>ORT Threads</span>
+              <input
+                id="asrOrtThreads"
+                type="number"
+                min="1"
+                max="2"
+                step="1"
+              />
+            </label>
+            <label class="setting-field">
+              <span>Beam Width</span>
+              <input
+                id="asrBeamWidth"
+                type="number"
+                min="1"
+                max="32"
+                step="1"
+              />
+            </label>
+            <label class="setting-field">
+              <span>LM Alpha</span>
+              <input id="asrLmAlpha" type="number" min="0" max="3" step="0.1" />
+            </label>
+            <label class="setting-field">
+              <span>LM Beta</span>
+              <input id="asrLmBeta" type="number" min="-2" max="5" step="0.1" />
+            </label>
+            <label class="setting-field">
+              <span>Min Token LogP</span>
+              <input
+                id="asrMinTokenLogp"
+                type="number"
+                min="-20"
+                max="0"
+                step="0.1"
+              />
+            </label>
+            <label class="setting-field">
+              <span>Beam Prune LogP</span>
+              <input
+                id="asrBeamPruneLogp"
+                type="number"
+                min="-30"
+                max="0"
+                step="0.1"
+              />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="saveAsrSettingsBtn" type="button">
+              Save ASR Settings
+            </button>
+          </div>
+          <p id="asrSettingsStatus" class="status"></p>
+          <h3>Developer</h3>
+          <div class="actions">
+            <button id="toggleDevtoolsBtn" type="button">Open DevTools</button>
+          </div>
+          <p id="devtoolsStatus" class="status"></p>
           <div class="actions">
             <button id="importPluginBtn" type="button">
               Import Model File
