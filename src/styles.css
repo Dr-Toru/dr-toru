@@ -219,14 +219,6 @@ button {
   color: #111827;
 }
 
-.diagnostics-output {
-  max-height: 220px;
-  overflow: auto;
-  white-space: pre-wrap;
-  font-size: 0.76rem;
-  line-height: 1.35;
-}
-
 textarea.transcript {
   width: 100%;
   font: inherit;

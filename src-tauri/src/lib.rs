@@ -1,7 +1,57 @@
 mod plugins;
 mod storage;
 
-use tauri::Manager;
+use serde::Serialize;
+use tauri::WebviewWindow;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DevtoolsState {
+    available: bool,
+    open: bool,
+}
+
+#[tauri::command]
+fn debug_devtools_status(_window: WebviewWindow) -> Result<DevtoolsState, String> {
+    #[cfg(debug_assertions)]
+    {
+        Ok(DevtoolsState {
+            available: true,
+            open: _window.is_devtools_open(),
+        })
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        Ok(DevtoolsState {
+            available: false,
+            open: false,
+        })
+    }
+}
+
+#[tauri::command]
+fn debug_devtools_set(window: WebviewWindow, open: bool) -> Result<DevtoolsState, String> {
+    #[cfg(debug_assertions)]
+    {
+        if open {
+            window.open_devtools();
+        } else {
+            window.close_devtools();
+        }
+        Ok(DevtoolsState {
+            available: true,
+            open: window.is_devtools_open(),
+        })
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = (window, open);
+        Ok(DevtoolsState {
+            available: false,
+            open: false,
+        })
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -9,15 +59,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(plugins::PluginRuntimeState::default())
-        .setup(|app| {
-            #[cfg(debug_assertions)]
-            if let Some(window) = app.get_webview_window("main") {
-                window.open_devtools();
-            }
-
-            Ok(())
-        })
         .invoke_handler(tauri::generate_handler![
+            debug_devtools_status,
+            debug_devtools_set,
             plugins::plugin_registry_init,
             plugins::plugin_registry_list,
             plugins::plugin_registry_discover,

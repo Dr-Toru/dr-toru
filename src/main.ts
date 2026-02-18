@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+
 import { AudioCapture } from "./audio/capture";
 import {
   readAsrSettings,
@@ -18,7 +20,6 @@ import {
   type AppRoute,
   type RouteName,
 } from "./app/router";
-import { SessionDiagnostics } from "./app/session-diagnostics";
 import {
   createPluginPlatform,
   formatLlmStatus,
@@ -26,7 +27,6 @@ import {
   type PluginPlatform,
   type PluginPlatformState,
 } from "./plugins";
-import { asrQueue } from "./runtime/queues";
 import { getRecordingStore } from "./storage";
 
 const SAMPLE_RATE = 16000;
@@ -57,17 +57,15 @@ let llmOutputEl: HTMLElement;
 let appErrorEl: HTMLElement;
 let asrLoadingEl: HTMLElement;
 let beamLoadingEl: HTMLElement;
-let diagnosticsSummaryEl: HTMLElement;
-let diagnosticsOutputEl: HTMLElement;
 let settingsBtn: HTMLButtonElement;
 let importPluginBtn: HTMLButtonElement;
 let toggleLlmBtn: HTMLButtonElement;
 let runLlmBtn: HTMLButtonElement;
-let refreshDiagnosticsBtn: HTMLButtonElement;
-let clearDiagnosticsBtn: HTMLButtonElement;
+let toggleDevtoolsBtn: HTMLButtonElement;
 let llmInputEl: HTMLTextAreaElement;
 let saveAsrSettingsBtn: HTMLButtonElement;
 let asrSettingsStatusEl: HTMLElement;
+let devtoolsStatusEl: HTMLElement;
 let asrEnabledInput: HTMLInputElement;
 let asrBeamSearchEnabledInput: HTMLInputElement;
 let asrChunkSecsInput: HTMLInputElement;
@@ -90,7 +88,17 @@ let lastMainRoute: AppRoute = { name: "list" };
 let routeSeq = 0;
 let asrLoadTask: Promise<boolean> | null = null;
 let asrLoadPhase: "idle" | "asr" | "beam" = "idle";
-let diagnostics: SessionDiagnostics | null = null;
+let devtoolsBusy = false;
+let devtoolsStatusError: string | null = null;
+let devtoolsState: DevtoolsState = {
+  available: false,
+  open: false,
+};
+
+interface DevtoolsState {
+  available: boolean;
+  open: boolean;
+}
 
 window.addEventListener("DOMContentLoaded", () => {
   pluginSummaryEl = mustEl("pluginSummary");
@@ -99,17 +107,15 @@ window.addEventListener("DOMContentLoaded", () => {
   appErrorEl = mustEl("appError");
   asrLoadingEl = mustEl("asrLoading");
   beamLoadingEl = mustEl("beamLoading");
-  diagnosticsSummaryEl = mustEl("diagnosticsSummary");
-  diagnosticsOutputEl = mustEl("diagnosticsOutput");
   settingsBtn = mustBtn("settingsBtn");
   importPluginBtn = mustBtn("importPluginBtn");
   toggleLlmBtn = mustBtn("toggleLlmBtn");
   runLlmBtn = mustBtn("runLlmBtn");
-  refreshDiagnosticsBtn = mustBtn("refreshDiagnosticsBtn");
-  clearDiagnosticsBtn = mustBtn("clearDiagnosticsBtn");
+  toggleDevtoolsBtn = mustBtn("toggleDevtoolsBtn");
   saveAsrSettingsBtn = mustBtn("saveAsrSettingsBtn");
   llmInputEl = mustTextarea("llmInput");
   asrSettingsStatusEl = mustEl("asrSettingsStatus");
+  devtoolsStatusEl = mustEl("devtoolsStatus");
   asrEnabledInput = mustInput("asrEnabled");
   asrBeamSearchEnabledInput = mustInput("asrBeamSearchEnabled");
   asrChunkSecsInput = mustInput("asrChunkSecs");
@@ -205,32 +211,21 @@ window.addEventListener("DOMContentLoaded", () => {
   saveAsrSettingsBtn.addEventListener("click", () => {
     saveAsrSettings();
   });
-  refreshDiagnosticsBtn.addEventListener("click", () => {
-    renderDiagnostics();
+  toggleDevtoolsBtn.addEventListener("click", () => {
+    void toggleDevtools();
   });
-  clearDiagnosticsBtn.addEventListener("click", () => {
-    diagnostics?.clear();
-    renderDiagnostics();
-  });
+  renderDevtoolsControls();
+  void refreshDevtoolsState();
 
   window.addEventListener("error", (event) => {
-    diagnostics?.recordEvent("window-error", {
-      context: "runtime-error",
-      message: String(event.error ?? event.message),
-    });
     reportUnexpectedError(event.error ?? event.message, "Runtime error");
   });
   window.addEventListener("unhandledrejection", (event) => {
     event.preventDefault();
-    diagnostics?.recordEvent("window-error", {
-      context: "unhandled-rejection",
-      message: String(event.reason),
-    });
     reportUnexpectedError(event.reason, "Unhandled async error");
   });
 
   window.addEventListener("beforeunload", () => {
-    diagnostics?.stop(true);
     void dictation.shutdown();
     void pluginPlatform.shutdown();
     listController.unmount();
@@ -244,17 +239,9 @@ window.addEventListener("DOMContentLoaded", () => {
     asrEvents: {
       onStatus: (message) => {
         updateAsrLoadPhaseFromStatus(message);
-        if (
-          message.toLowerCase().includes("failed") ||
-          message.toLowerCase().includes("unavailable") ||
-          message.toLowerCase().includes("error")
-        ) {
-          diagnostics?.recordEvent("asr-status", { message });
-        }
       },
       onCrash: (message) => {
         asrLoadPhase = "idle";
-        diagnostics?.recordEvent("asr-crash", { message });
         dictation.handleAsrCrash(message);
         recordingView.setTranscribeAvailable(isAsrTranscriptionEnabled());
       },
@@ -292,25 +279,12 @@ window.addEventListener("DOMContentLoaded", () => {
     onRecordingComplete: (transcript) =>
       recordingView.onRecordingComplete(transcript),
   });
-  diagnostics = new SessionDiagnostics(window.localStorage);
-  diagnostics.start(() => collectDiagnosticsBeat());
-  const previousUnclean = diagnostics.getPreviousUncleanSummary();
-  if (previousUnclean) {
-    showAppError(
-      `Previous session ended unexpectedly at ${previousUnclean}. Open Settings for diagnostics.`,
-    );
-  }
-  renderDiagnostics();
 
   void initializeStorage();
   void setRoute(parseRoute(window.location.hash), true);
-  void initializePlugins()
-    .then(() => {
-      if (asrSettings.asrEnabled) {
-        void loadModel();
-      }
-    })
-    .catch((error) => reportUnexpectedError(error, "Startup failed"));
+  void initializePlugins().catch((error) =>
+    reportUnexpectedError(error, "Startup failed"),
+  );
 });
 
 async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
@@ -374,9 +348,15 @@ async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
       listController.unmount();
     }
 
+    // Tear down the ASR worker when leaving the recording screen so
+    // its WASM heap is returned to the OS. The model binary is in the
+    // Cache API, so reloading on return is fast.
+    if (currentRoute?.name === "recording" && nextRoute.name !== "recording") {
+      void pluginPlatform.unloadAsr();
+    }
+
     currentRoute = nextRoute;
     currentRouteStateKey = key;
-    diagnostics?.recordEvent("route-change", { route: key });
 
     if (nextRoute.name === "list") {
       listController.mount();
@@ -416,7 +396,9 @@ async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
       syncRouteHash(nextRoute);
     }
     if (nextRoute.name === "settings") {
-      renderDiagnostics();
+      void refreshDevtoolsState();
+    } else if (nextRoute.name === "recording" && asrSettings.asrEnabled) {
+      void loadModel();
     }
   } catch (error) {
     reportUnexpectedError(error, "Navigation failed");
@@ -443,6 +425,9 @@ async function initializePlugins(): Promise<void> {
     pluginState = await pluginPlatform.init();
     llm.setState(pluginState);
     renderPluginStatus();
+    if (currentRoute?.name === "recording" && asrSettings.asrEnabled) {
+      void loadModel();
+    }
   } catch (error) {
     reportUnexpectedError(error, "Plugin init failed");
     throw error;
@@ -503,7 +488,11 @@ async function importPlugin(): Promise<void> {
     });
     llmStatusEl.textContent = `Imported plugin: ${imported.name}`;
     await initializePlugins();
-    if (imported.kind === "asr" && asrSettings.asrEnabled) {
+    if (
+      imported.kind === "asr" &&
+      asrSettings.asrEnabled &&
+      currentRoute?.name === "recording"
+    ) {
       void loadModel();
     }
   } catch (error) {
@@ -534,6 +523,70 @@ async function runLlmTest(): Promise<void> {
     await llm.run(llmInputEl.value);
   } finally {
     runLlmBtn.disabled = false;
+  }
+}
+
+function renderDevtoolsControls(): void {
+  const open = devtoolsState.open;
+  toggleDevtoolsBtn.textContent = open ? "Close DevTools" : "Open DevTools";
+  toggleDevtoolsBtn.disabled = devtoolsBusy || !devtoolsState.available;
+
+  if (devtoolsStatusError) {
+    devtoolsStatusEl.textContent = devtoolsStatusError;
+    return;
+  }
+
+  if (devtoolsBusy) {
+    devtoolsStatusEl.textContent = "Updating DevTools state...";
+    return;
+  }
+
+  if (!devtoolsState.available) {
+    devtoolsStatusEl.textContent =
+      "DevTools toggle is only available in desktop debug builds.";
+    return;
+  }
+
+  devtoolsStatusEl.textContent = open
+    ? "DevTools is open."
+    : "DevTools is closed.";
+}
+
+async function refreshDevtoolsState(): Promise<void> {
+  devtoolsBusy = true;
+  renderDevtoolsControls();
+  try {
+    devtoolsState = await invoke<DevtoolsState>("debug_devtools_status");
+    devtoolsStatusError = null;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    devtoolsState = { available: false, open: false };
+    devtoolsStatusError = `DevTools toggle unavailable: ${message}`;
+  } finally {
+    devtoolsBusy = false;
+    renderDevtoolsControls();
+  }
+}
+
+async function toggleDevtools(): Promise<void> {
+  if (devtoolsBusy || !devtoolsState.available) {
+    return;
+  }
+
+  const nextOpen = !devtoolsState.open;
+  devtoolsBusy = true;
+  renderDevtoolsControls();
+  try {
+    devtoolsState = await invoke<DevtoolsState>("debug_devtools_set", {
+      open: nextOpen,
+    });
+    devtoolsStatusError = null;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    devtoolsStatusError = `Failed to toggle DevTools: ${message}`;
+  } finally {
+    devtoolsBusy = false;
+    renderDevtoolsControls();
   }
 }
 
@@ -660,7 +713,6 @@ function mustInput(id: string): HTMLInputElement {
 function reportUnexpectedError(error: unknown, context: string): void {
   console.error(`${context}:`, error);
   const message = error instanceof Error ? error.message : String(error);
-  diagnostics?.recordEvent("app-error", { context, message });
   showAppError(`${context}: ${message}`);
 }
 
@@ -671,7 +723,6 @@ function showAppError(message: string): void {
 
 function updateAsrLoadPhaseFromStatus(message: string): void {
   const normalized = message.toLowerCase();
-  const previousPhase = asrLoadPhase;
   if (normalized.includes("language model")) {
     asrLoadPhase = "beam";
   } else if (
@@ -681,9 +732,6 @@ function updateAsrLoadPhaseFromStatus(message: string): void {
     normalized.includes("model")
   ) {
     asrLoadPhase = "asr";
-  }
-  if (previousPhase !== asrLoadPhase) {
-    diagnostics?.recordEvent("asr-load-phase", { phase: asrLoadPhase });
   }
   updateAsrLoadingIndicator();
 }
@@ -768,63 +816,6 @@ async function toggleRecording(): Promise<void> {
 
 function isAsrTranscriptionEnabled(): boolean {
   return asrSettings.asrEnabled && Boolean(pluginState?.features.transcription);
-}
-
-function renderDiagnostics(): void {
-  if (!diagnostics) {
-    diagnosticsSummaryEl.textContent = "Diagnostics unavailable.";
-    diagnosticsOutputEl.textContent = "";
-    return;
-  }
-  diagnosticsSummaryEl.textContent = diagnostics.getSummary();
-  diagnosticsOutputEl.textContent = diagnostics.getReport(100);
-}
-
-function collectDiagnosticsBeat(): Record<string, string | number | boolean> {
-  const memory = readHeapMemory();
-  return {
-    route: currentRouteStateKey || routeKey(parseRoute(window.location.hash)),
-    recording: dictation?.isRecording ?? false,
-    asrEnabled: asrSettings.asrEnabled,
-    beamEnabled: asrSettings.runtimeConfig.decode.beamSearchEnabled,
-    asrReady: pluginPlatform?.isAsrReady() ?? false,
-    asrLoadPhase,
-    queueDepth: asrQueue.depth,
-    queuePending: asrQueue.pendingCount,
-    queueActive: asrQueue.activeCount,
-    captureBufferedSamples: capture.bufferedSamples,
-    hasTranscription: isAsrTranscriptionEnabled(),
-    heapUsedMb: memory.usedMb,
-    heapTotalMb: memory.totalMb,
-    heapLimitMb: memory.limitMb,
-  };
-}
-
-function readHeapMemory(): {
-  usedMb: number;
-  totalMb: number;
-  limitMb: number;
-} {
-  const perf = performance as Performance & {
-    memory?: {
-      usedJSHeapSize: number;
-      totalJSHeapSize: number;
-      jsHeapSizeLimit: number;
-    };
-  };
-  const memory = perf.memory;
-  if (!memory) {
-    return { usedMb: -1, totalMb: -1, limitMb: -1 };
-  }
-  return {
-    usedMb: roundToOneDecimal(memory.usedJSHeapSize / (1024 * 1024)),
-    totalMb: roundToOneDecimal(memory.totalJSHeapSize / (1024 * 1024)),
-    limitMb: roundToOneDecimal(memory.jsHeapSizeLimit / (1024 * 1024)),
-  };
-}
-
-function roundToOneDecimal(value: number): number {
-  return Math.round(value * 10) / 10;
 }
 
 function isDebugMetricsEnabled(): boolean {

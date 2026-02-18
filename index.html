@@ -144,7 +144,7 @@
                 id="asrOrtThreads"
                 type="number"
                 min="1"
-                max="8"
+                max="2"
                 step="1"
               />
             </label>
@@ -193,6 +193,11 @@
             </button>
           </div>
           <p id="asrSettingsStatus" class="status"></p>
+          <h3>Developer</h3>
+          <div class="actions">
+            <button id="toggleDevtoolsBtn" type="button">Open DevTools</button>
+          </div>
+          <p id="devtoolsStatus" class="status"></p>
           <div class="actions">
             <button id="importPluginBtn" type="button">
               Import Model File
@@ -202,19 +207,6 @@
             </button>
           </div>
           <p id="llmServiceStatus" class="status">LLM service: unavailable</p>
-          <h3>Diagnostics</h3>
-          <p id="diagnosticsSummary" class="status">
-            Collecting runtime breadcrumbs...
-          </p>
-          <div class="actions">
-            <button id="refreshDiagnosticsBtn" type="button">
-              Refresh Diagnostics
-            </button>
-            <button id="clearDiagnosticsBtn" type="button">
-              Clear Diagnostics
-            </button>
-          </div>
-          <pre id="diagnosticsOutput" class="transcript diagnostics-output"></pre>
           <h3>LLM Test</h3>
           <textarea
             id="llmInput"

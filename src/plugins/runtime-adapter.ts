@@ -170,7 +170,7 @@ class OrtRuntimeAdapter implements RuntimeAdapter {
   }
 
   async shutdown(): Promise<void> {
-    this.asrClient.terminate();
+    await this.asrClient.shutdown();
   }
 }
 

@@ -6,6 +6,8 @@ import type {
   WorkerToMainMessage,
 } from "../asr-messages";
 
+const SHUTDOWN_TIMEOUT_MS = 2000;
+
 interface PendingRequest {
   resolve: (text: string) => void;
   reject: (error: Error) => void;
@@ -24,6 +26,7 @@ export class AsrClient {
   private nextRequestId = 0;
   private pending = new Map<number, PendingRequest>();
   private readyValue = false;
+  private shutdownResolve: (() => void) | null = null;
 
   constructor(
     private readonly workerUrl: URL,
@@ -92,6 +95,33 @@ export class AsrClient {
     });
   }
 
+  /** Ask the worker to release its ONNX session, then terminate. */
+  async shutdown(): Promise<void> {
+    const worker = this.worker;
+    if (!worker) {
+      this.readyValue = false;
+      return;
+    }
+
+    this.readyValue = false;
+    this.rejectAll("Client terminated");
+
+    // Give the worker a short window to release WASM resources.
+    const done = new Promise<void>((resolve) => {
+      this.shutdownResolve = resolve;
+    });
+    worker.postMessage({ type: "shutdown" } satisfies MainToWorkerMessage);
+    const timeout = new Promise<void>((resolve) =>
+      setTimeout(resolve, SHUTDOWN_TIMEOUT_MS),
+    );
+    await Promise.race([done, timeout]);
+
+    worker.terminate();
+    this.worker = null;
+    this.shutdownResolve = null;
+  }
+
+  /** Hard-kill the worker without waiting. Used only on crash paths. */
   terminate(): void {
     this.worker?.terminate();
     this.worker = null;
@@ -126,6 +156,11 @@ export class AsrClient {
     if (msg.type === "load-error") {
       this.readyValue = false;
       this.loadReject?.(new Error(msg.message));
+      return;
+    }
+
+    if (msg.type === "shutdown-done") {
+      this.shutdownResolve?.();
       return;
     }
 

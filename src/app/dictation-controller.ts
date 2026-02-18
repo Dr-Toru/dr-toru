@@ -27,6 +27,7 @@ export class DictationController {
   private metricChunkId = 0;
   private silentChunkSkips = 0;
   private speechHoldRemaining = 0;
+  private overloadDropCount = 0;
 
   constructor(private readonly options: DictationControllerOptions) {}
 
@@ -77,6 +78,7 @@ export class DictationController {
         this.metricChunkId = 0;
         this.silentChunkSkips = 0;
         this.speechHoldRemaining = 0;
+        this.overloadDropCount = 0;
         this.debugMetric("recording-start", {
           chunkSecs: this.options.chunkSecs,
           strideSecs: this.options.strideSecs,
@@ -142,9 +144,28 @@ export class DictationController {
     this.options.onRecordingChange(false);
     await this.options.capture.stop();
     await asrQueue.waitForIdle();
+    await this.options.pluginPlatform.unloadAsr().catch(() => undefined);
   }
 
   private queueChunk(samples: Float32Array): Promise<void> {
+    if (asrQueue.depth >= MAX_ASR_QUEUE_DEPTH) {
+      this.overloadDropCount += 1;
+      if (
+        this.overloadDropCount === 1 ||
+        this.overloadDropCount % OVERLOAD_STATUS_EVERY === 0
+      ) {
+        this.options.onStatus(
+          "ASR is behind. Dropping some audio chunks to keep app responsive.",
+        );
+      }
+      this.debugMetric("chunk-dropped-overload", {
+        count: this.overloadDropCount,
+        queueDepth: asrQueue.depth,
+        chunkSecs: roundMetric(samples.length / this.options.sampleRate),
+      });
+      return asrQueue.waitForIdle();
+    }
+
     const silent = isSilent(
       samples,
       this.options.silenceRms,
@@ -185,6 +206,10 @@ export class DictationController {
       this.speechHoldRemaining = this.options.speechHoldChunks;
     }
 
+    if (this.overloadDropCount > 0 && asrQueue.depth === 0) {
+      this.overloadDropCount = 0;
+    }
+
     const metricId = ++this.metricChunkId;
     const queuedAt = performance.now();
 
@@ -195,7 +220,7 @@ export class DictationController {
 
     this.debugMetric("chunk-queued", {
       id: metricId,
-      queueDepth: asrQueue.pendingCount,
+      queueDepth: asrQueue.depth,
       chunkSecs: roundMetric(samples.length / this.options.sampleRate),
     });
     return task;
@@ -267,6 +292,8 @@ const MAX_WORD_OVERLAP = 20;
 const MIN_SINGLE_TOKEN_OVERLAP_LEN = 2;
 const MAX_CHAR_OVERLAP = 24;
 const MIN_CHAR_OVERLAP = 4;
+const MAX_ASR_QUEUE_DEPTH = 3;
+const OVERLOAD_STATUS_EVERY = 6;
 
 export function mergeChunkText(currentText: string, nextText: string): string {
   const next = nextText.trim();

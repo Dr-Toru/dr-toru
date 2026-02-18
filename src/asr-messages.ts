@@ -28,7 +28,14 @@ export interface TranscribeRequest {
   samples: Float32Array;
 }
 
-export type MainToWorkerMessage = LoadRequest | TranscribeRequest;
+export interface ShutdownRequest {
+  type: "shutdown";
+}
+
+export type MainToWorkerMessage =
+  | LoadRequest
+  | TranscribeRequest
+  | ShutdownRequest;
 
 export interface StatusMessage {
   type: "status";
@@ -56,9 +63,14 @@ export interface TranscribeErrorMessage {
   message: string;
 }
 
+export interface ShutdownDoneMessage {
+  type: "shutdown-done";
+}
+
 export type WorkerToMainMessage =
   | StatusMessage
   | LoadSuccessMessage
   | LoadErrorMessage
   | TranscribeSuccessMessage
-  | TranscribeErrorMessage;
+  | TranscribeErrorMessage
+  | ShutdownDoneMessage;

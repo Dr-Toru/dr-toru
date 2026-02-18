@@ -64,6 +64,10 @@ workerScope.onmessage = (event: MessageEvent<MainToWorkerMessage>) => {
     void loadModel(message);
     return;
   }
+  if (message.type === "shutdown") {
+    void releaseSession();
+    return;
+  }
 
   void transcribe(message);
 };
@@ -112,6 +116,8 @@ async function loadModel(message: LoadRequest): Promise<void> {
       executionProviders: ["wasm"],
       graphOptimizationLevel: "all",
     });
+    // Release the JS-side model bytes now that WASM has its own copy.
+    (modelResult as { data: Uint8Array | null }).data = null;
 
     // Load KenLM language model only when beam search is enabled.
     if (
@@ -139,6 +145,23 @@ async function loadModel(message: LoadRequest): Promise<void> {
     });
 
   return loadTask;
+}
+
+async function releaseSession(): Promise<void> {
+  try {
+    if (session) {
+      await session.release();
+    }
+  } catch {
+    // Best-effort cleanup before termination.
+  }
+  session = null;
+  vocab = null;
+  specialTokenIds = null;
+  kenlmModule = null;
+  kenlmStateSize = 0;
+  loadTask = null;
+  send({ type: "shutdown-done" });
 }
 
 interface CachedLoadResult<T> {
@@ -280,11 +303,7 @@ async function transcribe(message: TranscribeRequest): Promise<void> {
   let outputs: Record<string, ort.Tensor> | null = null;
   try {
     const features = extractMelFeatures(message.samples);
-    inputTensor = new ort.Tensor(
-      "float32",
-      features.data,
-      features.shape,
-    );
+    inputTensor = new ort.Tensor("float32", features.data, features.shape);
     maskTensor = new ort.Tensor(
       "bool",
       new Uint8Array(features.shape[1]).fill(1),

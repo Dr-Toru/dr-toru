@@ -206,10 +206,7 @@ export function writeAsrSettings(
   const target = storage ?? window.localStorage;
   const normalized = sanitizeAsrSettings(settings);
 
-  target.setItem(
-    STORAGE_KEYS.asrEnabled,
-    normalized.asrEnabled ? "1" : "0",
-  );
+  target.setItem(STORAGE_KEYS.asrEnabled, normalized.asrEnabled ? "1" : "0");
   target.setItem(STORAGE_KEYS.chunkSecs, String(normalized.chunkSecs));
   target.setItem(STORAGE_KEYS.strideSecs, String(normalized.strideSecs));
   target.setItem(STORAGE_KEYS.silenceRms, String(normalized.silenceRms));

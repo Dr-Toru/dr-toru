@@ -7,9 +7,9 @@ export type PartialAsrRuntimeConfig = Partial<
 };
 
 export const DEFAULT_ASR_RUNTIME_CONFIG: AsrRuntimeConfig = {
-  ortThreads: 2,
+  ortThreads: 1,
   decode: {
-    beamSearchEnabled: true,
+    beamSearchEnabled: false,
     beamWidth: 8,
     lmAlpha: 0.5,
     lmBeta: 1.5,
@@ -60,7 +60,7 @@ export function sanitizeAsrRuntimeConfig(
       input?.ortThreads,
       DEFAULT_ASR_RUNTIME_CONFIG.ortThreads,
       1,
-      8,
+      2,
     ),
     decode: {
       beamSearchEnabled: withFallbackBoolean(
