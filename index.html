@@ -8,55 +8,252 @@
     <script type="module" src="/src/main.ts" defer></script>
   </head>
   <body>
-    <main id="app-shell" class="app-shell">
-      <header class="app-header">
-        <h1>Dr. Toru</h1>
-        <div class="header-tools">
-          <span id="asrLoading" class="asr-loading" hidden>Loading ASR...</span>
+    <main id="app-shell" class="app">
+      <p id="appError" class="app-error" hidden></p>
+
+      <section
+        id="screen-list"
+        class="view"
+        data-screen="list"
+        hidden
+        aria-hidden="true"
+      >
+        <header class="view-header">
+          <h1 class="view-title">Sessions</h1>
+          <span class="local-badge">On-device</span>
+          <span id="asrLoading" class="asr-loading" hidden>Loading ASR…</span>
           <button
             id="settingsBtn"
-            class="header-btn"
+            class="back-btn"
             type="button"
             aria-label="Open settings"
           >
-            Settings
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+              />
+            </svg>
           </button>
+        </header>
+        <div class="view-body" id="recording-list"></div>
+        <div class="view-fab">
+          <a href="#recording" class="fab-btn fab-primary">
+            <svg
+              class="fab-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            New Session
+          </a>
         </div>
-      </header>
-      <p id="appError" class="app-error" hidden></p>
+      </section>
 
-      <div class="screen-stack">
-        <section id="screen-recording" class="screen" data-screen="recording">
-          <textarea
-            id="transcript"
-            class="transcript recording-transcript"
-            readonly
-            aria-label="Running transcript"
-          ></textarea>
-          <div class="recording-actions">
-            <button id="recordBtn" type="button" disabled>Transcribe</button>
+      <section id="screen-recording" class="view" data-screen="recording">
+        <header class="view-header">
+          <a href="#list" class="back-btn" aria-label="Back to sessions">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </a>
+          <div class="view-header-content">
+            <span class="detail-type">Dictation</span>
           </div>
-        </section>
+          <span
+            id="recordingTimer"
+            class="meta-item meta-timer"
+            role="timer"
+            aria-label="Recording duration"
+            >0:00</span
+          >
+          <button
+            id="recordBtn"
+            class="header-record-btn"
+            type="button"
+            disabled
+            aria-label="Toggle recording"
+          >
+            <svg
+              class="icon-mic"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+            <svg
+              class="icon-stop"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              stroke="none"
+            >
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+            <span class="record-btn-label">Resume</span>
+          </button>
+          <div class="header-status">
+            <div class="status-indicator">
+              <span class="bar"></span>
+              <span class="bar"></span>
+              <span class="bar"></span>
+              <span class="bar"></span>
+            </div>
+          </div>
+        </header>
+        <div class="view-body">
+          <div class="section-block">
+            <div class="section-header">
+              <span class="section-label"
+                ><svg
+                  class="section-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path
+                    d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
+                  />
+                  <rect x="8" y="2" width="8" height="4" rx="1" ry="1" /></svg
+                >Context</span
+              >
+            </div>
+            <textarea
+              id="contextNote"
+              class="section-input"
+              aria-label="Clinical context notes"
+              placeholder="Add any additional context about the patient or paste files here"
+              rows="6"
+            ></textarea>
+          </div>
+          <div class="transcript-area">
+            <div class="section-header">
+              <span class="section-label"
+                ><svg
+                  class="section-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path
+                    d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                  />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                  <polyline points="10 9 9 9 8 9" /></svg
+                >Transcript</span
+              >
+              <button
+                id="copyTranscriptBtn"
+                class="section-action-btn"
+                type="button"
+              >
+                Copy
+              </button>
+            </div>
+            <div
+              id="transcript"
+              class="transcript-bubbles"
+              role="log"
+              aria-live="polite"
+              aria-label="Running transcript"
+            ></div>
+            <div id="transcriptBlankState" class="transcript-blank-state">
+              <p class="blank-state-text">
+                Record a dictation to generate a transcript
+              </p>
+              <button id="blankRecordBtn" class="blank-state-btn" type="button">
+                <svg
+                  class="blank-state-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path
+                    d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
+                  />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" y1="19" x2="12" y2="23" />
+                  <line x1="8" y1="23" x2="16" y2="23" />
+                </svg>
+                Transcribe
+              </button>
+            </div>
+            <div
+              id="typingIndicator"
+              class="typing-indicator"
+              role="status"
+              aria-label="Listening"
+              hidden
+            >
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="typing-label">Listening</span>
+            </div>
+          </div>
+        </div>
+      </section>
 
-        <section
-          id="screen-list"
-          class="screen"
-          data-screen="list"
-          hidden
-          aria-hidden="true"
-        >
-          <h2>Recordings</h2>
-          <div id="recording-list"></div>
-        </section>
-
-        <section
-          id="screen-settings"
-          class="screen"
-          data-screen="settings"
-          hidden
-          aria-hidden="true"
-        >
-          <h2>Settings</h2>
+      <section
+        id="screen-settings"
+        class="view"
+        data-screen="settings"
+        hidden
+        aria-hidden="true"
+      >
+        <header class="view-header">
+          <a href="#list" class="back-btn" aria-label="Back to sessions">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </a>
+          <h2 class="view-title">Settings</h2>
+        </header>
+        <div class="view-body">
           <p id="pluginSummary" class="placeholder">
             Plugin registry loading...
           </p>
@@ -80,15 +277,8 @@
             <button id="runLlmBtn" type="button" disabled>Run LLM Test</button>
           </div>
           <div id="llmOutput" class="transcript">(No LLM output)</div>
-        </section>
-      </div>
-
-      <nav class="shell-nav" aria-label="Primary">
-        <button type="button" class="nav-btn" data-route="list">List</button>
-        <button type="button" class="nav-btn" data-route="recording">
-          Record
-        </button>
-      </nav>
+        </div>
+      </section>
     </main>
   </body>
 </html>

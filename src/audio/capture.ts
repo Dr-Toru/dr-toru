@@ -5,6 +5,7 @@ export interface CaptureConfig {
 }
 
 export type ChunkCallback = (samples: Float32Array) => void;
+export type LevelCallback = (rms: number) => void;
 
 export class AudioCapture {
   private micStream: MediaStream | null = null;
@@ -15,6 +16,8 @@ export class AudioCapture {
   private pcmBuffer: Float32Array[] = [];
   private pcmCount = 0;
   private onChunk: ChunkCallback | null = null;
+  private onLevel: LevelCallback | null = null;
+  private monitoring = false;
 
   constructor(private readonly config: CaptureConfig) {}
 
@@ -22,10 +25,44 @@ export class AudioCapture {
     return this.pcmCount;
   }
 
-  async start(onChunk: ChunkCallback): Promise<void> {
+  get isMonitoring(): boolean {
+    return this.monitoring;
+  }
+
+  /** Open the mic for level monitoring only (no buffering). */
+  async monitor(onLevel: LevelCallback): Promise<void> {
+    if (this.monitoring) return;
+    this.onLevel = onLevel;
+    this.monitoring = true;
+
+    this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
+    this.sourceNode = this.audioCtx.createMediaStreamSource(this.micStream);
+
+    this.scriptNode = this.audioCtx.createScriptProcessor(2048, 1, 1);
+    this.scriptNode.onaudioprocess = (event) => this.onAudioProcess(event);
+    this.sourceNode.connect(this.scriptNode);
+    this.scriptNode.connect(this.audioCtx.destination);
+  }
+
+  /** Stop level monitoring and release the mic. */
+  async stopMonitor(): Promise<void> {
+    if (!this.monitoring) return;
+    this.monitoring = false;
+    await this.stop();
+  }
+
+  async start(onChunk: ChunkCallback, onLevel?: LevelCallback): Promise<void> {
     this.onChunk = onChunk;
+    if (onLevel) this.onLevel = onLevel;
     this.pcmBuffer = [];
     this.pcmCount = 0;
+
+    // If already monitoring, just transition — mic is already open
+    if (this.monitoring) {
+      this.monitoring = false;
+      return;
+    }
 
     this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
@@ -65,6 +102,7 @@ export class AudioCapture {
     this.audioCtx = null;
     this.micStream = null;
     this.onChunk = null;
+    this.onLevel = null;
   }
 
   private onAudioProcess(event: AudioProcessingEvent): void {
@@ -73,6 +111,11 @@ export class AudioCapture {
     }
 
     const input = event.inputBuffer.getChannelData(0);
+
+    if (this.onLevel) {
+      this.onLevel(computeRms(input));
+    }
+
     this.pcmBuffer.push(new Float32Array(input));
     this.pcmCount += input.length;
 
@@ -125,6 +168,15 @@ export class AudioCapture {
   }
 }
 
+export function computeRms(samples: Float32Array): number {
+  if (samples.length === 0) return 0;
+  let power = 0;
+  for (let i = 0; i < samples.length; i++) {
+    power += samples[i] * samples[i];
+  }
+  return Math.sqrt(power / samples.length);
+}
+
 export function isSilent(
   samples: Float32Array,
   rmsThreshold: number,
@@ -135,16 +187,13 @@ export function isSilent(
   }
 
   let peak = 0;
-  let power = 0;
   for (let idx = 0; idx < samples.length; idx += 1) {
-    const value = samples[idx];
-    const absValue = Math.abs(value);
+    const absValue = Math.abs(samples[idx]);
     if (absValue > peak) {
       peak = absValue;
     }
-    power += value * value;
   }
 
-  const rms = Math.sqrt(power / samples.length);
+  const rms = computeRms(samples);
   return rms < rmsThreshold && peak < peakThreshold;
 }

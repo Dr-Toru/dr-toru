@@ -56,7 +56,7 @@ export class ListController {
     if (seq !== this.refreshSeq) return;
 
     if (summaries.length === 0) {
-      this.container.textContent = "No recordings yet.";
+      this.container.replaceChildren(renderEmptyState());
       return;
     }
 
@@ -104,6 +104,13 @@ function formatDate(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+function renderEmptyState(): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "empty-state";
+  el.innerHTML = `<svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><p>No sessions yet</p><p>Open a new session to get started</p>`;
+  return el;
 }
 
 export function fireRecordingsChanged(): void {

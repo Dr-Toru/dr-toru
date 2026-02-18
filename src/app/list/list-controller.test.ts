@@ -32,7 +32,7 @@ describe("ListController", () => {
 
     await ctrl.refresh();
 
-    expect(container.textContent).toBe("No recordings yet.");
+    expect(container.querySelector(".empty-state")).not.toBeNull();
   });
 
   it("renders recording items after persist", async () => {
@@ -69,7 +69,7 @@ describe("ListController", () => {
 
     // Initially empty
     await flushMicrotasks();
-    expect(container.textContent).toBe("No recordings yet.");
+    expect(container.querySelector(".empty-state")).not.toBeNull();
 
     // Add a recording and fire event
     const { RecordingService } = await import("../recording-service");
@@ -124,7 +124,7 @@ describe("ListController", () => {
     await flushMicrotasks();
 
     // Still shows old empty state
-    expect(container.textContent).toBe("No recordings yet.");
+    expect(container.querySelector(".empty-state")).not.toBeNull();
   });
 
   it("discards stale refresh results when a newer refresh starts", async () => {

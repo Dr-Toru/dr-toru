@@ -8,10 +8,11 @@ export type AttachmentMetaValue = string | number | boolean | null;
 export type AttachmentKind =
   | "transcript_raw"
   | "transcript_corrected"
-  | "audio_capture";
+  | "audio_capture"
+  | "context_note";
 export type TextAttachmentKind = Extract<
   AttachmentKind,
-  "transcript_raw" | "transcript_corrected"
+  "transcript_raw" | "transcript_corrected" | "context_note"
 >;
 
 export interface Attachment {
