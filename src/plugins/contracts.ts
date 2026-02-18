@@ -33,8 +33,8 @@ export const BUILTIN_ORT_ASR_PLUGIN: PluginManifest = {
   name: "Built-in Medical ASR",
   version: "1.0.0",
   kind: "asr",
-  entrypointPath: "models/medasr_lasr_ctc.onnx",
-  sha256: "f1d2ea1680bfa2a8adc76b80403b1edce20a6f1681bde1a20cc42ab59136d971",
+  entrypointPath: "models/medasr_lasr_ctc_int8.onnx",
+  sha256: "05c1907f53d9dea3db23092e4d730f011ee400b3fb282d6af8443276dfb9d270",
   modelFamily: "medasr_lasr",
   metadata: {
     vocabPath: "models/medasr_lasr_vocab.json",

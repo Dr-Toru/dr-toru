@@ -58,8 +58,8 @@ pub(super) fn builtin_ort_asr_plugin() -> PluginManifest {
         name: "Built-in Medical ASR".to_string(),
         version: "1.0.0".to_string(),
         kind: PluginKind::Asr,
-        entrypoint_path: "models/medasr_lasr_ctc.onnx".to_string(),
-        sha256: "f1d2ea1680bfa2a8adc76b80403b1edce20a6f1681bde1a20cc42ab59136d971".to_string(),
+        entrypoint_path: "models/medasr_lasr_ctc_int8.onnx".to_string(),
+        sha256: "05c1907f53d9dea3db23092e4d730f011ee400b3fb282d6af8443276dfb9d270".to_string(),
         model_family: Some("medasr_lasr".to_string()),
         size_bytes: None,
         license: None,
@@ -171,18 +171,16 @@ fn sanitize_registry(mut state: PluginRegistryState) -> Result<PluginRegistrySta
         if validate_manifest(&plugin).is_err() {
             continue;
         }
+        if plugin.plugin_id == BUILTIN_ORT_ASR_PLUGIN_ID {
+            continue;
+        }
         if !seen_ids.insert(plugin.plugin_id.clone()) {
             continue;
         }
         valid_plugins.push(plugin);
     }
 
-    if !valid_plugins
-        .iter()
-        .any(|plugin| plugin.plugin_id == BUILTIN_ORT_ASR_PLUGIN_ID)
-    {
-        valid_plugins.push(builtin_ort_asr_plugin());
-    }
+    valid_plugins.push(builtin_ort_asr_plugin());
 
     let has_asr_active = state
         .active_plugins
