@@ -1,3 +1,4 @@
+mod asr;
 mod import;
 mod llamafile;
 mod registry;
@@ -10,16 +11,17 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use import::{imported_asset_dir, imported_plugin_manifest};
+use asr::RunningAsr;
 use llamafile::{
     execute_blocking, service_start_blocking, service_status_blocking,
     stop_service, RunningLlamafile,
 };
 use registry::{
-    auto_activate_vacant, ensure_registry, load_registry, plugin_paths, resolve_plugin,
-    save_registry, validate_manifest, BUILTIN_ORT_ASR_PLUGIN_ID,
+    auto_activate_vacant, ensure_registry, load_registry, plugin_paths, resolve_entrypoint,
+    resolve_plugin, save_registry, validate_manifest, BUILTIN_ORT_ASR_PLUGIN_ID,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -85,11 +87,18 @@ pub struct RuntimeExecuteResult {
 #[derive(Default)]
 pub struct PluginRuntimeState {
     running_llamafile: Mutex<HashMap<String, RunningLlamafile>>,
+    running_asr: Mutex<HashMap<String, RunningAsr>>,
 }
 
 impl PluginRuntimeState {
     fn lock_running(&self) -> MutexGuard<'_, HashMap<String, RunningLlamafile>> {
         self.running_llamafile
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn lock_running_asr(&self) -> MutexGuard<'_, HashMap<String, RunningAsr>> {
+        self.running_asr
             .lock()
             .unwrap_or_else(|e| e.into_inner())
     }
@@ -104,6 +113,9 @@ impl PluginRuntimeState {
                 eprintln!("Failed to wait on service for {plugin_id}: {error}");
             }
         }
+
+        let mut running_asr = self.lock_running_asr();
+        running_asr.drain();
     }
 }
 
@@ -459,4 +471,97 @@ pub async fn plugin_runtime_llamafile_execute(
     })
     .await
     .map_err(err_to_string)?
+}
+
+#[tauri::command]
+pub async fn plugin_asr_load(
+    app: AppHandle,
+    plugin_id: String,
+) -> Result<RuntimeHealth, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let runtime_state = app.state::<PluginRuntimeState>();
+
+        // Already loaded?
+        {
+            let running = runtime_state.lock_running_asr();
+            if running.contains_key(&plugin_id) {
+                return Ok(RuntimeHealth {
+                    ready: true,
+                    running: true,
+                    message: format!("ASR session already loaded for {plugin_id}"),
+                    pid: None,
+                    endpoint: None,
+                });
+            }
+        }
+
+        let paths = plugin_paths(&app)?;
+        ensure_registry(&paths)?;
+        let state = load_registry(&paths)?;
+        let Some(plugin) = resolve_plugin(&state, &plugin_id) else {
+            return Err(format!("Unknown pluginId: {plugin_id}"));
+        };
+        if plugin.kind != PluginKind::Asr {
+            return Err(format!("Plugin {plugin_id} is not an ASR plugin"));
+        }
+
+        let model_path = resolve_entrypoint(&app, &plugin.entrypoint_path)?;
+        if !model_path.exists() {
+            return Err(format!("Model file not found: {}", model_path.display()));
+        }
+
+        let vocab_rel = parse_string_field(&plugin.metadata, "vocabPath")
+            .ok_or_else(|| format!("Plugin {plugin_id} missing metadata.vocabPath"))?;
+        let vocab_path = resolve_entrypoint(&app, &vocab_rel)?;
+        if !vocab_path.exists() {
+            return Err(format!("Vocab file not found: {}", vocab_path.display()));
+        }
+
+        let model_str = model_path.to_string_lossy().to_string();
+        let vocab_str = vocab_path.to_string_lossy().to_string();
+        let session = asr::load_session(&model_str, &vocab_str)?;
+
+        let mut running = runtime_state.lock_running_asr();
+        running.insert(plugin_id.clone(), session);
+
+        Ok(RuntimeHealth {
+            ready: true,
+            running: true,
+            message: format!("Native ASR loaded for {plugin_id}"),
+            pid: None,
+            endpoint: None,
+        })
+    })
+    .await
+    .map_err(err_to_string)?
+}
+
+#[tauri::command]
+pub async fn plugin_asr_transcribe(
+    app: AppHandle,
+    plugin_id: String,
+    samples: Vec<f32>,
+) -> Result<RuntimeExecuteResult, String> {
+    // Grab a clone of the Arc<AsrSession> so we don't hold the mutex during inference
+    let session = {
+        let runtime_state = app.state::<PluginRuntimeState>();
+        let running = runtime_state.lock_running_asr();
+        let Some(running_asr) = running.get(&plugin_id) else {
+            return Err(format!("ASR session not loaded for {plugin_id}"));
+        };
+        running_asr.0.clone()
+    };
+
+    tauri::async_runtime::spawn_blocking(move || asr::transcribe(&session, &samples))
+        .await
+        .map_err(err_to_string)?
+}
+
+#[tauri::command]
+pub fn plugin_asr_unload(
+    plugin_id: String,
+    runtime_state: State<'_, PluginRuntimeState>,
+) {
+    let mut running = runtime_state.lock_running_asr();
+    asr::unload(&mut running, &plugin_id);
 }

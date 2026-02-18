@@ -259,8 +259,17 @@ pub(super) fn resolve_entrypoint(
     if entrypoint_path.contains("..") {
         return Err("entrypointPath cannot contain path traversal".to_string());
     }
-    let app_data = app.path().app_data_dir().map_err(err_to_string)?;
-    Ok(app_data.join(candidate))
+
+    // Imported plugin assets live under plugins/ in the app data directory.
+    // Bundled assets (e.g. the built-in ASR model) live in the resource
+    // directory, mirroring the TS resolveAssetUrl split.
+    if entrypoint_path.starts_with("plugins/") {
+        let app_data = app.path().app_data_dir().map_err(err_to_string)?;
+        return Ok(app_data.join(candidate));
+    }
+
+    let resource = app.path().resource_dir().map_err(err_to_string)?;
+    Ok(resource.join(candidate))
 }
 
 impl Default for PluginRegistryState {

@@ -1,4 +1,4 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 
 import { AsrClient, type AsrClientEvents } from "../asr/client";
 import type { AsrRuntimeConfig } from "../asr-messages";
@@ -81,6 +81,9 @@ export function createRuntimeAdapter(
         throw new Error(
           `Plugin ${manifest.pluginId} is missing metadata.vocabPath`,
         );
+      }
+      if (isTauri()) {
+        return new NativeAsrRuntimeAdapter(manifest.pluginId, options.events);
       }
       return new OrtRuntimeAdapter(
         manifest,
@@ -171,6 +174,39 @@ class OrtRuntimeAdapter implements RuntimeAdapter {
 
   async shutdown(): Promise<void> {
     await this.asrClient.shutdown();
+  }
+}
+
+class NativeAsrRuntimeAdapter implements RuntimeAdapter {
+  constructor(
+    private readonly pluginId: string,
+    private readonly events: AsrClientEvents,
+  ) {}
+
+  async init(): Promise<void> {
+    this.events.onStatus("Loading native ASR model...");
+    await invoke<void>("plugin_asr_load", { pluginId: this.pluginId });
+    this.events.onStatus("Native ASR model loaded");
+  }
+
+  async health(): Promise<RuntimeHealth> {
+    return { ready: true, message: "Native ASR ready" };
+  }
+
+  async execute(request: RuntimeExecuteRequest): Promise<RuntimeExecuteResult> {
+    if (request.type !== "asr.transcribe") {
+      throw new Error(
+        `Native ASR runtime does not support request ${request.type}`,
+      );
+    }
+    return invoke<RuntimeExecuteResult>("plugin_asr_transcribe", {
+      pluginId: this.pluginId,
+      samples: Array.from(request.samples),
+    });
+  }
+
+  async shutdown(): Promise<void> {
+    await invoke<void>("plugin_asr_unload", { pluginId: this.pluginId });
   }
 }
 

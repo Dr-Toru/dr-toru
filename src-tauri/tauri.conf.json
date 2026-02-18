@@ -29,6 +29,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": {
+      "../public/models": "models"
+    },
     "macOS": {
       "infoPlist": "Info.plist"
     },
