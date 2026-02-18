@@ -43,7 +43,7 @@ const STORAGE_KEYS = {
 } as const;
 
 export const DEFAULT_ASR_SETTINGS: AsrSettings = {
-  asrEnabled: true,
+  asrEnabled: false,
   chunkSecs: 6,
   strideSecs: 1.5,
   silenceRms: 0.0025,
