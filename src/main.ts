@@ -172,13 +172,42 @@ window.addEventListener("DOMContentLoaded", () => {
   const store = getRecordingStore();
   const recordingService = new RecordingService(store);
 
+  const barEls = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      "#screen-recording .status-indicator .bar",
+    ),
+  );
+
   recordingView = new RecordingViewController({
-    transcriptEl: mustTextarea("transcript"),
+    transcriptEl: mustEl("transcript"),
+    contextNoteEl: mustTextarea("contextNote"),
     transcribeBtn: mustBtn("recordBtn"),
+    timerEl: mustEl("recordingTimer"),
+    barEls,
+    typingIndicatorEl: mustEl("typingIndicator"),
     recordingService,
     onToggleRecording: () => toggleRecording(),
     onRecordingsChanged: () => fireRecordingsChanged(),
     onError: (error, context) => reportUnexpectedError(error, context),
+  });
+
+  mustBtn("blankRecordBtn").addEventListener("click", () => {
+    void toggleRecording();
+  });
+
+  const copyBtn = mustBtn("copyTranscriptBtn");
+  copyBtn.addEventListener("click", () => {
+    const transcriptEl = mustEl("transcript");
+    const text = transcriptEl.textContent?.trim();
+    if (!text) return;
+    void navigator.clipboard.writeText(text).then(() => {
+      copyBtn.textContent = "Copied";
+      copyBtn.classList.add("copied");
+      setTimeout(() => {
+        copyBtn.textContent = "Copy";
+        copyBtn.classList.remove("copied");
+      }, 1500);
+    });
   });
 
   listController = new ListController({
@@ -275,6 +304,7 @@ window.addEventListener("DOMContentLoaded", () => {
     onTranscript: (text) => {
       recordingView.setLiveTranscript(text);
     },
+    onLevel: (rms) => recordingView.setLevel(rms),
     onRecordingChange: (recording) => recordingView.setRecording(recording),
     onRecordingComplete: (transcript) =>
       recordingView.onRecordingComplete(transcript),

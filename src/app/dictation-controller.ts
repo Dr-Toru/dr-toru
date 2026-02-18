@@ -17,6 +17,7 @@ export interface DictationControllerOptions {
   onTranscript: (text: string) => void;
   onRecordingChange: (recording: boolean) => void;
   onRecordingComplete?: (transcript: string) => Promise<void>;
+  onLevel?: (rms: number) => void;
 }
 
 export class DictationController {
@@ -87,6 +88,7 @@ export class DictationController {
         try {
           await this.options.capture.start(
             (chunk) => void this.queueChunk(chunk),
+            this.options.onLevel,
           );
           this.options.onTranscript("");
           this.isRecordingValue = true;
@@ -290,6 +292,7 @@ export class DictationController {
 
 const MAX_WORD_OVERLAP = 20;
 const MIN_SINGLE_TOKEN_OVERLAP_LEN = 2;
+const SHORT_STRIDE_WORD_LEN = 3;
 const MAX_CHAR_OVERLAP = 24;
 const MIN_CHAR_OVERLAP = 4;
 const MAX_ASR_QUEUE_DEPTH = 3;
@@ -309,7 +312,29 @@ export function mergeChunkText(currentText: string, nextText: string): string {
   const overlapCount = findWordOverlap(currentWords, nextWords);
   if (overlapCount > 0) {
     const suffix = nextWords.slice(overlapCount).join(" ");
-    return suffix ? appendMergeChunk(currentText, suffix) : currentText;
+    if (!suffix) {
+      return currentText;
+    }
+    // Short stride-repeat words (like "is", "the") merge inline
+    if (
+      overlapCount === 1 &&
+      normalizeMergeToken(nextWords[0]).length <= SHORT_STRIDE_WORD_LEN
+    ) {
+      return `${currentText} ${suffix}`;
+    }
+    return appendMergeChunk(currentText, suffix);
+  }
+
+  // Rejected short-token overlap: keep both copies but join inline
+  const lastWord = normalizeMergeToken(currentWords[currentWords.length - 1]);
+  const firstWord = normalizeMergeToken(nextWords[0]);
+  if (
+    lastWord &&
+    firstWord &&
+    lastWord === firstWord &&
+    lastWord.length < MIN_SINGLE_TOKEN_OVERLAP_LEN
+  ) {
+    return `${currentText} ${next}`;
   }
 
   const charOverlap = findCharOverlap(currentText, next);
@@ -335,10 +360,7 @@ function appendMergeChunk(currentText: string, suffix: string): string {
   if (!currentText) {
     return suffix;
   }
-  if (/\s$/.test(currentText) || /^[,.;:!?)]/.test(suffix)) {
-    return `${currentText}${suffix}`;
-  }
-  return `${currentText} ${suffix}`;
+  return `${currentText}\n${suffix}`;
 }
 
 function findWordOverlap(currentWords: string[], nextWords: string[]): number {

@@ -12,26 +12,26 @@ describe("mergeChunkText", () => {
     expect(mergeChunkText("hello", "")).toBe("hello");
   });
 
-  it("appends non-overlapping text", () => {
+  it("appends non-overlapping text on a new line", () => {
     expect(mergeChunkText("the patient", "reports pain")).toBe(
-      "the patient reports pain",
+      "the patient\nreports pain",
     );
   });
 
   it("deduplicates overlapping suffix and prefix", () => {
     expect(mergeChunkText("the patient reports", "reports chest pain")).toBe(
-      "the patient reports chest pain",
+      "the patient reports\nchest pain",
     );
   });
 
   it("handles multi-word overlap", () => {
     expect(
       mergeChunkText("the patient reports chest", "reports chest pain today"),
-    ).toBe("the patient reports chest pain today");
+    ).toBe("the patient reports chest\npain today");
   });
 
   it("handles single-word overlap", () => {
-    expect(mergeChunkText("hello", "hello world")).toBe("hello world");
+    expect(mergeChunkText("hello", "hello world")).toBe("hello\nworld");
   });
 
   it("returns current when next is fully overlapping", () => {
@@ -40,12 +40,12 @@ describe("mergeChunkText", () => {
 
   it("handles overlap with punctuation differences", () => {
     expect(mergeChunkText("blood pressure,", "pressure is normal")).toBe(
-      "blood pressure, is normal",
+      "blood pressure,\nis normal",
     );
   });
 
   it("trims whitespace from next text", () => {
-    expect(mergeChunkText("hello", "  world  ")).toBe("hello world");
+    expect(mergeChunkText("hello", "  world  ")).toBe("hello\nworld");
   });
 
   it("deduplicates short overlap words when they are likely stride repeats", () => {
