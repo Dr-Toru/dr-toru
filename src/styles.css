@@ -279,6 +279,7 @@ body {
     height 100ms ease-out;
 }
 
+#screen-recording:has(.transcribe-btn.recording) .status-indicator .bar,
 #screen-recording:has(.header-record-btn.recording) .status-indicator .bar {
   background: var(--success);
 }
@@ -466,12 +467,12 @@ body {
   white-space: pre-wrap;
 }
 
-/* ===== Header Record Button ===== */
+/* ===== Recording Action Bar ===== */
 
-.header-record-btn {
+#screen-recording .header-record-btn {
   width: 36px;
   height: 36px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   background: none;
@@ -483,52 +484,169 @@ body {
   transition: all 0.2s ease;
 }
 
-.header-record-btn svg {
+#screen-recording .header-record-btn svg {
   width: 18px;
   height: 18px;
 }
 
-.header-record-btn .icon-stop {
+#screen-recording .header-record-btn .record-btn-label {
   display: none;
 }
 
-.header-record-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
+#screen-recording .header-record-btn .loading-dots {
+  display: none;
 }
 
-.header-record-btn:not(:disabled):active {
-  transform: scale(0.9);
+#screen-recording .header-record-btn .icon-stop {
+  display: none;
 }
 
-.header-record-btn.recording {
+#screen-recording .header-record-btn.recording {
   background: var(--error);
   border-color: var(--error);
   color: white;
 }
 
-.header-record-btn.recording .icon-mic {
+#screen-recording .header-record-btn.recording .icon-mic {
   display: none;
 }
 
-.header-record-btn.recording .icon-stop {
+#screen-recording .header-record-btn.recording .icon-stop {
   display: block;
 }
 
-.record-btn-label {
-  display: none;
-  font-size: 13px;
-  font-weight: 600;
+#screen-recording .transcribe-action-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  padding-bottom: calc(var(--space-3) + var(--safe-bottom));
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
-.header-record-btn.has-transcript:not(.recording) {
-  width: auto;
-  border-radius: var(--radius-full, 999px);
+#screen-recording .upload-btn {
+  min-height: 44px;
   padding: 0 var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+#screen-recording .upload-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+#screen-recording .transcribe-btn {
+  min-height: 48px;
+  flex: 1;
+  border: none;
+  border-radius: var(--radius-xl);
+  background: var(--accent-primary);
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+#screen-recording .transcribe-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+#screen-recording .transcribe-btn .icon-stop {
+  display: none;
+}
+
+#screen-recording .transcribe-btn .loading-label,
+#screen-recording .transcribe-btn .loading-dots {
+  display: none;
+}
+
+#screen-recording .transcribe-btn.loading .icon-mic,
+#screen-recording .transcribe-btn.loading .icon-stop,
+#screen-recording .header-record-btn.loading .icon-mic,
+#screen-recording .header-record-btn.loading .icon-stop {
+  display: none;
+}
+
+#screen-recording .transcribe-btn.loading .record-btn-label {
+  display: none;
+}
+
+#screen-recording .transcribe-btn.loading .loading-label {
+  display: inline;
+}
+
+#screen-recording .transcribe-btn.loading .loading-dots,
+#screen-recording .header-record-btn.loading .loading-dots {
+  display: inline-flex;
+  align-items: center;
   gap: 4px;
 }
 
-.header-record-btn.has-transcript:not(.recording) .record-btn-label {
+#screen-recording .loading-dots .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+  animation: typingPulse 1.4s ease-in-out infinite;
+}
+
+#screen-recording .loading-dots .dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+#screen-recording .loading-dots .dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+#screen-recording .transcribe-btn.recording {
+  background: var(--error);
+}
+
+#screen-recording .transcribe-btn.recording .icon-mic {
+  display: none;
+}
+
+#screen-recording .transcribe-btn.recording .icon-stop {
+  display: block;
+}
+
+#screen-recording .transcribe-btn:not(:disabled):active,
+#screen-recording .header-record-btn:not(:disabled):active,
+#screen-recording .upload-btn:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+#screen-recording .transcribe-btn:disabled,
+#screen-recording .header-record-btn:disabled,
+#screen-recording .upload-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.record-btn-label {
   display: inline;
 }
 
@@ -1177,7 +1295,7 @@ body {
   justify-content: center;
   gap: var(--space-4);
   padding: var(--space-8);
-  padding-bottom: 50%;
+  padding-bottom: 35%;
   pointer-events: none;
 }
 
@@ -1190,33 +1308,6 @@ body {
   color: var(--text-muted);
   text-align: center;
   line-height: 1.5;
-}
-
-.blank-state-btn {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-5);
-  background: var(--accent-primary);
-  color: white;
-  border: none;
-  border-radius: var(--radius-xl);
-  font-size: 15px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  pointer-events: auto;
-  transition: all 0.2s ease;
-}
-
-.blank-state-btn:active {
-  background: var(--accent-hover);
-  transform: scale(0.97);
-}
-
-.blank-state-icon {
-  width: 18px;
-  height: 18px;
 }
 
 .transcript-timestamp {

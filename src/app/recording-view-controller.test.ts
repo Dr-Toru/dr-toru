@@ -104,6 +104,36 @@ describe("RecordingViewController", () => {
     const chunkText = transcriptEl.querySelector(".chunk-text");
     expect(chunkText!.textContent).toBe("unsaved text");
   });
+
+  it("disables both actions while upload transcription is running", async () => {
+    const service = makeServiceStub();
+    const { controller, transcribeBtn, uploadBtn } = makeController(service);
+    await controller.openRoute(null);
+    controller.setTranscribeAvailable(true);
+
+    controller.setUploading(true);
+    expect(transcribeBtn.disabled).toBe(true);
+    expect(uploadBtn.disabled).toBe(true);
+
+    controller.setUploading(false);
+    expect(transcribeBtn.disabled).toBe(false);
+    expect(uploadBtn.disabled).toBe(false);
+  });
+
+  it("disables actions while model loading is active", async () => {
+    const service = makeServiceStub();
+    const { controller, transcribeBtn, uploadBtn } = makeController(service);
+    await controller.openRoute(null);
+    controller.setTranscribeAvailable(true);
+
+    controller.setModelLoading(true);
+    expect(transcribeBtn.disabled).toBe(true);
+    expect(uploadBtn.disabled).toBe(true);
+
+    controller.setModelLoading(false);
+    expect(transcribeBtn.disabled).toBe(false);
+    expect(uploadBtn.disabled).toBe(false);
+  });
 });
 
 describe("formatElapsed", () => {
@@ -458,6 +488,8 @@ function makeController(
   controller: RecordingViewController;
   transcriptEl: HTMLElement;
   contextNoteEl: HTMLTextAreaElement;
+  transcribeBtn: HTMLButtonElement;
+  uploadBtn: HTMLButtonElement;
   timerEl: HTMLElement;
   barEls: HTMLElement[];
   typingIndicatorEl: HTMLElement;
@@ -466,6 +498,7 @@ function makeController(
   const transcriptEl = document.createElement("div");
   const contextNoteEl = document.createElement("textarea");
   const transcribeBtn = document.createElement("button");
+  const uploadBtn = document.createElement("button");
   const timerEl = document.createElement("span");
   timerEl.textContent = "0:00";
   const typingIndicatorEl = document.createElement("div");
@@ -475,11 +508,13 @@ function makeController(
     transcriptEl,
     contextNoteEl,
     transcribeBtn,
+    uploadBtn,
     timerEl,
     barEls,
     typingIndicatorEl,
     recordingService: service,
     onToggleRecording: async () => undefined,
+    onUploadRequested: () => undefined,
     onRecordingsChanged,
     onError,
   });
@@ -487,6 +522,8 @@ function makeController(
     controller,
     transcriptEl,
     contextNoteEl,
+    transcribeBtn,
+    uploadBtn,
     timerEl,
     barEls,
     typingIndicatorEl,

@@ -15,11 +15,14 @@ export interface RecordingViewControllerOptions {
   transcriptEl: HTMLElement;
   contextNoteEl: HTMLTextAreaElement;
   transcribeBtn: HTMLButtonElement;
+  headerTranscribeBtn?: HTMLButtonElement;
+  uploadBtn: HTMLButtonElement;
   timerEl: HTMLElement;
   barEls: readonly HTMLElement[];
   typingIndicatorEl: HTMLElement;
   recordingService: RecordingService;
   onToggleRecording: () => Promise<void>;
+  onUploadRequested: () => void;
   onRecordingsChanged: () => void;
   onError: (error: unknown, context: string) => void;
 }
@@ -41,12 +44,14 @@ export type OpenRouteResult =
 export class RecordingViewController {
   private readonly transcriptEl: HTMLElement;
   private readonly contextNoteEl: HTMLTextAreaElement;
-  private readonly transcribeBtn: HTMLButtonElement;
+  private readonly transcribeBtns: readonly HTMLButtonElement[];
+  private readonly uploadBtn: HTMLButtonElement;
   private readonly timerEl: HTMLElement;
   private readonly barEls: readonly HTMLElement[];
   private readonly typingIndicatorEl: HTMLElement;
   private readonly recordingService: RecordingService;
   private readonly onToggleRecording: () => Promise<void>;
+  private readonly onUploadRequested: () => void;
   private readonly onRecordingsChanged: () => void;
   private readonly onError: (error: unknown, context: string) => void;
   private context: RecordingContext | null = null;
@@ -54,6 +59,8 @@ export class RecordingViewController {
   private recording = false;
   private available = false;
   private toggling = false;
+  private uploading = false;
+  private modelLoading = false;
   private timerInterval: ReturnType<typeof setInterval> | null = null;
   private recordingStartTime: number | null = null;
   private elapsedOffset = 0;
@@ -65,16 +72,25 @@ export class RecordingViewController {
   constructor(options: RecordingViewControllerOptions) {
     this.transcriptEl = options.transcriptEl;
     this.contextNoteEl = options.contextNoteEl;
-    this.transcribeBtn = options.transcribeBtn;
+    this.transcribeBtns = options.headerTranscribeBtn
+      ? [options.headerTranscribeBtn, options.transcribeBtn]
+      : [options.transcribeBtn];
+    this.uploadBtn = options.uploadBtn;
     this.timerEl = options.timerEl;
     this.barEls = options.barEls;
     this.typingIndicatorEl = options.typingIndicatorEl;
     this.recordingService = options.recordingService;
     this.onToggleRecording = options.onToggleRecording;
+    this.onUploadRequested = options.onUploadRequested;
     this.onRecordingsChanged = options.onRecordingsChanged;
     this.onError = options.onError;
-    this.transcribeBtn.addEventListener("click", () => {
-      void this.toggleRecording();
+    for (const transcribeBtn of this.transcribeBtns) {
+      transcribeBtn.addEventListener("click", () => {
+        void this.toggleRecording();
+      });
+    }
+    this.uploadBtn.addEventListener("click", () => {
+      this.requestUpload();
     });
     this.contextNoteEl.addEventListener("input", () => {
       this.scheduleContextSave();
@@ -154,6 +170,16 @@ export class RecordingViewController {
     this.render();
   }
 
+  setUploading(uploading: boolean): void {
+    this.uploading = uploading;
+    this.render();
+  }
+
+  setModelLoading(modelLoading: boolean): void {
+    this.modelLoading = modelLoading;
+    this.render();
+  }
+
   setLevel(rms: number): void {
     if (!this.recording || this.barEls.length === 0) return;
     const base = levelToHeight(rms);
@@ -205,7 +231,7 @@ export class RecordingViewController {
   }
 
   private async toggleRecording(): Promise<void> {
-    if (this.toggling || !this.available) {
+    if (this.toggling || this.uploading || this.modelLoading || !this.available) {
       return;
     }
     this.toggling = true;
@@ -221,14 +247,36 @@ export class RecordingViewController {
   }
 
   private render(): void {
-    this.transcribeBtn.classList.toggle("recording", this.recording);
-    this.transcribeBtn.classList.toggle(
-      "has-transcript",
-      !!this.context?.transcript,
-    );
-    this.transcribeBtn.disabled = !this.available || this.toggling;
+    const actionDisabled =
+      !this.available || this.toggling || this.uploading || this.modelLoading;
+    for (const transcribeBtn of this.transcribeBtns) {
+      transcribeBtn.classList.toggle("recording", this.recording);
+      transcribeBtn.classList.toggle(
+        "loading",
+        this.modelLoading && !this.recording,
+      );
+      transcribeBtn.classList.toggle(
+        "has-transcript",
+        !!this.context?.transcript,
+      );
+      transcribeBtn.disabled = actionDisabled;
+    }
+    this.uploadBtn.disabled = actionDisabled || this.recording;
     this.timerEl.classList.toggle("recording", this.recording);
     this.renderTranscript();
+  }
+
+  private requestUpload(): void {
+    if (
+      this.recording ||
+      this.toggling ||
+      this.uploading ||
+      this.modelLoading ||
+      !this.available
+    ) {
+      return;
+    }
+    this.onUploadRequested();
   }
 
   private renderTranscript(): void {

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
+import { decodeAudioFileToSamples } from "./audio/upload";
 import { AudioCapture } from "./audio/capture";
 import {
   readAsrSettings,
@@ -30,6 +31,7 @@ import {
 import { getRecordingStore } from "./storage";
 
 const SAMPLE_RATE = 16000;
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 const DEBUG_METRICS = isDebugMetricsEnabled();
 let asrSettings = loadAsrSettings();
 
@@ -58,6 +60,8 @@ let appErrorEl: HTMLElement;
 let asrLoadingEl: HTMLElement;
 let beamLoadingEl: HTMLElement;
 let settingsBtn: HTMLButtonElement;
+let uploadTranscriptBtn: HTMLButtonElement;
+let transcriptUploadInput: HTMLInputElement;
 let importPluginBtn: HTMLButtonElement;
 let toggleLlmBtn: HTMLButtonElement;
 let runLlmBtn: HTMLButtonElement;
@@ -108,6 +112,8 @@ window.addEventListener("DOMContentLoaded", () => {
   asrLoadingEl = mustEl("asrLoading");
   beamLoadingEl = mustEl("beamLoading");
   settingsBtn = mustBtn("settingsBtn");
+  uploadTranscriptBtn = mustBtn("uploadTranscriptBtn");
+  transcriptUploadInput = mustFileInput("transcriptUploadInput");
   importPluginBtn = mustBtn("importPluginBtn");
   toggleLlmBtn = mustBtn("toggleLlmBtn");
   runLlmBtn = mustBtn("runLlmBtn");
@@ -182,17 +188,25 @@ window.addEventListener("DOMContentLoaded", () => {
     transcriptEl: mustEl("transcript"),
     contextNoteEl: mustTextarea("contextNote"),
     transcribeBtn: mustBtn("recordBtn"),
+    headerTranscribeBtn: mustBtn("headerRecordBtn"),
+    uploadBtn: uploadTranscriptBtn,
     timerEl: mustEl("recordingTimer"),
     barEls,
     typingIndicatorEl: mustEl("typingIndicator"),
     recordingService,
     onToggleRecording: () => toggleRecording(),
+    onUploadRequested: () => requestTranscriptUpload(),
     onRecordingsChanged: () => fireRecordingsChanged(),
     onError: (error, context) => reportUnexpectedError(error, context),
   });
 
-  mustBtn("blankRecordBtn").addEventListener("click", () => {
-    void toggleRecording();
+  transcriptUploadInput.addEventListener("change", () => {
+    const file = transcriptUploadInput.files?.[0];
+    transcriptUploadInput.value = "";
+    if (!file) {
+      return;
+    }
+    void transcribeUploadedFile(file);
   });
 
   const copyBtn = mustBtn("copyTranscriptBtn");
@@ -425,6 +439,7 @@ async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
     if (syncHash) {
       syncRouteHash(nextRoute);
     }
+    updateAsrLoadingIndicator();
     if (nextRoute.name === "settings") {
       void refreshDevtoolsState();
     } else if (nextRoute.name === "recording" && asrSettings.asrEnabled) {
@@ -740,6 +755,14 @@ function mustInput(id: string): HTMLInputElement {
   return el;
 }
 
+function mustFileInput(id: string): HTMLInputElement {
+  const input = mustInput(id);
+  if (input.type !== "file") {
+    throw new Error(`#${id} is not a file input`);
+  }
+  return input;
+}
+
 function reportUnexpectedError(error: unknown, context: string): void {
   console.error(`${context}:`, error);
   const message = error instanceof Error ? error.message : String(error);
@@ -780,6 +803,7 @@ function updateAsrLoadingIndicator(): void {
 
   asrLoadingEl.hidden = !showAsrLoading;
   beamLoadingEl.hidden = !showBeamLoading;
+  recordingView?.setModelLoading(currentRoute?.name === "recording" && showLoading);
 }
 
 async function loadModel(): Promise<boolean> {
@@ -842,6 +866,52 @@ async function toggleRecording(): Promise<void> {
   }
 
   await dictation.toggleRecording();
+}
+
+function requestTranscriptUpload(): void {
+  if (dictation.isRecording) {
+    showAppError("Stop recording before uploading a file.");
+    return;
+  }
+  transcriptUploadInput.click();
+}
+
+async function transcribeUploadedFile(file: File): Promise<void> {
+  if (!isAsrTranscriptionEnabled()) {
+    return;
+  }
+  if (dictation.isRecording) {
+    showAppError("Stop recording before uploading a file.");
+    return;
+  }
+
+  recordingView.setUploading(true);
+  try {
+    if (file.size > MAX_UPLOAD_BYTES) {
+      const limitMb = Math.round(MAX_UPLOAD_BYTES / (1024 * 1024));
+      showAppError(`File is too large (${file.name}). Max upload is ${limitMb} MB.`);
+      return;
+    }
+    if (!dictation.isAsrReady()) {
+      const loaded = await loadModel();
+      if (!loaded) {
+        return;
+      }
+    }
+
+    const samples = await decodeAudioFileToSamples(file, SAMPLE_RATE);
+    if (samples.length === 0) {
+      showAppError(`No audio detected in "${file.name}".`);
+      return;
+    }
+
+    const transcript = await pluginPlatform.transcribe(samples);
+    await recordingView.onRecordingComplete(transcript);
+  } catch (error) {
+    reportUnexpectedError(error, `Failed to transcribe file "${file.name}"`);
+  } finally {
+    recordingView.setUploading(false);
+  }
 }
 
 function isAsrTranscriptionEnabled(): boolean {
