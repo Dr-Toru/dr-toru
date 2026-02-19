@@ -803,7 +803,9 @@ function updateAsrLoadingIndicator(): void {
 
   asrLoadingEl.hidden = !showAsrLoading;
   beamLoadingEl.hidden = !showBeamLoading;
-  recordingView?.setModelLoading(currentRoute?.name === "recording" && showLoading);
+  recordingView?.setModelLoading(
+    currentRoute?.name === "recording" && showLoading,
+  );
 }
 
 async function loadModel(): Promise<boolean> {
@@ -889,7 +891,9 @@ async function transcribeUploadedFile(file: File): Promise<void> {
   try {
     if (file.size > MAX_UPLOAD_BYTES) {
       const limitMb = Math.round(MAX_UPLOAD_BYTES / (1024 * 1024));
-      showAppError(`File is too large (${file.name}). Max upload is ${limitMb} MB.`);
+      showAppError(
+        `File is too large (${file.name}). Max upload is ${limitMb} MB.`,
+      );
       return;
     }
     if (!dictation.isAsrReady()) {

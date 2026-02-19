@@ -231,7 +231,12 @@ export class RecordingViewController {
   }
 
   private async toggleRecording(): Promise<void> {
-    if (this.toggling || this.uploading || this.modelLoading || !this.available) {
+    if (
+      this.toggling ||
+      this.uploading ||
+      this.modelLoading ||
+      !this.available
+    ) {
       return;
     }
     this.toggling = true;

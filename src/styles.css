@@ -244,28 +244,11 @@ body {
 
 /* ===== Header Status ===== */
 
-.header-status {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-shrink: 0;
-}
-
-.status-mic {
-  width: 20px;
-  height: 20px;
-  color: var(--text-muted);
-}
-
-.status-mic.active {
-  color: var(--error);
-}
-
 .status-indicator {
-  display: flex;
+  display: none;
   align-items: center;
   gap: 2px;
-  height: 20px;
+  height: 18px;
 }
 
 .status-indicator .bar {
@@ -273,15 +256,8 @@ body {
   width: 3px;
   height: 4px;
   border-radius: 1.5px;
-  background: var(--text-muted);
-  transition:
-    background 0.2s,
-    height 100ms ease-out;
-}
-
-#screen-recording:has(.transcribe-btn.recording) .status-indicator .bar,
-#screen-recording:has(.header-record-btn.recording) .status-indicator .bar {
-  background: var(--success);
+  background: white;
+  transition: height 100ms ease-out;
 }
 
 /* ===== Local Badge ===== */
@@ -510,7 +486,11 @@ body {
 }
 
 #screen-recording .header-record-btn.recording .icon-stop {
-  display: block;
+  display: none;
+}
+
+#screen-recording .header-record-btn.recording .status-indicator {
+  display: flex;
 }
 
 #screen-recording .transcribe-action-bar {
