@@ -222,6 +222,57 @@ fn decode_ctc(logits: &[f32], frames: usize, vocab_size: usize, vocab: &AsrVocab
         .to_string()
 }
 
+fn normalize_section_headers(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let bytes = text.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        if bytes[i] == b'[' {
+            if let Some(close_offset) = text[i + 1..].find(']') {
+                let inner = &text[i + 1..i + 1 + close_offset];
+                if !inner.is_empty()
+                    && inner
+                        .chars()
+                        .all(|ch| ch.is_ascii_uppercase() || ch == ' ' || ch == '-')
+                    && inner.chars().any(|ch| ch.is_ascii_uppercase())
+                {
+                    // Sentence-case the header
+                    let mut first = true;
+                    for ch in inner.chars() {
+                        if first && ch.is_ascii_uppercase() {
+                            result.push(ch);
+                            first = false;
+                        } else {
+                            result.push(ch.to_ascii_lowercase());
+                        }
+                    }
+                    // Move past ']'
+                    i += 1 + close_offset + 1;
+                    // Skip whitespace, then lowercase the next letter
+                    let mut added_space = false;
+                    while i < bytes.len() && bytes[i] == b' ' {
+                        if !added_space {
+                            result.push(' ');
+                            added_space = true;
+                        }
+                        i += 1;
+                    }
+                    if i < bytes.len() && bytes[i].is_ascii_uppercase() {
+                        result.push((bytes[i] as char).to_ascii_lowercase());
+                        i += 1;
+                    }
+                    continue;
+                }
+            }
+        }
+        result.push(bytes[i] as char);
+        i += 1;
+    }
+
+    result
+}
+
 fn strip_leading_bracket_artifact(text: &str) -> String {
     let original = text.trim();
     if !original.starts_with('[') {
@@ -333,6 +384,7 @@ pub fn transcribe(
     let vocab_size = shape[2] as usize;
 
     let text = decode_ctc(logits_slice, time_frames, vocab_size, &asr.vocab);
+    let text = normalize_section_headers(&text);
     let text = strip_leading_bracket_artifact(&text);
 
     Ok(RuntimeExecuteResult { text })
