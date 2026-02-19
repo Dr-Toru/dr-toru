@@ -1317,6 +1317,13 @@ body {
 
 /* ===== SOAP Note ===== */
 
+#soapSection {
+  flex-shrink: 0;
+  max-height: 50%;
+  overflow-y: auto;
+  border-top: 2px solid var(--border);
+}
+
 .soap-content {
   padding: var(--space-3) var(--space-4);
   font-size: 14px;
