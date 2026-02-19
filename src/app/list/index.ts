@@ -15,6 +15,7 @@ export class ListController {
   private readonly onSelect: (recordingId: string) => void;
   private listening = false;
   private refreshSeq = 0;
+  private itemDisposers: Array<() => void> = [];
   private readonly onChanged = (): void => {
     void this.refresh();
   };
@@ -38,6 +39,7 @@ export class ListController {
       document.removeEventListener(RECORDINGS_CHANGED_EVENT, this.onChanged);
       this.listening = false;
     }
+    this.teardownItems();
   }
 
   async refresh(): Promise<void> {
@@ -49,6 +51,7 @@ export class ListController {
     } catch (error) {
       if (seq !== this.refreshSeq) return;
       const message = error instanceof Error ? error.message : String(error);
+      this.teardownItems();
       this.container.textContent = `Failed to load recordings: ${message}`;
       return;
     }
@@ -56,25 +59,69 @@ export class ListController {
     if (seq !== this.refreshSeq) return;
 
     if (summaries.length === 0) {
+      this.teardownItems();
       this.container.replaceChildren(renderEmptyState());
       return;
     }
 
-    this.container.replaceChildren(
-      ...summaries.map((summary) => renderItem(summary, this.onSelect)),
+    const rendered = summaries.map((summary) =>
+      renderItem({
+        summary,
+        onSelect: this.onSelect,
+        onDelete: (recordingId) => this.deleteRecording(recordingId),
+      }),
     );
+
+    this.teardownItems();
+    this.itemDisposers = rendered.map((item) => item.dispose);
+    this.container.replaceChildren(...rendered.map((item) => item.element));
+  }
+
+  private teardownItems(): void {
+    for (const dispose of this.itemDisposers) {
+      dispose();
+    }
+    this.itemDisposers = [];
+  }
+
+  private async deleteRecording(recordingId: string): Promise<void> {
+    try {
+      await this.store.deleteRecording(recordingId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      window.alert(`Failed to delete recording: ${message}`);
+      return;
+    }
+
+    fireRecordingsChanged();
+    if (!this.listening) {
+      await this.refresh();
+    }
   }
 }
 
-function renderItem(
-  summary: RecordingSummary,
-  onSelect: (recordingId: string) => void,
-): HTMLElement {
-  const el = document.createElement("button");
-  el.type = "button";
-  el.className = "recording-item";
-  el.dataset.recordingId = summary.recordingId;
-  el.addEventListener("click", () => {
+interface RenderItemOptions {
+  summary: RecordingSummary;
+  onSelect: (recordingId: string) => void;
+  onDelete: (recordingId: string) => void | Promise<void>;
+}
+
+interface RenderedItem {
+  element: HTMLElement;
+  dispose: () => void;
+}
+
+function renderItem(options: RenderItemOptions): RenderedItem {
+  const { summary, onSelect, onDelete } = options;
+
+  const element = document.createElement("div");
+  element.className = "recording-item";
+  element.dataset.recordingId = summary.recordingId;
+
+  const main = document.createElement("button");
+  main.type = "button";
+  main.className = "recording-item-main";
+  main.addEventListener("click", () => {
     onSelect(summary.recordingId);
   });
 
@@ -87,8 +134,100 @@ function renderItem(
   const n = summary.attachmentCount;
   count.textContent = `${n} attachment${n === 1 ? "" : "s"}`;
 
-  el.append(date, count);
-  return el;
+  main.append(date, count);
+
+  const actionWrap = document.createElement("div");
+  actionWrap.className = "recording-item-actions";
+
+  const selector = document.createElement("button");
+  selector.type = "button";
+  selector.className = "recording-item-selector";
+  selector.setAttribute("aria-haspopup", "menu");
+  selector.setAttribute("aria-expanded", "false");
+  selector.setAttribute("aria-label", "Open recording menu");
+  selector.textContent = "...";
+
+  const menu = document.createElement("div");
+  menu.className = "recording-item-menu";
+  menu.setAttribute("role", "menu");
+  menu.hidden = true;
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "recording-item-menu-item";
+  deleteButton.textContent = "Delete";
+  deleteButton.setAttribute("role", "menuitem");
+  menu.append(deleteButton);
+
+  let menuOpen = false;
+  let deletePending = false;
+  let removeDocClick: (() => void) | null = null;
+
+  const closeMenu = (): void => {
+    if (!menuOpen) return;
+    menuOpen = false;
+    menu.hidden = true;
+    selector.setAttribute("aria-expanded", "false");
+    removeDocClick?.();
+    removeDocClick = null;
+  };
+
+  const openMenu = (): void => {
+    if (menuOpen) return;
+    menuOpen = true;
+    menu.hidden = false;
+    selector.setAttribute("aria-expanded", "true");
+
+    const onDocumentClick = (event: MouseEvent): void => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (element.contains(target)) return;
+      closeMenu();
+    };
+
+    document.addEventListener("click", onDocumentClick);
+    removeDocClick = () => {
+      document.removeEventListener("click", onDocumentClick);
+    };
+  };
+
+  selector.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (menuOpen) {
+      closeMenu();
+      return;
+    }
+    openMenu();
+  });
+
+  deleteButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (deletePending) {
+      return;
+    }
+    closeMenu();
+    deletePending = true;
+    deleteButton.disabled = true;
+
+    void (async () => {
+      const confirmed = await confirmDelete();
+      if (!confirmed) {
+        return;
+      }
+      await onDelete(summary.recordingId);
+    })().finally(() => {
+      deletePending = false;
+      deleteButton.disabled = false;
+    });
+  });
+
+  actionWrap.append(selector, menu);
+  element.append(main, actionWrap);
+
+  return {
+    element,
+    dispose: closeMenu,
+  };
 }
 
 function formatDate(iso: string): string {
@@ -115,4 +254,30 @@ function renderEmptyState(): HTMLElement {
 
 export function fireRecordingsChanged(): void {
   document.dispatchEvent(new CustomEvent(RECORDINGS_CHANGED_EVENT));
+}
+
+async function confirmDelete(): Promise<boolean> {
+  const confirmFn = window.confirm as unknown as (message?: string) => unknown;
+  const value = confirmFn("Delete this recording?");
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (isPromiseLike(value)) {
+    try {
+      return Boolean(await value);
+    } catch {
+      return false;
+    }
+  }
+  return Boolean(value);
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  if (!("then" in value)) {
+    return false;
+  }
+  return typeof (value as { then?: unknown }).then === "function";
 }

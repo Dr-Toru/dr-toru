@@ -45,6 +45,17 @@ export class NoopRecordingStore implements RecordingStore {
     this.recordings.set(recording.recordingId, recording);
   }
 
+  async deleteRecording(recordingId: string): Promise<void> {
+    this.recordings.delete(recordingId);
+
+    const attachmentPrefix = `recordings/${recordingId}/attachments/`;
+    for (const path of this.textByPath.keys()) {
+      if (path.startsWith(attachmentPrefix)) {
+        this.textByPath.delete(path);
+      }
+    }
+  }
+
   async readText(path: string): Promise<string> {
     const text = this.textByPath.get(path);
     if (text === undefined) {

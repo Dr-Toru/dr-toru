@@ -2,6 +2,8 @@ import {
   createRecording,
   createTextAttachment,
   type Attachment,
+  type AttachmentCreator,
+  type TextAttachmentKind,
 } from "../domain/recording";
 import { createUlid } from "../domain/ulid";
 import type { RecordingStore } from "../storage/store";
@@ -49,45 +51,16 @@ export class RecordingService {
     return createUlid();
   }
 
-  async getLatestRecordingId(): Promise<string | null> {
-    const items = await this.store.listRecordings();
-    return items[0]?.recordingId ?? null;
-  }
-
   async loadTranscript(
     recordingId: string,
   ): Promise<LoadedTranscriptResult | null> {
-    const recording = await this.store.getRecording(recordingId);
-    if (!recording) {
-      return null;
-    }
-
-    const target = this.pickTranscriptAttachment(
-      recording.attachments,
-      recording.activeAttachmentId,
-    );
-    if (!target) {
-      return {
-        recordingId,
-        attachmentId: null,
-        transcript: "",
-      };
-    }
-
-    try {
-      const transcript = await this.store.readText(target.path);
-      return {
-        recordingId,
-        attachmentId: target.attachmentId,
-        transcript,
-      };
-    } catch {
-      return {
-        recordingId,
-        attachmentId: null,
-        transcript: "",
-      };
-    }
+    const result = await this.loadAttachmentText(recordingId, "transcript_raw");
+    if (!result) return null;
+    return {
+      recordingId,
+      attachmentId: result.attachmentId,
+      transcript: result.text,
+    };
   }
 
   async saveTranscript(
@@ -97,213 +70,155 @@ export class RecordingService {
       throw new Error("transcript is required");
     }
 
-    const now = new Date().toISOString();
-    const recording =
-      (await this.store.getRecording(input.recordingId)) ??
-      createRecording({ createdAt: now, recordingId: input.recordingId });
-    const target =
-      this.findAttachment(recording.attachments, input.attachmentId) ??
-      this.pickTranscriptAttachment(
-        recording.attachments,
-        recording.activeAttachmentId,
-      );
-    const attachmentId = target?.attachmentId ?? createUlid();
-
-    const written = await this.store.writeAttachmentText({
+    const result = await this.saveAttachmentText({
       recordingId: input.recordingId,
-      attachmentId,
-      extension: "txt",
+      attachmentId: input.attachmentId,
+      kind: "transcript_raw",
+      createdBy: "asr",
       text: input.transcript,
+      setActive: true,
     });
-
-    if (target) {
-      const updatedTarget: Attachment = {
-        ...target,
-        path: written.path,
-        metadata: {
-          ...target.metadata,
-          sizeBytes: written.sizeBytes,
-        },
-      };
-      recording.attachments = recording.attachments.map((attachment) =>
-        attachment.attachmentId === updatedTarget.attachmentId
-          ? updatedTarget
-          : attachment,
-      );
-      recording.activeAttachmentId = target.attachmentId;
-    } else {
-      const attachment = createTextAttachment({
-        attachmentId,
-        kind: "transcript_raw",
-        role: "source",
-        createdAt: now,
-        createdBy: "asr",
-        path: written.path,
-        metadata: {
-          sizeBytes: written.sizeBytes,
-        },
-      });
-      recording.attachments.push(attachment);
-      recording.activeAttachmentId = attachment.attachmentId;
-    }
-    recording.updatedAt = now;
-
-    await this.store.saveRecording(recording);
     return {
       recordingId: input.recordingId,
-      attachmentId,
+      attachmentId: result.attachmentId,
       transcript: input.transcript,
     };
   }
 
   async loadContext(recordingId: string): Promise<LoadedContextResult | null> {
-    const recording = await this.store.getRecording(recordingId);
-    if (!recording) {
-      return null;
-    }
-
-    const target = this.pickContextAttachment(recording.attachments);
-    if (!target) {
-      return {
-        recordingId,
-        attachmentId: null,
-        context: "",
-      };
-    }
-
-    try {
-      const context = await this.store.readText(target.path);
-      return {
-        recordingId,
-        attachmentId: target.attachmentId,
-        context,
-      };
-    } catch {
-      return {
-        recordingId,
-        attachmentId: null,
-        context: "",
-      };
-    }
+    const result = await this.loadAttachmentText(recordingId, "context_note");
+    if (!result) return null;
+    return {
+      recordingId,
+      attachmentId: result.attachmentId,
+      context: result.text,
+    };
   }
 
   async saveContext(input: SaveContextInput): Promise<SaveContextResult> {
-    const now = new Date().toISOString();
-    const recording =
-      (await this.store.getRecording(input.recordingId)) ??
-      createRecording({ createdAt: now, recordingId: input.recordingId });
-    const target =
-      this.findContextAttachment(recording.attachments, input.attachmentId) ??
-      this.pickContextAttachment(recording.attachments);
-    const attachmentId = target?.attachmentId ?? createUlid();
-
-    const written = await this.store.writeAttachmentText({
+    const result = await this.saveAttachmentText({
       recordingId: input.recordingId,
-      attachmentId,
-      extension: "txt",
+      attachmentId: input.attachmentId,
+      kind: "context_note",
+      createdBy: "user",
       text: input.context,
+      setActive: false,
     });
-
-    if (target) {
-      const updatedTarget: Attachment = {
-        ...target,
-        path: written.path,
-        metadata: {
-          ...target.metadata,
-          sizeBytes: written.sizeBytes,
-        },
-      };
-      recording.attachments = recording.attachments.map((attachment) =>
-        attachment.attachmentId === updatedTarget.attachmentId
-          ? updatedTarget
-          : attachment,
-      );
-    } else {
-      const attachment = createTextAttachment({
-        attachmentId,
-        kind: "context_note",
-        role: "source",
-        createdAt: now,
-        createdBy: "user",
-        path: written.path,
-        metadata: {
-          sizeBytes: written.sizeBytes,
-        },
-      });
-      recording.attachments.push(attachment);
-    }
-    recording.updatedAt = now;
-
-    await this.store.saveRecording(recording);
     return {
       recordingId: input.recordingId,
-      attachmentId,
+      attachmentId: result.attachmentId,
       context: input.context,
     };
   }
 
-  private findAttachment(
-    attachments: Attachment[],
-    attachmentId: string | null | undefined,
-  ): Attachment | null {
-    if (!attachmentId) {
-      return null;
+  // -- shared helpers --
+
+  private async loadAttachmentText(
+    recordingId: string,
+    kind: TextAttachmentKind,
+  ): Promise<{ attachmentId: string | null; text: string } | null> {
+    const recording = await this.store.getRecording(recordingId);
+    if (!recording) return null;
+
+    const preferredId =
+      kind === "transcript_raw" ? recording.activeAttachmentId : null;
+    const target = pickByKind(recording.attachments, kind, preferredId);
+    if (!target) {
+      return { attachmentId: null, text: "" };
     }
-    const target = attachments.find(
-      (attachment) => attachment.attachmentId === attachmentId,
-    );
-    if (!target || target.kind !== "transcript_raw") {
-      return null;
+
+    try {
+      const text = await this.store.readText(target.path);
+      return { attachmentId: target.attachmentId, text };
+    } catch {
+      return { attachmentId: null, text: "" };
     }
-    return target;
   }
 
-  private pickTranscriptAttachment(
-    attachments: Attachment[],
-    activeAttachmentId: string | null = null,
-  ): Attachment | null {
-    const active = this.findAttachment(attachments, activeAttachmentId);
-    if (active) {
-      return active;
-    }
-    const transcriptAttachments = attachments.filter(
-      (attachment) => attachment.kind === "transcript_raw",
-    );
-    if (transcriptAttachments.length === 0) {
-      return null;
-    }
-    transcriptAttachments.sort((left, right) =>
-      right.createdAt.localeCompare(left.createdAt),
-    );
-    return transcriptAttachments[0] ?? null;
-  }
+  private async saveAttachmentText(opts: {
+    recordingId: string;
+    attachmentId?: string | null;
+    kind: TextAttachmentKind;
+    createdBy: AttachmentCreator;
+    text: string;
+    setActive: boolean;
+  }): Promise<{ attachmentId: string }> {
+    const now = new Date().toISOString();
+    const recording =
+      (await this.store.getRecording(opts.recordingId)) ??
+      createRecording({ createdAt: now, recordingId: opts.recordingId });
 
-  private findContextAttachment(
-    attachments: Attachment[],
-    attachmentId: string | null | undefined,
-  ): Attachment | null {
-    if (!attachmentId) {
-      return null;
-    }
-    const target = attachments.find(
-      (attachment) => attachment.attachmentId === attachmentId,
-    );
-    if (!target || target.kind !== "context_note") {
-      return null;
-    }
-    return target;
-  }
+    const existing =
+      findByKind(recording.attachments, opts.kind, opts.attachmentId) ??
+      pickByKind(
+        recording.attachments,
+        opts.kind,
+        opts.setActive ? recording.activeAttachmentId : null,
+      );
+    const attachmentId = existing?.attachmentId ?? createUlid();
 
-  private pickContextAttachment(attachments: Attachment[]): Attachment | null {
-    const contextAttachments = attachments.filter(
-      (attachment) => attachment.kind === "context_note",
-    );
-    if (contextAttachments.length === 0) {
-      return null;
+    const written = await this.store.writeAttachmentText({
+      recordingId: opts.recordingId,
+      attachmentId,
+      extension: "txt",
+      text: opts.text,
+    });
+
+    if (existing) {
+      const updated: Attachment = {
+        ...existing,
+        path: written.path,
+        metadata: { ...existing.metadata, sizeBytes: written.sizeBytes },
+      };
+      recording.attachments = recording.attachments.map((a) =>
+        a.attachmentId === updated.attachmentId ? updated : a,
+      );
+    } else {
+      recording.attachments.push(
+        createTextAttachment({
+          attachmentId,
+          kind: opts.kind,
+          role: "source",
+          createdAt: now,
+          createdBy: opts.createdBy,
+          path: written.path,
+          metadata: { sizeBytes: written.sizeBytes },
+        }),
+      );
     }
-    contextAttachments.sort((left, right) =>
-      right.createdAt.localeCompare(left.createdAt),
-    );
-    return contextAttachments[0] ?? null;
+
+    if (opts.setActive) {
+      recording.activeAttachmentId = attachmentId;
+    }
+    recording.updatedAt = now;
+
+    await this.store.saveRecording(recording);
+    return { attachmentId };
   }
+}
+
+function findByKind(
+  attachments: Attachment[],
+  kind: TextAttachmentKind,
+  attachmentId: string | null | undefined,
+): Attachment | null {
+  if (!attachmentId) return null;
+  const target = attachments.find((a) => a.attachmentId === attachmentId);
+  if (!target || target.kind !== kind) return null;
+  return target;
+}
+
+function pickByKind(
+  attachments: Attachment[],
+  kind: TextAttachmentKind,
+  preferredId: string | null | undefined,
+): Attachment | null {
+  const preferred = findByKind(attachments, kind, preferredId);
+  if (preferred) return preferred;
+
+  const matches = attachments.filter((a) => a.kind === kind);
+  if (matches.length === 0) return null;
+
+  matches.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return matches[0] ?? null;
 }
