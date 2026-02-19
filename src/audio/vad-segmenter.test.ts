@@ -103,6 +103,26 @@ describe("VadSegmenter", () => {
     seg.stop();
   });
 
+  it("keeps onset speech even when pre-roll is disabled", () => {
+    const segments: Float32Array[] = [];
+    const seg = new VadSegmenter(
+      defaultConfig({
+        speechOnsetMs: 400,
+        preRollMs: 0,
+        silenceHangoverMs: 512,
+      }),
+    );
+    seg.start((s) => segments.push(s));
+
+    pushSpeech(seg, 4);
+    pushSilence(seg, 10);
+
+    expect(segments).toHaveLength(1);
+    // 4 speech frames + 4 hangover silence frames
+    expect(segments[0].length).toBe(8 * FRAME_SAMPLES);
+    seg.stop();
+  });
+
   it("force-flushes and splits at energy dip for long segments", () => {
     const segments: Float32Array[] = [];
     const seg = new VadSegmenter(defaultConfig({ maxSegmentSecs: 1 }));

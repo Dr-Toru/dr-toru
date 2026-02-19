@@ -227,9 +227,6 @@ window.addEventListener("DOMContentLoaded", () => {
     silenceRms: asrSettings.silenceRms,
     silencePeak: asrSettings.silencePeak,
     silenceHangoverMs: asrSettings.silenceHangoverMs,
-    speechOnsetMs: asrSettings.speechOnsetMs,
-    maxSegmentSecs: asrSettings.maxSegmentSecs,
-    preRollMs: asrSettings.preRollMs,
     debugMetrics: DEBUG_METRICS,
     onStatus: () => undefined,
     onTranscript: (text) => {

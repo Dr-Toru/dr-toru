@@ -37,8 +37,9 @@ export class VadSegmenter {
   private consecutiveSpeech = 0;
   private consecutiveSilence = 0;
 
-  // Pre-roll ring buffer (stores recent frames while IDLE)
+  // Pre-roll ring buffer (stores recent silence while IDLE)
   private preRollBuf: Float32Array[] = [];
+  private onsetBuf: Float32Array[] = [];
 
   constructor(private readonly config: VadSegmenterConfig) {
     const msPerFrame = (config.frameSamples / config.sampleRate) * 1000;
@@ -91,31 +92,32 @@ export class VadSegmenter {
   private handleIdle(frame: Float32Array, silent: boolean): void {
     if (silent) {
       this.consecutiveSpeech = 0;
+      this.onsetBuf = [];
       this.pushPreRoll(frame);
       return;
     }
 
     this.consecutiveSpeech += 1;
-    this.pushPreRoll(frame);
+    this.onsetBuf.push(frame);
 
     if (this.consecutiveSpeech >= this.speechOnsetFrames) {
       this.state = VadState.SPEAKING;
       this.consecutiveSilence = 0;
 
-      // Prepend pre-roll frames
+      // Prepend pre-roll silence and all onset speech frames.
       for (const pf of this.preRollBuf) {
-        this.frames.push(pf);
-        this.sampleCount += pf.length;
-        this.frameEnergies.push(computeRms(pf));
+        this.appendFrame(pf);
+      }
+      for (const sf of this.onsetBuf) {
+        this.appendFrame(sf);
       }
       this.preRollBuf = [];
+      this.onsetBuf = [];
     }
   }
 
   private handleSpeaking(frame: Float32Array, silent: boolean): void {
-    this.frames.push(frame);
-    this.sampleCount += frame.length;
-    this.frameEnergies.push(computeRms(frame));
+    this.appendFrame(frame);
 
     if (silent) {
       this.consecutiveSilence += 1;
@@ -179,6 +181,12 @@ export class VadSegmenter {
     for (const f of keepFrames) this.sampleCount += f.length;
   }
 
+  private appendFrame(frame: Float32Array): void {
+    this.frames.push(frame);
+    this.sampleCount += frame.length;
+    this.frameEnergies.push(computeRms(frame));
+  }
+
   private emitSegment(): void {
     const segment = new Float32Array(this.sampleCount);
     let offset = 0;
@@ -208,5 +216,6 @@ export class VadSegmenter {
     this.consecutiveSpeech = 0;
     this.consecutiveSilence = 0;
     this.preRollBuf = [];
+    this.onsetBuf = [];
   }
 }

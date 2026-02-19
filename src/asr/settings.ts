@@ -10,9 +10,6 @@ export interface AsrSettings {
   silenceRms: number;
   silencePeak: number;
   silenceHangoverMs: number;
-  speechOnsetMs: number;
-  maxSegmentSecs: number;
-  preRollMs: number;
   runtimeConfig: AsrRuntimeConfig;
 }
 
@@ -44,9 +41,6 @@ export const DEFAULT_ASR_SETTINGS: AsrSettings = {
   silenceRms: 0.0025,
   silencePeak: 0.012,
   silenceHangoverMs: 500,
-  speechOnsetMs: 150,
-  maxSegmentSecs: 18,
-  preRollMs: 200,
   runtimeConfig: DEFAULT_ASR_RUNTIME_CONFIG,
 };
 
@@ -131,24 +125,6 @@ export function sanitizeAsrSettings(
       DEFAULT_ASR_SETTINGS.silenceHangoverMs,
       100,
       2000,
-    ),
-    speechOnsetMs: intWithFallback(
-      input?.speechOnsetMs,
-      DEFAULT_ASR_SETTINGS.speechOnsetMs,
-      50,
-      1000,
-    ),
-    maxSegmentSecs: intWithFallback(
-      input?.maxSegmentSecs,
-      DEFAULT_ASR_SETTINGS.maxSegmentSecs,
-      5,
-      60,
-    ),
-    preRollMs: intWithFallback(
-      input?.preRollMs,
-      DEFAULT_ASR_SETTINGS.preRollMs,
-      0,
-      1000,
     ),
     runtimeConfig: sanitizeAsrRuntimeConfig(input?.runtimeConfig),
   };

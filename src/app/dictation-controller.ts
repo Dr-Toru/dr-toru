@@ -10,9 +10,6 @@ export interface DictationControllerOptions {
   silenceRms: number;
   silencePeak: number;
   silenceHangoverMs: number;
-  speechOnsetMs: number;
-  maxSegmentSecs: number;
-  preRollMs: number;
   debugMetrics: boolean;
   onStatus: (message: string) => void;
   onTranscript: (text: string) => void;
@@ -20,6 +17,11 @@ export interface DictationControllerOptions {
   onRecordingComplete?: (transcript: string) => Promise<void>;
   onLevel?: (rms: number) => void;
 }
+
+const VAD_FRAME_SAMPLES = 2048;
+const VAD_SPEECH_ONSET_MS = 150;
+const VAD_MAX_SEGMENT_SECS = 18;
+const VAD_PRE_ROLL_MS = 200;
 
 export class DictationController {
   private isRecordingValue = false;
@@ -83,13 +85,13 @@ export class DictationController {
         try {
           const vadConfig: VadSegmenterConfig = {
             sampleRate: this.options.sampleRate,
-            frameSamples: 2048,
+            frameSamples: VAD_FRAME_SAMPLES,
             silenceRms: this.options.silenceRms,
             silencePeak: this.options.silencePeak,
-            speechOnsetMs: this.options.speechOnsetMs,
+            speechOnsetMs: VAD_SPEECH_ONSET_MS,
             silenceHangoverMs: this.options.silenceHangoverMs,
-            maxSegmentSecs: this.options.maxSegmentSecs,
-            preRollMs: this.options.preRollMs,
+            maxSegmentSecs: VAD_MAX_SEGMENT_SECS,
+            preRollMs: VAD_PRE_ROLL_MS,
           };
 
           this.segmenter = new VadSegmenter(vadConfig);
