@@ -507,7 +507,15 @@ function makeController(
   const soapBtn = document.createElement("button");
   const soapSectionEl = document.createElement("div");
   const soapContentEl = document.createElement("div");
+  const soapBlankStateEl = document.createElement("div");
+  const soapCopyBtn = document.createElement("button");
+  soapCopyBtn.hidden = true;
   const soapOverlayEl = document.createElement("div");
+  const contextTabBtn = document.createElement("button");
+  const soapTabBtn = document.createElement("button");
+  const contextPanel = document.createElement("div");
+  const soapPanel = document.createElement("div");
+  soapPanel.hidden = true;
   const platform = {
     runLlm: vi.fn().mockResolvedValue(""),
   } as unknown as PluginPlatform;
@@ -520,7 +528,13 @@ function makeController(
     soapBtn,
     soapSectionEl,
     soapContentEl,
+    soapBlankStateEl,
+    soapCopyBtn,
     soapOverlayEl,
+    contextTabBtn,
+    soapTabBtn,
+    contextPanel,
+    soapPanel,
     timerEl,
     barEls,
     typingIndicatorEl,

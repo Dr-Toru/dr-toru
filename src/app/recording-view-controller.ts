@@ -21,7 +21,13 @@ export interface RecordingViewControllerOptions {
   soapBtn: HTMLButtonElement;
   soapSectionEl: HTMLElement;
   soapContentEl: HTMLElement;
+  soapBlankStateEl: HTMLElement;
+  soapCopyBtn: HTMLButtonElement;
   soapOverlayEl: HTMLElement;
+  contextTabBtn: HTMLButtonElement;
+  soapTabBtn: HTMLButtonElement;
+  contextPanel: HTMLElement;
+  soapPanel: HTMLElement;
   timerEl: HTMLElement;
   barEls: readonly HTMLElement[];
   typingIndicatorEl: HTMLElement;
@@ -57,7 +63,13 @@ export class RecordingViewController {
   private readonly soapBtn: HTMLButtonElement;
   private readonly soapSectionEl: HTMLElement;
   private readonly soapContentEl: HTMLElement;
+  private readonly soapBlankStateEl: HTMLElement;
+  private readonly soapCopyBtn: HTMLButtonElement;
   private readonly soapOverlayEl: HTMLElement;
+  private readonly contextTabBtn: HTMLButtonElement;
+  private readonly soapTabBtn: HTMLButtonElement;
+  private readonly contextPanel: HTMLElement;
+  private readonly soapPanel: HTMLElement;
   private readonly timerEl: HTMLElement;
   private readonly barEls: readonly HTMLElement[];
   private readonly typingIndicatorEl: HTMLElement;
@@ -93,7 +105,13 @@ export class RecordingViewController {
     this.soapBtn = options.soapBtn;
     this.soapSectionEl = options.soapSectionEl;
     this.soapContentEl = options.soapContentEl;
+    this.soapBlankStateEl = options.soapBlankStateEl;
+    this.soapCopyBtn = options.soapCopyBtn;
     this.soapOverlayEl = options.soapOverlayEl;
+    this.contextTabBtn = options.contextTabBtn;
+    this.soapTabBtn = options.soapTabBtn;
+    this.contextPanel = options.contextPanel;
+    this.soapPanel = options.soapPanel;
     this.timerEl = options.timerEl;
     this.barEls = options.barEls;
     this.typingIndicatorEl = options.typingIndicatorEl;
@@ -113,6 +131,12 @@ export class RecordingViewController {
     });
     this.soapBtn.addEventListener("click", () => {
       void this.generateSoapNote();
+    });
+    this.contextTabBtn.addEventListener("click", () => {
+      this.switchTab("context");
+    });
+    this.soapTabBtn.addEventListener("click", () => {
+      this.switchTab("soap");
     });
     this.contextNoteEl.addEventListener("input", () => {
       this.scheduleContextSave();
@@ -139,6 +163,7 @@ export class RecordingViewController {
         );
         this.liveTranscript = "";
         this.contextNoteEl.value = "";
+        this.switchTab("context");
         this.renderSoap();
         this.render();
         return { status: "opened", recordingId: this.context.recordingId };
@@ -165,6 +190,7 @@ export class RecordingViewController {
             this.context.soapAttachmentId = soap.attachmentId;
             this.context.soapText = soap.text;
           }
+          this.switchTab("context");
           this.renderSoap();
           this.render();
           return { status: "opened", recordingId: loaded.recordingId };
@@ -491,6 +517,7 @@ export class RecordingViewController {
       this.context.soapAttachmentId = result.attachmentId;
       this.context.soapText = soapText;
       this.renderSoap();
+      this.switchTab("soap");
     } catch (err) {
       this.onError(err, "SOAP generation");
     } finally {
@@ -501,16 +528,32 @@ export class RecordingViewController {
     }
   }
 
+  switchTab(tab: "context" | "soap"): void {
+    const isContext = tab === "context";
+    this.contextTabBtn.classList.toggle("is-active", isContext);
+    this.soapTabBtn.classList.toggle("is-active", !isContext);
+    this.contextPanel.hidden = !isContext;
+    this.soapPanel.hidden = isContext;
+    this.updateSoapCopyBtn();
+  }
+
   private renderSoap(): void {
     const text = this.context?.soapText ?? "";
     if (text) {
       this.soapContentEl.textContent = text;
       this.soapSectionEl.hidden = false;
+      this.soapBlankStateEl.hidden = true;
     } else {
       this.soapContentEl.textContent = "";
       this.soapSectionEl.hidden = true;
+      this.soapBlankStateEl.hidden = false;
     }
-    this.soapSectionEl.classList.remove("expanded");
+    this.updateSoapCopyBtn();
+  }
+
+  private updateSoapCopyBtn(): void {
+    const show = !this.soapPanel.hidden && !this.soapSectionEl.hidden;
+    this.soapCopyBtn.hidden = !show;
   }
 
   private scheduleContextSave(): void {

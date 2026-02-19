@@ -144,7 +144,13 @@ window.addEventListener("DOMContentLoaded", () => {
     soapBtn: mustBtn("soapBtn"),
     soapSectionEl: mustEl("soapSection"),
     soapContentEl: mustEl("soapContent"),
+    soapBlankStateEl: mustEl("soapBlankState"),
+    soapCopyBtn: mustBtn("soapCopyBtn"),
     soapOverlayEl: mustEl("soapOverlay"),
+    contextTabBtn: mustBtn("tabContext"),
+    soapTabBtn: mustBtn("tabSoap"),
+    contextPanel: mustEl("panelContext"),
+    soapPanel: mustEl("panelSoap"),
     timerEl: mustEl("recordingTimer"),
     barEls,
     typingIndicatorEl: mustEl("typingIndicator"),
@@ -193,13 +199,6 @@ window.addEventListener("DOMContentLoaded", () => {
         soapCopyBtn.classList.remove("copied");
       }, 1500);
     });
-  });
-
-  const soapExpandBtn = mustBtn("soapExpandBtn");
-  const soapCard = mustEl("soapSection");
-  soapExpandBtn.addEventListener("click", () => {
-    const expanded = soapCard.classList.toggle("expanded");
-    soapExpandBtn.textContent = expanded ? "Collapse" : "Expand";
   });
 
   listController = new ListController({
