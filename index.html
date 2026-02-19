@@ -318,26 +318,6 @@
           <h3>ASR Quality</h3>
           <div class="settings-grid">
             <label class="setting-field">
-              <span>Chunk (secs)</span>
-              <input
-                id="asrChunkSecs"
-                type="number"
-                min="2"
-                max="20"
-                step="0.5"
-              />
-            </label>
-            <label class="setting-field">
-              <span>Stride (secs)</span>
-              <input
-                id="asrStrideSecs"
-                type="number"
-                min="0.5"
-                max="19.5"
-                step="0.5"
-              />
-            </label>
-            <label class="setting-field">
               <span>Silence RMS</span>
               <input
                 id="asrSilenceRms"
@@ -358,24 +338,15 @@
               />
             </label>
             <label class="setting-field">
-              <span>Speech Hold (chunks)</span>
+              <span>Silence Hangover (ms)</span>
               <input
-                id="asrSilenceHoldChunks"
-                type="number"
-                min="0"
-                max="12"
-                step="1"
+                id="asrSilenceHangoverMs"
+                type="range"
+                min="100"
+                max="2000"
+                step="50"
               />
-            </label>
-            <label class="setting-field">
-              <span>Silence Probe Every</span>
-              <input
-                id="asrSilenceProbeEvery"
-                type="number"
-                min="1"
-                max="50"
-                step="1"
-              />
+              <output id="asrSilenceHangoverOutput">500</output>
             </label>
             <label class="setting-field">
               <span>ORT Threads</span>

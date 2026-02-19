@@ -1,17 +1,15 @@
 import type { PluginPlatform } from "../plugins";
-import { AudioCapture, isSilent } from "../audio/capture";
+import { AudioCapture } from "../audio/capture";
+import { VadSegmenter, type VadSegmenterConfig } from "../audio/vad-segmenter";
 import { asrQueue } from "../runtime/queues";
 
 export interface DictationControllerOptions {
   pluginPlatform: PluginPlatform;
   capture: AudioCapture;
   sampleRate: number;
-  chunkSecs: number;
-  strideSecs: number;
   silenceRms: number;
   silencePeak: number;
-  speechHoldChunks: number;
-  silenceProbeEvery: number;
+  silenceHangoverMs: number;
   debugMetrics: boolean;
   onStatus: (message: string) => void;
   onTranscript: (text: string) => void;
@@ -20,15 +18,19 @@ export interface DictationControllerOptions {
   onLevel?: (rms: number) => void;
 }
 
+const VAD_FRAME_SAMPLES = 2048;
+const VAD_SPEECH_ONSET_MS = 150;
+const VAD_MAX_SEGMENT_SECS = 18;
+const VAD_PRE_ROLL_MS = 200;
+
 export class DictationController {
   private isRecordingValue = false;
   private toggling = false;
   private chunkIdx = 0;
   private transcriptText = "";
   private metricChunkId = 0;
-  private silentChunkSkips = 0;
-  private speechHoldRemaining = 0;
   private overloadDropCount = 0;
+  private segmenter: VadSegmenter | null = null;
 
   constructor(private readonly options: DictationControllerOptions) {}
 
@@ -77,17 +79,26 @@ export class DictationController {
         this.chunkIdx = 0;
         this.transcriptText = "";
         this.metricChunkId = 0;
-        this.silentChunkSkips = 0;
-        this.speechHoldRemaining = 0;
         this.overloadDropCount = 0;
-        this.debugMetric("recording-start", {
-          chunkSecs: this.options.chunkSecs,
-          strideSecs: this.options.strideSecs,
-        });
+        this.debugMetric("recording-start", {});
 
         try {
-          await this.options.capture.start(
-            (chunk) => void this.queueChunk(chunk),
+          const vadConfig: VadSegmenterConfig = {
+            sampleRate: this.options.sampleRate,
+            frameSamples: VAD_FRAME_SAMPLES,
+            silenceRms: this.options.silenceRms,
+            silencePeak: this.options.silencePeak,
+            speechOnsetMs: VAD_SPEECH_ONSET_MS,
+            silenceHangoverMs: this.options.silenceHangoverMs,
+            maxSegmentSecs: VAD_MAX_SEGMENT_SECS,
+            preRollMs: VAD_PRE_ROLL_MS,
+          };
+
+          this.segmenter = new VadSegmenter(vadConfig);
+          this.segmenter.start((segment) => void this.handleSegment(segment));
+
+          await this.options.capture.startWithFrames(
+            (frame) => this.segmenter?.pushFrame(frame),
             this.options.onLevel,
           );
           this.options.onTranscript("");
@@ -107,9 +118,10 @@ export class DictationController {
       this.options.onRecordingChange(false);
       await this.options.capture.stop();
 
-      const tail = this.options.capture.drain();
-      if (tail) {
-        void this.queueChunk(tail);
+      if (this.segmenter) {
+        this.segmenter.flush();
+        this.segmenter.stop();
+        this.segmenter = null;
       }
 
       await asrQueue.waitForIdle();
@@ -139,17 +151,25 @@ export class DictationController {
     this.isRecordingValue = false;
     this.options.onRecordingChange(false);
     void this.options.capture.stop();
+    if (this.segmenter) {
+      this.segmenter.stop();
+      this.segmenter = null;
+    }
   }
 
   async shutdown(): Promise<void> {
     this.isRecordingValue = false;
     this.options.onRecordingChange(false);
     await this.options.capture.stop();
+    if (this.segmenter) {
+      this.segmenter.stop();
+      this.segmenter = null;
+    }
     await asrQueue.waitForIdle();
     await this.options.pluginPlatform.unloadAsr().catch(() => undefined);
   }
 
-  private queueChunk(samples: Float32Array): Promise<void> {
+  handleSegment(samples: Float32Array): Promise<void> {
     if (asrQueue.depth >= MAX_ASR_QUEUE_DEPTH) {
       this.overloadDropCount += 1;
       if (
@@ -160,52 +180,12 @@ export class DictationController {
           "ASR is behind. Dropping some audio chunks to keep app responsive.",
         );
       }
-      this.debugMetric("chunk-dropped-overload", {
+      this.debugMetric("segment-dropped-overload", {
         count: this.overloadDropCount,
         queueDepth: asrQueue.depth,
-        chunkSecs: roundMetric(samples.length / this.options.sampleRate),
+        segmentSecs: roundMetric(samples.length / this.options.sampleRate),
       });
       return asrQueue.waitForIdle();
-    }
-
-    const silent = isSilent(
-      samples,
-      this.options.silenceRms,
-      this.options.silencePeak,
-    );
-
-    if (silent) {
-      this.silentChunkSkips += 1;
-      const shouldProbe =
-        this.silentChunkSkips % this.options.silenceProbeEvery === 0;
-      const shouldDecode = this.speechHoldRemaining > 0 || shouldProbe;
-
-      if (this.speechHoldRemaining > 0) {
-        this.speechHoldRemaining -= 1;
-      }
-
-      if (!shouldDecode) {
-        if (this.silentChunkSkips === 1 || this.silentChunkSkips % 10 === 0) {
-          this.debugMetric("chunk-silent-skip", {
-            count: this.silentChunkSkips,
-            hold: this.speechHoldRemaining,
-            chunkSecs: roundMetric(samples.length / this.options.sampleRate),
-          });
-        }
-        return asrQueue.waitForIdle();
-      }
-
-      if (shouldProbe || this.silentChunkSkips === 1) {
-        this.debugMetric("chunk-silent-pass", {
-          count: this.silentChunkSkips,
-          hold: this.speechHoldRemaining,
-          probe: shouldProbe ? "1" : "0",
-          chunkSecs: roundMetric(samples.length / this.options.sampleRate),
-        });
-      }
-    } else {
-      this.silentChunkSkips = 0;
-      this.speechHoldRemaining = this.options.speechHoldChunks;
     }
 
     if (this.overloadDropCount > 0 && asrQueue.depth === 0) {
@@ -217,32 +197,32 @@ export class DictationController {
 
     const task = asrQueue.enqueue(async () => {
       const queueWaitMs = performance.now() - queuedAt;
-      await this.processChunk(samples, metricId, queueWaitMs);
+      await this.processSegment(samples, metricId, queueWaitMs);
     });
 
-    this.debugMetric("chunk-queued", {
+    this.debugMetric("segment-queued", {
       id: metricId,
       queueDepth: asrQueue.depth,
-      chunkSecs: roundMetric(samples.length / this.options.sampleRate),
+      segmentSecs: roundMetric(samples.length / this.options.sampleRate),
     });
     return task;
   }
 
-  private async processChunk(
+  private async processSegment(
     samples: Float32Array,
     metricId = -1,
     queueWaitMs = 0,
   ): Promise<void> {
     if (!this.options.pluginPlatform.isAsrReady()) {
-      this.debugMetric("chunk-dropped-unready", {
-        chunkSecs: roundMetric(samples.length / this.options.sampleRate),
+      this.debugMetric("segment-dropped-unready", {
+        segmentSecs: roundMetric(samples.length / this.options.sampleRate),
       });
       return;
     }
 
     const inferStartedAt = performance.now();
     this.chunkIdx += 1;
-    this.options.onStatus(`Processing chunk ${this.chunkIdx}...`);
+    this.options.onStatus(`Processing segment ${this.chunkIdx}...`);
 
     try {
       const text = await this.options.pluginPlatform.transcribe(samples);
@@ -255,7 +235,7 @@ export class DictationController {
       if (this.isRecordingValue) {
         this.options.onStatus("Recording...");
       }
-      this.debugMetric("chunk-complete", {
+      this.debugMetric("segment-complete", {
         id: metricId,
         chunkIdx: this.chunkIdx,
         queueWaitMs: roundMetric(queueWaitMs),
@@ -267,7 +247,7 @@ export class DictationController {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.options.onStatus(`Inference error: ${message}`);
-      this.debugMetric("chunk-error", {
+      this.debugMetric("segment-error", {
         id: metricId,
         chunkIdx: this.chunkIdx,
         queueWaitMs: roundMetric(queueWaitMs),
@@ -290,11 +270,8 @@ export class DictationController {
   }
 }
 
-const MAX_WORD_OVERLAP = 20;
+const MAX_WORD_OVERLAP = 8;
 const MIN_SINGLE_TOKEN_OVERLAP_LEN = 2;
-const SHORT_STRIDE_WORD_LEN = 3;
-const MAX_CHAR_OVERLAP = 24;
-const MIN_CHAR_OVERLAP = 4;
 const MAX_ASR_QUEUE_DEPTH = 3;
 const OVERLOAD_STATUS_EVERY = 6;
 
@@ -315,32 +292,7 @@ export function mergeChunkText(currentText: string, nextText: string): string {
     if (!suffix) {
       return currentText;
     }
-    // Short stride-repeat words (like "is", "the") merge inline
-    if (
-      overlapCount === 1 &&
-      normalizeMergeToken(nextWords[0]).length <= SHORT_STRIDE_WORD_LEN
-    ) {
-      return `${currentText} ${suffix}`;
-    }
     return appendMergeChunk(currentText, suffix);
-  }
-
-  // Rejected short-token overlap: keep both copies but join inline
-  const lastWord = normalizeMergeToken(currentWords[currentWords.length - 1]);
-  const firstWord = normalizeMergeToken(nextWords[0]);
-  if (
-    lastWord &&
-    firstWord &&
-    lastWord === firstWord &&
-    lastWord.length < MIN_SINGLE_TOKEN_OVERLAP_LEN
-  ) {
-    return `${currentText} ${next}`;
-  }
-
-  const charOverlap = findCharOverlap(currentText, next);
-  if (charOverlap > 0) {
-    const suffix = next.slice(charOverlap).trimStart();
-    return suffix ? `${currentText}${suffix}` : currentText;
   }
 
   return appendMergeChunk(currentText, next);
@@ -394,26 +346,6 @@ function findWordOverlap(currentWords: string[], nextWords: string[]): number {
       }
     }
 
-    return size;
-  }
-
-  return 0;
-}
-
-function findCharOverlap(currentText: string, nextText: string): number {
-  const left = currentText.toLowerCase();
-  const right = nextText.toLowerCase();
-  const maxSize = Math.min(left.length, right.length, MAX_CHAR_OVERLAP);
-
-  for (let size = maxSize; size >= MIN_CHAR_OVERLAP; size -= 1) {
-    const tail = left.slice(-size);
-    const head = right.slice(0, size);
-    if (tail !== head) {
-      continue;
-    }
-    if (!/[a-z0-9]/i.test(head)) {
-      continue;
-    }
     return size;
   }
 

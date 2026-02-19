@@ -23,28 +23,33 @@ function createMemoryStorage(seed: Record<string, string> = {}): {
 }
 
 describe("sanitizeAsrSettings", () => {
-  it("enforces stride bound relative to chunk size", () => {
-    const settings = sanitizeAsrSettings({
-      chunkSecs: 2,
-      strideSecs: 5,
-    });
-
-    expect(settings.chunkSecs).toBe(2);
-    expect(settings.strideSecs).toBe(1.5);
-  });
-
   it("clamps invalid numeric values", () => {
     const settings = sanitizeAsrSettings({
       silenceRms: -1,
       silencePeak: 999,
-      silenceHoldChunks: 500,
-      silenceProbeEvery: 0,
+      silenceHangoverMs: 5000,
     });
 
     expect(settings.silenceRms).toBe(0.0001);
     expect(settings.silencePeak).toBe(0.2);
-    expect(settings.silenceHoldChunks).toBe(12);
-    expect(settings.silenceProbeEvery).toBe(1);
+    expect(settings.silenceHangoverMs).toBe(2000);
+  });
+
+  it("uses defaults for undefined input", () => {
+    const settings = sanitizeAsrSettings(undefined);
+    expect(settings).toEqual(DEFAULT_ASR_SETTINGS);
+  });
+
+  it("clamps silenceHangoverMs to valid range", () => {
+    expect(
+      sanitizeAsrSettings({ silenceHangoverMs: 50 }).silenceHangoverMs,
+    ).toBe(100);
+    expect(
+      sanitizeAsrSettings({ silenceHangoverMs: 3000 }).silenceHangoverMs,
+    ).toBe(2000);
+    expect(
+      sanitizeAsrSettings({ silenceHangoverMs: 750 }).silenceHangoverMs,
+    ).toBe(750);
   });
 });
 
@@ -56,7 +61,7 @@ describe("readAsrSettings", () => {
 
   it("falls back on non-numeric values", () => {
     const storage = createMemoryStorage({
-      "toru.chunk.secs": "nope",
+      "toru.silence.hangover.ms": "nope",
       "toru.asr.decode.beam.width": "n/a",
       "toru.asr.enabled": "wat",
       "toru.asr.decode.beam.enabled": "wat",
@@ -67,10 +72,24 @@ describe("readAsrSettings", () => {
     expect(settings.runtimeConfig.decode.beamSearchEnabled).toBe(
       DEFAULT_ASR_SETTINGS.runtimeConfig.decode.beamSearchEnabled,
     );
-    expect(settings.chunkSecs).toBe(DEFAULT_ASR_SETTINGS.chunkSecs);
+    expect(settings.silenceHangoverMs).toBe(
+      DEFAULT_ASR_SETTINGS.silenceHangoverMs,
+    );
     expect(settings.runtimeConfig.decode.beamWidth).toBe(
       DEFAULT_ASR_SETTINGS.runtimeConfig.decode.beamWidth,
     );
+  });
+
+  it("gracefully ignores old localStorage keys", () => {
+    const storage = createMemoryStorage({
+      "toru.chunk.secs": "6",
+      "toru.stride.secs": "1.5",
+      "toru.silence.hold.chunks": "2",
+      "toru.silence.probe.every": "8",
+    });
+
+    const settings = readAsrSettings(storage);
+    expect(settings).toEqual(DEFAULT_ASR_SETTINGS);
   });
 });
 
@@ -82,8 +101,7 @@ describe("writeAsrSettings", () => {
       {
         ...DEFAULT_ASR_SETTINGS,
         asrEnabled: false,
-        chunkSecs: 30,
-        strideSecs: 30,
+        silenceHangoverMs: 800,
         runtimeConfig: {
           ...DEFAULT_ASR_SETTINGS.runtimeConfig,
           decode: {
@@ -98,15 +116,13 @@ describe("writeAsrSettings", () => {
 
     const loaded = readAsrSettings(storage);
     expect(loaded.asrEnabled).toBe(false);
-    expect(loaded.chunkSecs).toBe(20);
-    expect(loaded.strideSecs).toBe(19.5);
+    expect(loaded.silenceHangoverMs).toBe(800);
     expect(loaded.runtimeConfig.decode.beamSearchEnabled).toBe(false);
     expect(loaded.runtimeConfig.decode.beamWidth).toBe(32);
 
     const snapshot = storage.snapshot();
     expect(snapshot["toru.asr.enabled"]).toBe("0");
-    expect(snapshot["toru.chunk.secs"]).toBe("20");
-    expect(snapshot["toru.stride.secs"]).toBe("19.5");
+    expect(snapshot["toru.silence.hangover.ms"]).toBe("800");
     expect(snapshot["toru.asr.decode.beam.enabled"]).toBe("0");
     expect(snapshot["toru.asr.decode.beam.width"]).toBe("32");
   });

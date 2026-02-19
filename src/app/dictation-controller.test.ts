@@ -47,22 +47,4 @@ describe("mergeChunkText", () => {
   it("trims whitespace from next text", () => {
     expect(mergeChunkText("hello", "  world  ")).toBe("hello\nworld");
   });
-
-  it("deduplicates short overlap words when they are likely stride repeats", () => {
-    expect(mergeChunkText("patient is", "is resting")).toBe(
-      "patient is resting",
-    );
-  });
-
-  it("keeps single-letter repeats to avoid over-aggressive merges", () => {
-    expect(mergeChunkText("vitamin a", "a deficiency noted")).toBe(
-      "vitamin a a deficiency noted",
-    );
-  });
-
-  it("stitches split words using char overlap", () => {
-    expect(mergeChunkText("hypertens", "tension noted")).toBe(
-      "hypertension noted",
-    );
-  });
 });
