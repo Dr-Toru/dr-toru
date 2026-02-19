@@ -1,13 +1,11 @@
-import { invoke } from "@tauri-apps/api/core";
-
 import { decodeAudioFileToSamples } from "./audio/upload";
 import { AudioCapture } from "./audio/capture";
 import {
   readAsrSettings,
   sanitizeAsrSettings,
-  writeAsrSettings,
   type AsrSettings,
 } from "./asr/settings";
+import { AsrSettingsController } from "./app/asr-settings-controller";
 import { DictationController } from "./app/dictation-controller";
 import { ListController, fireRecordingsChanged } from "./app/list";
 import { LlmController } from "./app/llm-controller";
@@ -33,7 +31,7 @@ import { getRecordingStore } from "./storage";
 const SAMPLE_RATE = 16000;
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 const DEBUG_METRICS = isDebugMetricsEnabled();
-let asrSettings = loadAsrSettings();
+const asrSettings = loadAsrSettings();
 
 const capture = new AudioCapture({
   sampleRate: SAMPLE_RATE,
@@ -63,25 +61,7 @@ let transcriptUploadInput: HTMLInputElement;
 let importPluginBtn: HTMLButtonElement;
 let toggleLlmBtn: HTMLButtonElement;
 let runLlmBtn: HTMLButtonElement;
-let toggleDevtoolsBtn: HTMLButtonElement;
 let llmInputEl: HTMLTextAreaElement;
-let saveAsrSettingsBtn: HTMLButtonElement;
-let asrSettingsStatusEl: HTMLElement;
-let devtoolsStatusEl: HTMLElement;
-let asrEnabledInput: HTMLInputElement;
-let asrBeamSearchEnabledInput: HTMLInputElement;
-let asrChunkSecsInput: HTMLInputElement;
-let asrStrideSecsInput: HTMLInputElement;
-let asrSilenceRmsInput: HTMLInputElement;
-let asrSilencePeakInput: HTMLInputElement;
-let asrSilenceHoldInput: HTMLInputElement;
-let asrSilenceProbeInput: HTMLInputElement;
-let asrOrtThreadsInput: HTMLInputElement;
-let asrBeamWidthInput: HTMLInputElement;
-let asrLmAlphaInput: HTMLInputElement;
-let asrLmBetaInput: HTMLInputElement;
-let asrMinTokenLogpInput: HTMLInputElement;
-let asrBeamPruneLogpInput: HTMLInputElement;
 let navBtns: HTMLButtonElement[] = [];
 let screenEls: Record<RouteName, HTMLElement>;
 let currentRoute: AppRoute | null = null;
@@ -89,17 +69,6 @@ let currentRouteStateKey = "";
 let lastMainRoute: AppRoute = { name: "list" };
 let routeSeq = 0;
 let asrLoadTask: Promise<boolean> | null = null;
-let devtoolsBusy = false;
-let devtoolsStatusError: string | null = null;
-let devtoolsState: DevtoolsState = {
-  available: false,
-  open: false,
-};
-
-interface DevtoolsState {
-  available: boolean;
-  open: boolean;
-}
 
 window.addEventListener("DOMContentLoaded", () => {
   pluginSummaryEl = mustEl("pluginSummary");
@@ -112,32 +81,14 @@ window.addEventListener("DOMContentLoaded", () => {
   importPluginBtn = mustBtn("importPluginBtn");
   toggleLlmBtn = mustBtn("toggleLlmBtn");
   runLlmBtn = mustBtn("runLlmBtn");
-  toggleDevtoolsBtn = mustBtn("toggleDevtoolsBtn");
-  saveAsrSettingsBtn = mustBtn("saveAsrSettingsBtn");
   llmInputEl = mustTextarea("llmInput");
-  asrSettingsStatusEl = mustEl("asrSettingsStatus");
-  devtoolsStatusEl = mustEl("devtoolsStatus");
-  asrEnabledInput = mustInput("asrEnabled");
-  asrBeamSearchEnabledInput = mustInput("asrBeamSearchEnabled");
-  asrChunkSecsInput = mustInput("asrChunkSecs");
-  asrStrideSecsInput = mustInput("asrStrideSecs");
-  asrSilenceRmsInput = mustInput("asrSilenceRms");
-  asrSilencePeakInput = mustInput("asrSilencePeak");
-  asrSilenceHoldInput = mustInput("asrSilenceHoldChunks");
-  asrSilenceProbeInput = mustInput("asrSilenceProbeEvery");
-  asrOrtThreadsInput = mustInput("asrOrtThreads");
-  asrBeamWidthInput = mustInput("asrBeamWidth");
-  asrLmAlphaInput = mustInput("asrLmAlpha");
-  asrLmBetaInput = mustInput("asrLmBeta");
-  asrMinTokenLogpInput = mustInput("asrMinTokenLogp");
-  asrBeamPruneLogpInput = mustInput("asrBeamPruneLogp");
-  asrEnabledInput.addEventListener("change", () => {
-    updateAsrSettingsFieldState();
+
+  const asrSettingsController = new AsrSettingsController({
+    isRecording: () => dictation?.isRecording ?? false,
+    onError: (error, context) => reportUnexpectedError(error, context),
   });
-  asrBeamSearchEnabledInput.addEventListener("change", () => {
-    updateAsrSettingsFieldState();
-  });
-  renderAsrSettingsForm(asrSettings);
+  asrSettingsController.populate(asrSettings);
+
   screenEls = {
     recording: mustEl("screen-recording"),
     list: mustEl("screen-list"),
@@ -246,14 +197,6 @@ window.addEventListener("DOMContentLoaded", () => {
       reportUnexpectedError(error, "LLM test failed"),
     );
   });
-  saveAsrSettingsBtn.addEventListener("click", () => {
-    saveAsrSettings();
-  });
-  toggleDevtoolsBtn.addEventListener("click", () => {
-    void toggleDevtools();
-  });
-  renderDevtoolsControls();
-  void refreshDevtoolsState();
 
   window.addEventListener("error", (event) => {
     reportUnexpectedError(event.error ?? event.message, "Runtime error");
@@ -434,9 +377,7 @@ async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
       syncRouteHash(nextRoute);
     }
     updateAsrLoadingIndicator();
-    if (nextRoute.name === "settings") {
-      void refreshDevtoolsState();
-    } else if (nextRoute.name === "recording" && asrSettings.asrEnabled) {
+    if (nextRoute.name === "recording" && asrSettings.asrEnabled) {
       void loadModel();
     }
   } catch (error) {
@@ -565,158 +506,6 @@ async function runLlmTest(): Promise<void> {
   }
 }
 
-function renderDevtoolsControls(): void {
-  const open = devtoolsState.open;
-  toggleDevtoolsBtn.textContent = open ? "Close DevTools" : "Open DevTools";
-  toggleDevtoolsBtn.disabled = devtoolsBusy || !devtoolsState.available;
-
-  if (devtoolsStatusError) {
-    devtoolsStatusEl.textContent = devtoolsStatusError;
-    return;
-  }
-
-  if (devtoolsBusy) {
-    devtoolsStatusEl.textContent = "Updating DevTools state...";
-    return;
-  }
-
-  if (!devtoolsState.available) {
-    devtoolsStatusEl.textContent =
-      "DevTools toggle is only available in desktop debug builds.";
-    return;
-  }
-
-  devtoolsStatusEl.textContent = open
-    ? "DevTools is open."
-    : "DevTools is closed.";
-}
-
-async function refreshDevtoolsState(): Promise<void> {
-  devtoolsBusy = true;
-  renderDevtoolsControls();
-  try {
-    devtoolsState = await invoke<DevtoolsState>("debug_devtools_status");
-    devtoolsStatusError = null;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    devtoolsState = { available: false, open: false };
-    devtoolsStatusError = `DevTools toggle unavailable: ${message}`;
-  } finally {
-    devtoolsBusy = false;
-    renderDevtoolsControls();
-  }
-}
-
-async function toggleDevtools(): Promise<void> {
-  if (devtoolsBusy || !devtoolsState.available) {
-    return;
-  }
-
-  const nextOpen = !devtoolsState.open;
-  devtoolsBusy = true;
-  renderDevtoolsControls();
-  try {
-    devtoolsState = await invoke<DevtoolsState>("debug_devtools_set", {
-      open: nextOpen,
-    });
-    devtoolsStatusError = null;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    devtoolsStatusError = `Failed to toggle DevTools: ${message}`;
-  } finally {
-    devtoolsBusy = false;
-    renderDevtoolsControls();
-  }
-}
-
-function saveAsrSettings(): void {
-  if (dictation?.isRecording) {
-    asrSettingsStatusEl.textContent =
-      "Stop recording before saving ASR settings.";
-    return;
-  }
-
-  try {
-    const nextSettings = sanitizeAsrSettings({
-      asrEnabled: asrEnabledInput.checked,
-      chunkSecs: asrChunkSecsInput.valueAsNumber,
-      strideSecs: asrStrideSecsInput.valueAsNumber,
-      silenceRms: asrSilenceRmsInput.valueAsNumber,
-      silencePeak: asrSilencePeakInput.valueAsNumber,
-      silenceHoldChunks: asrSilenceHoldInput.valueAsNumber,
-      silenceProbeEvery: asrSilenceProbeInput.valueAsNumber,
-      runtimeConfig: {
-        ortThreads: asrOrtThreadsInput.valueAsNumber,
-        decode: {
-          beamSearchEnabled: asrBeamSearchEnabledInput.checked,
-          beamWidth: asrBeamWidthInput.valueAsNumber,
-          lmAlpha: asrLmAlphaInput.valueAsNumber,
-          lmBeta: asrLmBetaInput.valueAsNumber,
-          minTokenLogp: asrMinTokenLogpInput.valueAsNumber,
-          beamPruneLogp: asrBeamPruneLogpInput.valueAsNumber,
-        },
-      },
-    });
-
-    writeAsrSettings(nextSettings);
-    asrSettings = nextSettings;
-    renderAsrSettingsForm(nextSettings);
-    asrSettingsStatusEl.textContent =
-      "ASR settings saved. Reloading to apply updated runtime settings...";
-    window.setTimeout(() => {
-      window.location.reload();
-    }, 150);
-  } catch (error) {
-    reportUnexpectedError(error, "Failed to save ASR settings");
-  }
-}
-
-function renderAsrSettingsForm(settings: AsrSettings): void {
-  asrEnabledInput.checked = settings.asrEnabled;
-  asrBeamSearchEnabledInput.checked =
-    settings.runtimeConfig.decode.beamSearchEnabled;
-  asrChunkSecsInput.value = String(settings.chunkSecs);
-  asrStrideSecsInput.value = String(settings.strideSecs);
-  asrSilenceRmsInput.value = String(settings.silenceRms);
-  asrSilencePeakInput.value = String(settings.silencePeak);
-  asrSilenceHoldInput.value = String(settings.silenceHoldChunks);
-  asrSilenceProbeInput.value = String(settings.silenceProbeEvery);
-  asrOrtThreadsInput.value = String(settings.runtimeConfig.ortThreads);
-  asrBeamWidthInput.value = String(settings.runtimeConfig.decode.beamWidth);
-  asrLmAlphaInput.value = String(settings.runtimeConfig.decode.lmAlpha);
-  asrLmBetaInput.value = String(settings.runtimeConfig.decode.lmBeta);
-  asrMinTokenLogpInput.value = String(
-    settings.runtimeConfig.decode.minTokenLogp,
-  );
-  asrBeamPruneLogpInput.value = String(
-    settings.runtimeConfig.decode.beamPruneLogp,
-  );
-  updateAsrSettingsFieldState();
-  asrSettingsStatusEl.textContent =
-    "Tune ASR values here. Saving reloads the app and applies new settings.";
-}
-
-function updateAsrSettingsFieldState(): void {
-  const asrEnabled = asrEnabledInput.checked;
-  const beamEnabled = asrBeamSearchEnabledInput.checked;
-
-  asrBeamSearchEnabledInput.disabled = !asrEnabled;
-  asrChunkSecsInput.disabled = !asrEnabled;
-  asrStrideSecsInput.disabled = !asrEnabled;
-  asrSilenceRmsInput.disabled = !asrEnabled;
-  asrSilencePeakInput.disabled = !asrEnabled;
-  asrSilenceHoldInput.disabled = !asrEnabled;
-  asrSilenceProbeInput.disabled = !asrEnabled;
-  asrOrtThreadsInput.disabled = !asrEnabled;
-
-  const decodeEnabled = asrEnabled && beamEnabled;
-  asrBeamWidthInput.disabled = !decodeEnabled;
-  asrLmAlphaInput.disabled = !decodeEnabled;
-  asrLmBetaInput.disabled = !decodeEnabled;
-  asrMinTokenLogpInput.disabled = !decodeEnabled;
-  asrBeamPruneLogpInput.disabled = !decodeEnabled;
-}
-
 function mustEl(id: string): HTMLElement {
   const el = document.getElementById(id);
   if (!el) {
@@ -741,20 +530,15 @@ function mustTextarea(id: string): HTMLTextAreaElement {
   return el;
 }
 
-function mustInput(id: string): HTMLInputElement {
+function mustFileInput(id: string): HTMLInputElement {
   const el = mustEl(id);
   if (!(el instanceof HTMLInputElement)) {
     throw new Error(`#${id} is not an input`);
   }
-  return el;
-}
-
-function mustFileInput(id: string): HTMLInputElement {
-  const input = mustInput(id);
-  if (input.type !== "file") {
+  if (el.type !== "file") {
     throw new Error(`#${id} is not a file input`);
   }
-  return input;
+  return el;
 }
 
 function reportUnexpectedError(error: unknown, context: string): void {
