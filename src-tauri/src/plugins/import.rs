@@ -1,11 +1,12 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::fs::{self, File};
-use std::io::Read;
+use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Manager};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use tauri::{AppHandle, Emitter, Manager};
 
 use super::{err_to_string, PluginImportRequest, PluginKind, PluginManifest};
 
@@ -53,20 +54,8 @@ fn now_suffix() -> String {
     millis.to_string()
 }
 
-fn file_sha256(path: &Path) -> Result<String, String> {
-    let mut file = File::open(path).map_err(err_to_string)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        let read = file.read(&mut buffer).map_err(err_to_string)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    Ok(format!("{:x}", hasher.finalize()))
-}
-
+/// Copy a file while computing its SHA256 in a single pass.
+/// Emits "plugin-import-progress" events so the frontend can show progress.
 fn copy_imported_asset(
     app: &AppHandle,
     plugin_id: &str,
@@ -84,11 +73,56 @@ fn copy_imported_asset(
         return Err("Invalid destination path".to_string());
     };
     fs::create_dir_all(parent).map_err(err_to_string)?;
-    fs::copy(source, &destination).map_err(err_to_string)?;
 
-    let hash = file_sha256(&destination)?;
-    let size_bytes = fs::metadata(&destination).map_err(err_to_string)?.len();
-    Ok((relative_path, hash, size_bytes))
+    let total_bytes = fs::metadata(source).map_err(err_to_string)?.len();
+    let mut src_file = File::open(source).map_err(err_to_string)?;
+    let mut dst_file = File::create(&destination).map_err(err_to_string)?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = [0_u8; 256 * 1024];
+    let mut copied: u64 = 0;
+    let mut last_emit = Instant::now();
+
+    loop {
+        let n = src_file.read(&mut buffer).map_err(err_to_string)?;
+        if n == 0 {
+            break;
+        }
+        dst_file.write_all(&buffer[..n]).map_err(err_to_string)?;
+        hasher.update(&buffer[..n]);
+        copied += n as u64;
+
+        // Throttle events to ~4/sec
+        if last_emit.elapsed().as_millis() >= 250 {
+            last_emit = Instant::now();
+            let _ = app.emit(
+                "plugin-import-progress",
+                serde_json::json!({
+                    "fileName": file_name,
+                    "copiedBytes": copied,
+                    "totalBytes": total_bytes,
+                }),
+            );
+        }
+    }
+    dst_file.flush().map_err(err_to_string)?;
+
+    let hash = hasher.finalize().to_hex().to_string();
+    Ok((relative_path, hash, copied))
+}
+
+#[cfg(unix)]
+fn mark_executable(app: &AppHandle, relative_path: &str) -> Result<(), String> {
+    let app_data_dir = app.path().app_data_dir().map_err(err_to_string)?;
+    let path = app_data_dir.join(relative_path);
+    let meta = fs::metadata(&path).map_err(err_to_string)?;
+    let mut perms = meta.permissions();
+    perms.set_mode(perms.mode() | 0o755);
+    fs::set_permissions(&path, perms).map_err(err_to_string)
+}
+
+#[cfg(not(unix))]
+fn mark_executable(_app: &AppHandle, _relative_path: &str) -> Result<(), String> {
+    Ok(())
 }
 
 fn onnx_vocab_candidate_names(stem: &str) -> Vec<String> {
@@ -317,6 +351,10 @@ pub(super) fn imported_plugin_manifest(
     let plugin_id = format!("{prefix}.{}.{}", slug, now_suffix());
     let (relative_entrypoint, file_hash, entrypoint_size_bytes) =
         copy_imported_asset(app, &plugin_id, &entrypoint_source)?;
+
+    if kind == PluginKind::Llm {
+        mark_executable(app, &relative_entrypoint)?;
+    }
 
     if kind == PluginKind::Asr {
         let vocab = vocab_source

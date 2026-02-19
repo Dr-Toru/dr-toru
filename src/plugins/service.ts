@@ -63,6 +63,10 @@ export class PluginService {
     return this.store.importFromPath(request);
   }
 
+  remove(pluginId: string): Promise<void> {
+    return this.store.remove(pluginId);
+  }
+
   startService(pluginId: string): Promise<PluginServiceHealth> {
     return this.store.startService(pluginId);
   }

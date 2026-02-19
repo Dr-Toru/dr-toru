@@ -3,7 +3,6 @@ import type { PluginPlatform, PluginPlatformState } from "../plugins";
 export interface LlmControllerOptions {
   pluginPlatform: PluginPlatform;
   onStatus: (message: string) => void;
-  onOutput: (text: string) => void;
   onStateChange: (state: PluginPlatformState) => void;
 }
 
@@ -14,14 +13,12 @@ function toErrorMessage(error: unknown): string {
 export class LlmController {
   private readonly platform: PluginPlatform;
   private readonly onStatus: (message: string) => void;
-  private readonly onOutput: (text: string) => void;
   private readonly onStateChange: (state: PluginPlatformState) => void;
   private state: PluginPlatformState | null = null;
 
   constructor(options: LlmControllerOptions) {
     this.platform = options.pluginPlatform;
     this.onStatus = options.onStatus;
-    this.onOutput = options.onOutput;
     this.onStateChange = options.onStateChange;
   }
 
@@ -42,40 +39,18 @@ export class LlmController {
       throw new Error("No active LLM provider configured");
     }
 
+    let startError: string | null = null;
     try {
       this.state = await this.platform.setLlmServiceRunning(running);
     } catch (error) {
-      this.onStatus(`LLM service: ${toErrorMessage(error)}`);
+      startError = toErrorMessage(error);
     }
 
     this.state = await this.platform.status();
     this.onStateChange(this.state);
+    if (startError) {
+      this.onStatus(`LLM service error: ${startError}`);
+    }
     return this.state;
-  }
-
-  async run(input: string, action = "correct"): Promise<void> {
-    if (!this.state?.activeLlm) {
-      this.onOutput("(No active LLM provider)");
-      return;
-    }
-    if (!this.state.llmRunning) {
-      this.onOutput("(Start the LLM service first)");
-      return;
-    }
-    if (!input.trim()) {
-      this.onOutput("(Enter text to process)");
-      return;
-    }
-
-    this.onOutput("Running LLM...");
-    try {
-      const text = await this.platform.runLlm(action, input.trim());
-      this.onOutput(text || "(No output returned)");
-    } catch (error) {
-      this.onOutput(`LLM failed: ${toErrorMessage(error)}`);
-    }
-
-    this.state = await this.platform.status();
-    this.onStateChange(this.state);
   }
 }

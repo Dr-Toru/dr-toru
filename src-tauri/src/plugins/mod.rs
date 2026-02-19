@@ -256,30 +256,34 @@ pub fn plugin_registry_discover(
 }
 
 #[tauri::command]
-pub fn plugin_import_from_path(
+pub async fn plugin_import_from_path(
     app: AppHandle,
     request: PluginImportRequest,
 ) -> Result<PluginManifest, String> {
-    let manifest = imported_plugin_manifest(&app, &request)?;
-    validate_manifest(&manifest)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let manifest = imported_plugin_manifest(&app, &request)?;
+        validate_manifest(&manifest)?;
 
-    let paths = plugin_paths(&app)?;
-    ensure_registry(&paths)?;
-    let mut state = load_registry(&paths)?;
+        let paths = plugin_paths(&app)?;
+        ensure_registry(&paths)?;
+        let mut state = load_registry(&paths)?;
 
-    if state
-        .plugins
-        .iter()
-        .any(|plugin| plugin.plugin_id == manifest.plugin_id)
-    {
-        return Err(format!("Plugin already exists: {}", manifest.plugin_id));
-    }
+        if state
+            .plugins
+            .iter()
+            .any(|plugin| plugin.plugin_id == manifest.plugin_id)
+        {
+            return Err(format!("Plugin already exists: {}", manifest.plugin_id));
+        }
 
-    state.plugins.push(manifest.clone());
-    auto_activate_vacant(&mut state, &manifest);
+        state.plugins.push(manifest.clone());
+        auto_activate_vacant(&mut state, &manifest);
 
-    save_registry(&paths, &state)?;
-    Ok(manifest)
+        save_registry(&paths, &state)?;
+        Ok(manifest)
+    })
+    .await
+    .map_err(err_to_string)?
 }
 
 #[tauri::command]

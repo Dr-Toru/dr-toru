@@ -53,15 +53,13 @@ let listController: ListController;
 
 let pluginSummaryEl: HTMLElement;
 let llmStatusEl: HTMLElement;
-let llmOutputEl: HTMLElement;
 let appErrorEl: HTMLElement;
 let settingsBtn: HTMLButtonElement;
 let uploadTranscriptBtn: HTMLButtonElement;
 let transcriptUploadInput: HTMLInputElement;
+let pluginListEl: HTMLElement;
 let importPluginBtn: HTMLButtonElement;
 let toggleLlmBtn: HTMLButtonElement;
-let runLlmBtn: HTMLButtonElement;
-let llmInputEl: HTMLTextAreaElement;
 let navBtns: HTMLButtonElement[] = [];
 let screenEls: Record<RouteName, HTMLElement>;
 let currentRoute: AppRoute | null = null;
@@ -73,15 +71,13 @@ let asrLoadTask: Promise<boolean> | null = null;
 window.addEventListener("DOMContentLoaded", () => {
   pluginSummaryEl = mustEl("pluginSummary");
   llmStatusEl = mustEl("llmServiceStatus");
-  llmOutputEl = mustEl("llmOutput");
   appErrorEl = mustEl("appError");
   settingsBtn = mustBtn("settingsBtn");
   uploadTranscriptBtn = mustBtn("uploadTranscriptBtn");
   transcriptUploadInput = mustFileInput("transcriptUploadInput");
+  pluginListEl = mustEl("pluginList");
   importPluginBtn = mustBtn("importPluginBtn");
   toggleLlmBtn = mustBtn("toggleLlmBtn");
-  runLlmBtn = mustBtn("runLlmBtn");
-  llmInputEl = mustTextarea("llmInput");
 
   const asrSettingsController = new AsrSettingsController({
     isRecording: () => dictation?.isRecording ?? false,
@@ -192,12 +188,6 @@ window.addEventListener("DOMContentLoaded", () => {
       reportUnexpectedError(error, "LLM service toggle failed"),
     );
   });
-  runLlmBtn.addEventListener("click", () => {
-    void runLlmTest().catch((error) =>
-      reportUnexpectedError(error, "LLM test failed"),
-    );
-  });
-
   window.addEventListener("error", (event) => {
     reportUnexpectedError(event.error ?? event.message, "Runtime error");
   });
@@ -231,9 +221,6 @@ window.addEventListener("DOMContentLoaded", () => {
     pluginPlatform,
     onStatus: (message) => {
       llmStatusEl.textContent = message;
-    },
-    onOutput: (text) => {
-      llmOutputEl.textContent = text;
     },
     onStateChange: (state) => {
       pluginState = state;
@@ -420,7 +407,6 @@ function updateLlmControls(): void {
   const running = pluginState?.llmRunning ?? false;
   importPluginBtn.disabled = !canImport;
   toggleLlmBtn.disabled = !hasProvider;
-  runLlmBtn.disabled = !hasProvider || !running;
   toggleLlmBtn.textContent = running ? "Stop LLM Service" : "Start LLM Service";
 }
 
@@ -431,6 +417,7 @@ function renderPluginStatus(): void {
     recordingView.setTranscribeAvailable(false);
     updateAsrLoadingIndicator();
     updateLlmControls();
+    renderPluginList();
     return;
   }
 
@@ -442,6 +429,79 @@ function renderPluginStatus(): void {
   recordingView.setTranscribeAvailable(isAsrTranscriptionEnabled());
   updateAsrLoadingIndicator();
   updateLlmControls();
+  renderPluginList();
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function renderPluginList(): void {
+  // Scoped to LLM for now
+  const plugins = pluginState?.plugins.filter((p) => p.kind === "llm") ?? [];
+  const activeId = pluginState?.activeLlm?.pluginId ?? null;
+
+  if (plugins.length === 0) {
+    pluginListEl.innerHTML =
+      '<p class="plugin-list-empty">No models imported yet.</p>';
+    return;
+  }
+
+  pluginListEl.innerHTML = "";
+  for (const plugin of plugins) {
+    const row = document.createElement("div");
+    row.className = "plugin-row";
+
+    const info = document.createElement("div");
+    info.className = "plugin-info";
+
+    const name = document.createElement("div");
+    name.className = "plugin-name";
+    name.textContent = plugin.name;
+    info.appendChild(name);
+
+    const meta = document.createElement("div");
+    meta.className = "plugin-meta";
+    const parts: string[] = [plugin.kind.toUpperCase()];
+    if (plugin.pluginId === activeId) parts.push("active");
+    if (plugin.sizeBytes) parts.push(formatFileSize(plugin.sizeBytes));
+    meta.textContent = parts.join(" / ");
+    info.appendChild(meta);
+
+    row.appendChild(info);
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "plugin-delete-btn";
+    deleteBtn.textContent = "Delete";
+    deleteBtn.type = "button";
+    deleteBtn.addEventListener("click", () => {
+      void deletePlugin(plugin.pluginId, plugin.name);
+    });
+    row.appendChild(deleteBtn);
+
+    pluginListEl.appendChild(row);
+  }
+}
+
+async function deletePlugin(pluginId: string, name: string): Promise<void> {
+  const confirmFn = window.confirm as unknown as (message?: string) => unknown;
+  const confirmed = await confirmFn(
+    `Delete "${name}"? This removes the model file permanently.`,
+  );
+  if (!confirmed) {
+    return;
+  }
+  try {
+    await pluginPlatform.removePlugin(pluginId);
+    await initializePlugins();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    llmStatusEl.textContent = `Delete failed: ${message}`;
+  }
 }
 
 async function importPlugin(): Promise<void> {
@@ -462,10 +522,27 @@ async function importPlugin(): Promise<void> {
       "",
     );
 
-    const imported = await pluginPlatform.importFromPath({
-      sourcePath,
-      displayName: displayName?.trim() || undefined,
+    llmStatusEl.textContent = "Importing model\u2026 0%";
+    const { listen } = await import("@tauri-apps/api/event");
+    const unlisten = await listen<{
+      copiedBytes: number;
+      totalBytes: number;
+    }>("plugin-import-progress", (event) => {
+      const { copiedBytes, totalBytes } = event.payload;
+      if (totalBytes > 0) {
+        const pct = Math.round((copiedBytes / totalBytes) * 100);
+        llmStatusEl.textContent = `Importing model\u2026 ${pct}%`;
+      }
     });
+    let imported;
+    try {
+      imported = await pluginPlatform.importFromPath({
+        sourcePath,
+        displayName: displayName?.trim() || undefined,
+      });
+    } finally {
+      unlisten();
+    }
     llmStatusEl.textContent = `Imported plugin: ${imported.name}`;
     await initializePlugins();
     if (
@@ -493,16 +570,7 @@ async function toggleLlmService(): Promise<void> {
   try {
     pluginState = await llm.setServiceRunning(!llm.isRunning());
   } finally {
-    renderPluginStatus();
-  }
-}
-
-async function runLlmTest(): Promise<void> {
-  runLlmBtn.disabled = true;
-  try {
-    await llm.run(llmInputEl.value);
-  } finally {
-    runLlmBtn.disabled = false;
+    updateLlmControls();
   }
 }
 

@@ -1166,6 +1166,66 @@ body {
   cursor: not-allowed;
 }
 
+#screen-settings .plugin-list {
+  margin-bottom: var(--space-3);
+}
+
+#screen-settings .plugin-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+#screen-settings .plugin-row + .plugin-row {
+  margin-top: var(--space-2);
+}
+
+#screen-settings .plugin-row .plugin-info {
+  flex: 1;
+  min-width: 0;
+}
+
+#screen-settings .plugin-row .plugin-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#screen-settings .plugin-row .plugin-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+#screen-settings .plugin-row .plugin-delete-btn {
+  flex-shrink: 0;
+  padding: var(--space-1) var(--space-2);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+#screen-settings .plugin-row .plugin-delete-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+#screen-settings .plugin-list-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
 #screen-settings .transcript {
   width: 100%;
   padding: var(--space-3);

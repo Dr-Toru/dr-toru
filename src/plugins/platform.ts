@@ -25,6 +25,7 @@ export interface PluginPlatformState {
   error: string | null;
   canImport: boolean;
   features: { transcription: boolean; llm: boolean };
+  plugins: PluginManifest[];
   activeAsr: PluginManifest | null;
   activeLlm: PluginManifest | null;
   llmCount: number;
@@ -85,6 +86,7 @@ export class PluginPlatform {
   private initialized = false;
   private initError: string | null = null;
   private resolvedDataDir = "";
+  private plugins: PluginManifest[] = [];
   private activeAsr: PluginManifest | null = null;
   private activeLlm: PluginManifest | null = null;
   private llmCount = 0;
@@ -156,6 +158,11 @@ export class PluginPlatform {
     const imported = await this.service.importFromPath(request);
     await this.init();
     return imported;
+  }
+
+  async removePlugin(pluginId: string): Promise<void> {
+    await this.service.remove(pluginId);
+    await this.init();
   }
 
   async loadAsr(): Promise<PluginManifest> {
@@ -282,8 +289,9 @@ export class PluginPlatform {
         this.resolvedDataDir = await resolveAppDataDir();
       }
       await this.service.init();
+      const allPlugins = await this.service.listValid();
       const nextAsr = await this.service.activePlugin("asr");
-      const llmPlugins = await this.service.discover({ kind: "llm" });
+      const llmPlugins = allPlugins.filter((p) => p.kind === "llm");
       const nextLlm = await this.service.activePlugin("llm");
 
       if (this.activeAsr?.pluginId !== nextAsr?.pluginId && this.asrRuntime) {
@@ -296,6 +304,7 @@ export class PluginPlatform {
         this.llmRuntime = null;
       }
 
+      this.plugins = allPlugins;
       this.activeAsr = nextAsr;
       this.activeLlm = nextLlm;
       this.llmCount = llmPlugins.length;
@@ -305,6 +314,7 @@ export class PluginPlatform {
       await this.refreshLlmHealth();
       return this.snapshot();
     } catch (error) {
+      this.plugins = [];
       this.activeAsr = null;
       this.activeLlm = null;
       this.llmCount = 0;
@@ -328,6 +338,7 @@ export class PluginPlatform {
         transcription: this.activeAsr != null,
         llm: this.activeLlm != null,
       },
+      plugins: this.plugins,
       activeAsr: this.activeAsr,
       activeLlm: this.activeLlm,
       llmCount: this.llmCount,

@@ -148,17 +148,18 @@ fn http_post_json(
 }
 
 fn wait_for_service_ready(endpoint: &str, health_path: &str) -> Result<(), String> {
-    let timeout = Duration::from_millis(700);
-    for _ in 0..20 {
+    let timeout = Duration::from_millis(1000);
+    // ~90 seconds total (60 polls * 1.5s each)
+    for _ in 0..60 {
         if let Ok((status, _)) = http_get(endpoint, health_path, timeout) {
             if status < 500 {
                 return Ok(());
             }
         }
-        sleep(Duration::from_millis(200));
+        sleep(Duration::from_millis(500));
     }
     Err(format!(
-        "Llamafile service did not become ready at {endpoint}{health_path}"
+        "Llamafile service did not become ready at {endpoint}{health_path} within 90s"
     ))
 }
 
@@ -246,6 +247,17 @@ pub(super) fn service_start_blocking(
         );
         endpoint
     };
+
+    // Check for immediate crash before entering the long poll
+    sleep(Duration::from_millis(500));
+    {
+        let mut running = runtime_state.lock_running();
+        if let Some(exit_code) = cleanup_service_if_exited(&mut running, plugin_id)? {
+            return Err(format!(
+                "Llamafile process exited immediately (code {exit_code})"
+            ));
+        }
+    }
 
     if let Err(error) = wait_for_service_ready(&endpoint, &health_path) {
         let mut running = runtime_state.lock_running();
