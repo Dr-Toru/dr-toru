@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
+default-run = "dr-toru"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -28,3 +29,7 @@ ureq = { version = "2", default-features = false, features = ["json"] }
 ort = "2.0.0-rc.11"
 ndarray = "0.16"
 realfft = "3"
+
+[[bin]]
+name = "benchmark-asr"
+path = "src/bin/benchmark_asr.rs"

@@ -1,4 +1,4 @@
-mod asr;
+pub mod asr;
 mod import;
 mod llamafile;
 mod registry;
