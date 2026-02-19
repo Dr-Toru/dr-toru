@@ -510,6 +510,7 @@ export class RecordingViewController {
       this.soapContentEl.textContent = "";
       this.soapSectionEl.hidden = true;
     }
+    this.soapSectionEl.classList.remove("expanded");
   }
 
   private scheduleContextSave(): void {

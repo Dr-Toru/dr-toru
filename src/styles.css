@@ -1315,21 +1315,58 @@ body {
   color: var(--text-muted);
 }
 
-/* ===== SOAP Note ===== */
+/* ===== SOAP Note Card ===== */
 
-#soapSection {
+.soap-card {
   flex-shrink: 0;
-  max-height: 50%;
-  overflow-y: auto;
-  border-top: 2px solid var(--border);
+  margin: var(--space-2) var(--space-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.soap-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
+
+.soap-card-actions {
+  display: flex;
+  gap: var(--space-1);
 }
 
 .soap-content {
-  padding: var(--space-3) var(--space-4);
-  font-size: 14px;
+  padding: 0 var(--space-3) var(--space-3);
+  font-size: 13px;
   line-height: 1.6;
   color: var(--text-primary);
   white-space: pre-wrap;
+  max-height: 6lh;
+  overflow: hidden;
+  position: relative;
+}
+
+.soap-content::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2lh;
+  background: linear-gradient(transparent, var(--bg-elevated));
+  pointer-events: none;
+}
+
+.soap-card.expanded .soap-content {
+  max-height: none;
+}
+
+.soap-card.expanded .soap-content::after {
+  display: none;
 }
 
 /* ===== Recording Transcript ===== */

@@ -195,6 +195,13 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  const soapExpandBtn = mustBtn("soapExpandBtn");
+  const soapCard = mustEl("soapSection");
+  soapExpandBtn.addEventListener("click", () => {
+    const expanded = soapCard.classList.toggle("expanded");
+    soapExpandBtn.textContent = expanded ? "Collapse" : "Expand";
+  });
+
   listController = new ListController({
     container: mustEl("recording-list"),
     store,
