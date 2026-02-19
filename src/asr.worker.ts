@@ -355,6 +355,7 @@ async function transcribe(message: TranscribeRequest): Promise<void> {
     } else {
       text = decodeCTC(rawLogits, logits.dims, vocab);
     }
+    text = normalizeSectionHeaders(text);
     text = stripLeadingBracketArtifact(text);
 
     send({
@@ -964,6 +965,14 @@ function buildSpecialTokenIds(tokens: string[]): Set<number> {
     }
   }
   return ids;
+}
+
+function normalizeSectionHeaders(text: string): string {
+  return text.replace(
+    /\[([A-Z][A-Z -]+)\]\s*([A-Z])/g,
+    (_match, inner: string, next: string) =>
+      inner.charAt(0) + inner.slice(1).toLowerCase() + " " + next.toLowerCase(),
+  );
 }
 
 function stripLeadingBracketArtifact(text: string): string {
