@@ -1,4 +1,4 @@
-mod plugins;
+pub mod plugins;
 mod storage;
 
 use serde::Serialize;

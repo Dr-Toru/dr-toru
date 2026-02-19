@@ -952,10 +952,6 @@ function isSpecialToken(token: string): boolean {
   if (token === "{" || token === "}" || token === "▁{") {
     return true;
   }
-  // Bare SentencePiece word-boundary marker (token 4) — no content, OOV in KenLM
-  if (token === "▁") {
-    return true;
-  }
   return false;
 }
 

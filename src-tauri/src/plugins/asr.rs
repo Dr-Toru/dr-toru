@@ -23,14 +23,14 @@ struct VocabJson {
     tokens: Vec<String>,
 }
 
-pub(super) struct AsrVocab {
+pub struct AsrVocab {
     tokens: Vec<String>,
     blank_id: usize,
     eos_id: usize,
     special_ids: HashSet<usize>,
 }
 
-pub(super) struct AsrSession {
+pub struct AsrSession {
     session: Mutex<ort::session::Session>,
     vocab: AsrVocab,
     mel_filterbank: Vec<f64>,
@@ -38,7 +38,7 @@ pub(super) struct AsrSession {
     fft_plan: Arc<dyn RealToComplex<f64>>,
 }
 
-pub(super) struct RunningAsr(pub Arc<AsrSession>);
+pub struct RunningAsr(pub Arc<AsrSession>);
 
 fn hertz_to_mel(freq: f64) -> f64 {
     1127.0 * (1.0 + freq / 700.0).ln()
@@ -115,10 +115,6 @@ fn is_special_token(token: &str) -> bool {
     }
     // Bare braces and brace fragments
     if token == "{" || token == "}" || token == "\u{2581}{" {
-        return true;
-    }
-    // Bare SentencePiece marker
-    if token == "\u{2581}" {
         return true;
     }
     false
@@ -246,7 +242,7 @@ fn strip_leading_bracket_artifact(text: &str) -> String {
     }
 }
 
-pub(super) fn load_session(
+pub fn load_session(
     model_path: &str,
     vocab_path: &str,
 ) -> Result<RunningAsr, String> {
@@ -287,7 +283,7 @@ pub(super) fn load_session(
     })))
 }
 
-pub(super) fn transcribe(
+pub fn transcribe(
     asr: &AsrSession,
     samples: &[f32],
 ) -> Result<RuntimeExecuteResult, String> {
