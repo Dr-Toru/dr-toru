@@ -19,10 +19,22 @@ pub(super) struct RunningLlamafile {
 }
 
 fn default_llamafile_prompt(action: &str) -> String {
-    if action == "soap" {
-        return "Convert the note into SOAP format.".to_string();
+    match action {
+        "soap" => concat!(
+            "Convert the following clinical note into SOAP format.\n\n",
+            "Use these section headers exactly:\n",
+            "SUBJECTIVE:\n",
+            "OBJECTIVE:\n",
+            "ASSESSMENT:\n",
+            "PLAN:\n\n",
+            "Keep medical terminology accurate. ",
+            "If information for a section is not available, ",
+            "write \"Not documented.\" ",
+            "Be concise but thorough."
+        )
+        .to_string(),
+        _ => "Correct grammar and punctuation while preserving clinical meaning.".to_string(),
     }
-    "Correct grammar and punctuation while preserving clinical meaning.".to_string()
 }
 
 fn normalize_http_path(path: &str, default_path: &str) -> String {
@@ -375,12 +387,13 @@ pub(super) fn execute_blocking(
         json!({
             "model": "local",
             "messages": [{ "role": "user", "content": full_prompt }],
-            "temperature": 0.2
+            "temperature": 0.2,
+            "max_tokens": 2048
         })
     } else {
         json!({
             "prompt": full_prompt,
-            "n_predict": 512,
+            "n_predict": 2048,
             "temperature": 0.2
         })
     };

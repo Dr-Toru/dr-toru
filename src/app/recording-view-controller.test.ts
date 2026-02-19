@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { vi } from "vitest";
 
 import { computeRms } from "../audio/capture";
+import type { PluginPlatform } from "../plugins/platform";
 import type { RecordingService } from "./recording-service";
 import {
   RecordingViewController,
@@ -503,16 +504,28 @@ function makeController(
   timerEl.textContent = "0:00";
   const typingIndicatorEl = document.createElement("div");
   typingIndicatorEl.hidden = true;
+  const soapBtn = document.createElement("button");
+  const soapSectionEl = document.createElement("div");
+  const soapContentEl = document.createElement("div");
+  const soapOverlayEl = document.createElement("div");
+  const platform = {
+    runLlm: vi.fn().mockResolvedValue(""),
+  } as unknown as PluginPlatform;
   const onRecordingsChanged = vi.fn();
   const controller = new RecordingViewController({
     transcriptEl,
     contextNoteEl,
     transcribeBtn,
     uploadBtn,
+    soapBtn,
+    soapSectionEl,
+    soapContentEl,
+    soapOverlayEl,
     timerEl,
     barEls,
     typingIndicatorEl,
     recordingService: service,
+    platform,
     onToggleRecording: async () => undefined,
     onUploadRequested: () => undefined,
     onRecordingsChanged,
@@ -539,6 +552,7 @@ function makeServiceStub(
     createDraftRecordingId: () => `draft-${++seq}`,
     loadTranscript: async () => null,
     loadContext: async () => null,
+    loadAttachmentText: async () => null,
     saveTranscript: async (input: {
       recordingId: string;
       transcript: string;

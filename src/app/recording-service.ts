@@ -113,7 +113,7 @@ export class RecordingService {
 
   // -- shared helpers --
 
-  private async loadAttachmentText(
+  async loadAttachmentText(
     recordingId: string,
     kind: TextAttachmentKind,
   ): Promise<{ attachmentId: string | null; text: string } | null> {
@@ -135,13 +135,15 @@ export class RecordingService {
     }
   }
 
-  private async saveAttachmentText(opts: {
+  async saveAttachmentText(opts: {
     recordingId: string;
     attachmentId?: string | null;
     kind: TextAttachmentKind;
     createdBy: AttachmentCreator;
     text: string;
     setActive: boolean;
+    role?: "source" | "derived";
+    sourceAttachmentId?: string | null;
   }): Promise<{ attachmentId: string }> {
     const now = new Date().toISOString();
     const recording =
@@ -178,10 +180,11 @@ export class RecordingService {
         createTextAttachment({
           attachmentId,
           kind: opts.kind,
-          role: "source",
+          role: opts.role ?? "source",
           createdAt: now,
           createdBy: opts.createdBy,
           path: written.path,
+          sourceAttachmentId: opts.sourceAttachmentId ?? null,
           metadata: { sizeBytes: written.sizeBytes },
         }),
       );

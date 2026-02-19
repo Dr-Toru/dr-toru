@@ -1315,6 +1315,16 @@ body {
   color: var(--text-muted);
 }
 
+/* ===== SOAP Note ===== */
+
+.soap-content {
+  padding: var(--space-3) var(--space-4);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+
 /* ===== Recording Transcript ===== */
 
 #screen-recording .view-body {

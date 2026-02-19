@@ -1,3 +1,4 @@
+import type { PluginPlatform } from "../plugins/platform";
 import { RecordingService } from "./recording-service";
 
 const MIN_BAR_HEIGHT = 4;
@@ -17,10 +18,15 @@ export interface RecordingViewControllerOptions {
   transcribeBtn: HTMLButtonElement;
   headerTranscribeBtn?: HTMLButtonElement;
   uploadBtn: HTMLButtonElement;
+  soapBtn: HTMLButtonElement;
+  soapSectionEl: HTMLElement;
+  soapContentEl: HTMLElement;
+  soapOverlayEl: HTMLElement;
   timerEl: HTMLElement;
   barEls: readonly HTMLElement[];
   typingIndicatorEl: HTMLElement;
   recordingService: RecordingService;
+  platform: PluginPlatform;
   onToggleRecording: () => Promise<void>;
   onUploadRequested: () => void;
   onRecordingsChanged: () => void;
@@ -33,6 +39,8 @@ interface RecordingContext {
   transcript: string;
   contextAttachmentId: string | null;
   contextText: string;
+  soapAttachmentId: string | null;
+  soapText: string;
 }
 
 export type OpenRouteResult =
@@ -46,10 +54,15 @@ export class RecordingViewController {
   private readonly contextNoteEl: HTMLTextAreaElement;
   private readonly transcribeBtns: readonly HTMLButtonElement[];
   private readonly uploadBtn: HTMLButtonElement;
+  private readonly soapBtn: HTMLButtonElement;
+  private readonly soapSectionEl: HTMLElement;
+  private readonly soapContentEl: HTMLElement;
+  private readonly soapOverlayEl: HTMLElement;
   private readonly timerEl: HTMLElement;
   private readonly barEls: readonly HTMLElement[];
   private readonly typingIndicatorEl: HTMLElement;
   private readonly recordingService: RecordingService;
+  private readonly platform: PluginPlatform;
   private readonly onToggleRecording: () => Promise<void>;
   private readonly onUploadRequested: () => void;
   private readonly onRecordingsChanged: () => void;
@@ -61,6 +74,7 @@ export class RecordingViewController {
   private toggling = false;
   private uploading = false;
   private modelLoading = false;
+  private generating = false;
   private timerInterval: ReturnType<typeof setInterval> | null = null;
   private recordingStartTime: number | null = null;
   private elapsedOffset = 0;
@@ -76,10 +90,15 @@ export class RecordingViewController {
       ? [options.headerTranscribeBtn, options.transcribeBtn]
       : [options.transcribeBtn];
     this.uploadBtn = options.uploadBtn;
+    this.soapBtn = options.soapBtn;
+    this.soapSectionEl = options.soapSectionEl;
+    this.soapContentEl = options.soapContentEl;
+    this.soapOverlayEl = options.soapOverlayEl;
     this.timerEl = options.timerEl;
     this.barEls = options.barEls;
     this.typingIndicatorEl = options.typingIndicatorEl;
     this.recordingService = options.recordingService;
+    this.platform = options.platform;
     this.onToggleRecording = options.onToggleRecording;
     this.onUploadRequested = options.onUploadRequested;
     this.onRecordingsChanged = options.onRecordingsChanged;
@@ -91,6 +110,9 @@ export class RecordingViewController {
     }
     this.uploadBtn.addEventListener("click", () => {
       this.requestUpload();
+    });
+    this.soapBtn.addEventListener("click", () => {
+      void this.generateSoapNote();
     });
     this.contextNoteEl.addEventListener("input", () => {
       this.scheduleContextSave();
@@ -104,11 +126,11 @@ export class RecordingViewController {
         return { status: "opened", recordingId };
       }
 
-      if (this.recording) {
+      if (this.recording || this.generating) {
         return { status: "blocked" };
       }
 
-      this.flushContextSave();
+      await this.flushContextSave();
 
       if (recordingId === null) {
         this.resetTimer();
@@ -117,6 +139,7 @@ export class RecordingViewController {
         );
         this.liveTranscript = "";
         this.contextNoteEl.value = "";
+        this.renderSoap();
         this.render();
         return { status: "opened", recordingId: this.context.recordingId };
       }
@@ -133,6 +156,16 @@ export class RecordingViewController {
           };
           this.liveTranscript = "";
           this.contextNoteEl.value = this.context.contextText;
+
+          const soap = await this.recordingService.loadAttachmentText(
+            recordingId,
+            "soap_note",
+          );
+          if (soap) {
+            this.context.soapAttachmentId = soap.attachmentId;
+            this.context.soapText = soap.text;
+          }
+          this.renderSoap();
           this.render();
           return { status: "opened", recordingId: loaded.recordingId };
         }
@@ -219,6 +252,9 @@ export class RecordingViewController {
       });
       this.context.attachmentId = saved.attachmentId;
       this.context.transcript = saved.transcript;
+      this.context.soapAttachmentId = null;
+      this.context.soapText = "";
+      this.renderSoap();
       this.onRecordingsChanged();
       this.liveTranscript = "";
       this.renderTranscript();
@@ -267,6 +303,8 @@ export class RecordingViewController {
       transcribeBtn.disabled = actionDisabled;
     }
     this.uploadBtn.disabled = actionDisabled || this.recording;
+    this.soapBtn.disabled =
+      !this.context?.transcript?.trim() || this.recording || this.generating;
     this.timerEl.classList.toggle("recording", this.recording);
     this.renderTranscript();
   }
@@ -417,6 +455,63 @@ export class RecordingViewController {
     this.typingIndicatorEl.hidden = true;
   }
 
+  async generateSoapNote(): Promise<void> {
+    if (!this.context || this.generating) return;
+    if (!this.context.transcript.trim()) return;
+    if (!this.context.attachmentId) return;
+
+    this.generating = true;
+    this.soapOverlayEl.hidden = false;
+    this.soapOverlayEl.classList.add("visible");
+    this.render();
+
+    try {
+      await this.flushContextSave();
+
+      const transcript = this.context.transcript;
+      const context = this.contextNoteEl.value.trim();
+      let input = `Transcript:\n${transcript}`;
+      if (context) {
+        input += `\n\nClinician's Notes:\n${context}`;
+      }
+
+      const soapText = await this.platform.runLlm("soap", input);
+
+      const result = await this.recordingService.saveAttachmentText({
+        recordingId: this.context.recordingId,
+        attachmentId: this.context.soapAttachmentId,
+        kind: "soap_note",
+        createdBy: "llm",
+        text: soapText,
+        setActive: false,
+        role: "derived",
+        sourceAttachmentId: this.context.attachmentId,
+      });
+
+      this.context.soapAttachmentId = result.attachmentId;
+      this.context.soapText = soapText;
+      this.renderSoap();
+    } catch (err) {
+      this.onError(err, "SOAP generation");
+    } finally {
+      this.generating = false;
+      this.soapOverlayEl.classList.remove("visible");
+      this.soapOverlayEl.hidden = true;
+      this.render();
+    }
+  }
+
+  private renderSoap(): void {
+    const text = this.context?.soapText ?? "";
+    if (text) {
+      this.soapContentEl.textContent = text;
+      this.soapSectionEl.hidden = false;
+    } else {
+      this.soapContentEl.textContent = "";
+      this.soapSectionEl.hidden = true;
+    }
+  }
+
   private scheduleContextSave(): void {
     if (this.contextSaveTimer !== null) {
       clearTimeout(this.contextSaveTimer);
@@ -427,11 +522,11 @@ export class RecordingViewController {
     }, 1000);
   }
 
-  private flushContextSave(): void {
+  private async flushContextSave(): Promise<void> {
     if (this.contextSaveTimer !== null) {
       clearTimeout(this.contextSaveTimer);
       this.contextSaveTimer = null;
-      void this.saveContext();
+      await this.saveContext();
     }
   }
 
@@ -480,6 +575,8 @@ function createEmptyContext(recordingId: string): RecordingContext {
     transcript: "",
     contextAttachmentId: null,
     contextText: "",
+    soapAttachmentId: null,
+    soapText: "",
   };
 }
 
@@ -492,6 +589,8 @@ function mapLoadedContext(loaded: {
     recordingId: loaded.recordingId,
     attachmentId: loaded.attachmentId,
     transcript: loaded.transcript,
+    soapAttachmentId: null,
+    soapText: "",
   };
 }
 
