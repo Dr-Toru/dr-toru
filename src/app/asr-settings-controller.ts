@@ -17,12 +17,10 @@ export class AsrSettingsController {
   private readonly statusEl: HTMLElement;
   private readonly asrEnabledInput: HTMLInputElement;
   private readonly beamSearchEnabledInput: HTMLInputElement;
-  private readonly chunkSecsInput: HTMLInputElement;
-  private readonly strideSecsInput: HTMLInputElement;
   private readonly silenceRmsInput: HTMLInputElement;
   private readonly silencePeakInput: HTMLInputElement;
-  private readonly silenceHoldInput: HTMLInputElement;
-  private readonly silenceProbeInput: HTMLInputElement;
+  private readonly silenceHangoverInput: HTMLInputElement;
+  private readonly silenceHangoverOutput: HTMLElement;
   private readonly ortThreadsInput: HTMLInputElement;
   private readonly beamWidthInput: HTMLInputElement;
   private readonly lmAlphaInput: HTMLInputElement;
@@ -38,12 +36,10 @@ export class AsrSettingsController {
     this.statusEl = mustEl("asrSettingsStatus");
     this.asrEnabledInput = mustInput("asrEnabled");
     this.beamSearchEnabledInput = mustInput("asrBeamSearchEnabled");
-    this.chunkSecsInput = mustInput("asrChunkSecs");
-    this.strideSecsInput = mustInput("asrStrideSecs");
     this.silenceRmsInput = mustInput("asrSilenceRms");
     this.silencePeakInput = mustInput("asrSilencePeak");
-    this.silenceHoldInput = mustInput("asrSilenceHoldChunks");
-    this.silenceProbeInput = mustInput("asrSilenceProbeEvery");
+    this.silenceHangoverInput = mustInput("asrSilenceHangoverMs");
+    this.silenceHangoverOutput = mustEl("asrSilenceHangoverOutput");
     this.ortThreadsInput = mustInput("asrOrtThreads");
     this.beamWidthInput = mustInput("asrBeamWidth");
     this.lmAlphaInput = mustInput("asrLmAlpha");
@@ -57,6 +53,9 @@ export class AsrSettingsController {
     this.beamSearchEnabledInput.addEventListener("change", () => {
       this.updateFieldState();
     });
+    this.silenceHangoverInput.addEventListener("input", () => {
+      this.silenceHangoverOutput.textContent = this.silenceHangoverInput.value;
+    });
     this.saveBtn.addEventListener("click", () => {
       this.save();
     });
@@ -66,12 +65,10 @@ export class AsrSettingsController {
     this.asrEnabledInput.checked = settings.asrEnabled;
     this.beamSearchEnabledInput.checked =
       settings.runtimeConfig.decode.beamSearchEnabled;
-    this.chunkSecsInput.value = String(settings.chunkSecs);
-    this.strideSecsInput.value = String(settings.strideSecs);
     this.silenceRmsInput.value = String(settings.silenceRms);
     this.silencePeakInput.value = String(settings.silencePeak);
-    this.silenceHoldInput.value = String(settings.silenceHoldChunks);
-    this.silenceProbeInput.value = String(settings.silenceProbeEvery);
+    this.silenceHangoverInput.value = String(settings.silenceHangoverMs);
+    this.silenceHangoverOutput.textContent = String(settings.silenceHangoverMs);
     this.ortThreadsInput.value = String(settings.runtimeConfig.ortThreads);
     this.beamWidthInput.value = String(settings.runtimeConfig.decode.beamWidth);
     this.lmAlphaInput.value = String(settings.runtimeConfig.decode.lmAlpha);
@@ -96,12 +93,9 @@ export class AsrSettingsController {
     try {
       const next = sanitizeAsrSettings({
         asrEnabled: this.asrEnabledInput.checked,
-        chunkSecs: this.chunkSecsInput.valueAsNumber,
-        strideSecs: this.strideSecsInput.valueAsNumber,
         silenceRms: this.silenceRmsInput.valueAsNumber,
         silencePeak: this.silencePeakInput.valueAsNumber,
-        silenceHoldChunks: this.silenceHoldInput.valueAsNumber,
-        silenceProbeEvery: this.silenceProbeInput.valueAsNumber,
+        silenceHangoverMs: this.silenceHangoverInput.valueAsNumber,
         runtimeConfig: {
           ortThreads: this.ortThreadsInput.valueAsNumber,
           decode: {
@@ -132,12 +126,9 @@ export class AsrSettingsController {
     const beamEnabled = this.beamSearchEnabledInput.checked;
 
     this.beamSearchEnabledInput.disabled = !asrEnabled;
-    this.chunkSecsInput.disabled = !asrEnabled;
-    this.strideSecsInput.disabled = !asrEnabled;
     this.silenceRmsInput.disabled = !asrEnabled;
     this.silencePeakInput.disabled = !asrEnabled;
-    this.silenceHoldInput.disabled = !asrEnabled;
-    this.silenceProbeInput.disabled = !asrEnabled;
+    this.silenceHangoverInput.disabled = !asrEnabled;
     this.ortThreadsInput.disabled = !asrEnabled;
 
     const decodeEnabled = asrEnabled && beamEnabled;

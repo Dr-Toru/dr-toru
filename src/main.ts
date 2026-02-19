@@ -33,14 +33,7 @@ const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 const DEBUG_METRICS = isDebugMetricsEnabled();
 const asrSettings = loadAsrSettings();
 
-const capture = new AudioCapture({
-  sampleRate: SAMPLE_RATE,
-  chunkSamples: chunkSamplesFor(asrSettings.chunkSecs),
-  stepSamples: chunkStepSamplesFor(
-    asrSettings.chunkSecs,
-    asrSettings.strideSecs,
-  ),
-});
+const capture = new AudioCapture({ sampleRate: SAMPLE_RATE });
 const appBase = new URL("./", window.location.href);
 const ortDir = new URL("ort/", appBase).href;
 
@@ -231,12 +224,12 @@ window.addEventListener("DOMContentLoaded", () => {
     pluginPlatform,
     capture,
     sampleRate: SAMPLE_RATE,
-    chunkSecs: asrSettings.chunkSecs,
-    strideSecs: asrSettings.strideSecs,
     silenceRms: asrSettings.silenceRms,
     silencePeak: asrSettings.silencePeak,
-    speechHoldChunks: asrSettings.silenceHoldChunks,
-    silenceProbeEvery: asrSettings.silenceProbeEvery,
+    silenceHangoverMs: asrSettings.silenceHangoverMs,
+    speechOnsetMs: asrSettings.speechOnsetMs,
+    maxSegmentSecs: asrSettings.maxSegmentSecs,
+    preRollMs: asrSettings.preRollMs,
     debugMetrics: DEBUG_METRICS,
     onStatus: () => undefined,
     onTranscript: (text) => {
@@ -755,14 +748,4 @@ function loadAsrSettings(): AsrSettings {
     console.error("Failed to read ASR settings from storage:", error);
     return sanitizeAsrSettings(undefined);
   }
-}
-
-function chunkSamplesFor(chunkSecs: number): number {
-  return Math.floor(chunkSecs * SAMPLE_RATE);
-}
-
-function chunkStepSamplesFor(chunkSecs: number, strideSecs: number): number {
-  const chunkSamples = chunkSamplesFor(chunkSecs);
-  const strideSamples = Math.floor(strideSecs * SAMPLE_RATE);
-  return Math.max(Math.floor(0.75 * SAMPLE_RATE), chunkSamples - strideSamples);
 }

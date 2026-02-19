@@ -7,12 +7,12 @@ import {
 
 export interface AsrSettings {
   asrEnabled: boolean;
-  chunkSecs: number;
-  strideSecs: number;
   silenceRms: number;
   silencePeak: number;
-  silenceHoldChunks: number;
-  silenceProbeEvery: number;
+  silenceHangoverMs: number;
+  speechOnsetMs: number;
+  maxSegmentSecs: number;
+  preRollMs: number;
   runtimeConfig: AsrRuntimeConfig;
 }
 
@@ -27,12 +27,9 @@ interface StorageLike {
 
 const STORAGE_KEYS = {
   asrEnabled: "toru.asr.enabled",
-  chunkSecs: "toru.chunk.secs",
-  strideSecs: "toru.stride.secs",
   silenceRms: "toru.silence.rms",
   silencePeak: "toru.silence.peak",
-  silenceHoldChunks: "toru.silence.hold.chunks",
-  silenceProbeEvery: "toru.silence.probe.every",
+  silenceHangoverMs: "toru.silence.hangover.ms",
   ortThreads: "toru.asr.ort.threads",
   beamSearchEnabled: "toru.asr.decode.beam.enabled",
   beamWidth: "toru.asr.decode.beam.width",
@@ -44,12 +41,12 @@ const STORAGE_KEYS = {
 
 export const DEFAULT_ASR_SETTINGS: AsrSettings = {
   asrEnabled: false,
-  chunkSecs: 6,
-  strideSecs: 1.5,
   silenceRms: 0.0025,
   silencePeak: 0.012,
-  silenceHoldChunks: 2,
-  silenceProbeEvery: 8,
+  silenceHangoverMs: 500,
+  speechOnsetMs: 150,
+  maxSegmentSecs: 18,
+  preRollMs: 200,
   runtimeConfig: DEFAULT_ASR_RUNTIME_CONFIG,
 };
 
@@ -112,26 +109,10 @@ function intWithFallback(
 export function sanitizeAsrSettings(
   input: PartialAsrSettings | undefined,
 ): AsrSettings {
-  const chunkSecs = numberWithFallback(
-    input?.chunkSecs,
-    DEFAULT_ASR_SETTINGS.chunkSecs,
-    2,
-    20,
-  );
-  const strideMax = Math.max(0.5, chunkSecs - 0.5);
-  const strideFallback = Math.min(DEFAULT_ASR_SETTINGS.strideSecs, strideMax);
-
   return {
     asrEnabled: booleanWithFallback(
       input?.asrEnabled,
       DEFAULT_ASR_SETTINGS.asrEnabled,
-    ),
-    chunkSecs,
-    strideSecs: numberWithFallback(
-      input?.strideSecs,
-      strideFallback,
-      0.5,
-      strideMax,
     ),
     silenceRms: numberWithFallback(
       input?.silenceRms,
@@ -145,17 +126,29 @@ export function sanitizeAsrSettings(
       0.0001,
       0.2,
     ),
-    silenceHoldChunks: intWithFallback(
-      input?.silenceHoldChunks,
-      DEFAULT_ASR_SETTINGS.silenceHoldChunks,
-      0,
-      12,
+    silenceHangoverMs: intWithFallback(
+      input?.silenceHangoverMs,
+      DEFAULT_ASR_SETTINGS.silenceHangoverMs,
+      100,
+      2000,
     ),
-    silenceProbeEvery: intWithFallback(
-      input?.silenceProbeEvery,
-      DEFAULT_ASR_SETTINGS.silenceProbeEvery,
-      1,
+    speechOnsetMs: intWithFallback(
+      input?.speechOnsetMs,
+      DEFAULT_ASR_SETTINGS.speechOnsetMs,
       50,
+      1000,
+    ),
+    maxSegmentSecs: intWithFallback(
+      input?.maxSegmentSecs,
+      DEFAULT_ASR_SETTINGS.maxSegmentSecs,
+      5,
+      60,
+    ),
+    preRollMs: intWithFallback(
+      input?.preRollMs,
+      DEFAULT_ASR_SETTINGS.preRollMs,
+      0,
+      1000,
     ),
     runtimeConfig: sanitizeAsrRuntimeConfig(input?.runtimeConfig),
   };
@@ -172,12 +165,9 @@ export function readAsrSettings(
 
   return sanitizeAsrSettings({
     asrEnabled: toBoolean(target.getItem(STORAGE_KEYS.asrEnabled)),
-    chunkSecs: toNumber(target.getItem(STORAGE_KEYS.chunkSecs)),
-    strideSecs: toNumber(target.getItem(STORAGE_KEYS.strideSecs)),
     silenceRms: toNumber(target.getItem(STORAGE_KEYS.silenceRms)),
     silencePeak: toNumber(target.getItem(STORAGE_KEYS.silencePeak)),
-    silenceHoldChunks: toNumber(target.getItem(STORAGE_KEYS.silenceHoldChunks)),
-    silenceProbeEvery: toNumber(target.getItem(STORAGE_KEYS.silenceProbeEvery)),
+    silenceHangoverMs: toNumber(target.getItem(STORAGE_KEYS.silenceHangoverMs)),
     runtimeConfig: {
       ortThreads: toNumber(target.getItem(STORAGE_KEYS.ortThreads)),
       decode: {
@@ -207,17 +197,11 @@ export function writeAsrSettings(
   const normalized = sanitizeAsrSettings(settings);
 
   target.setItem(STORAGE_KEYS.asrEnabled, normalized.asrEnabled ? "1" : "0");
-  target.setItem(STORAGE_KEYS.chunkSecs, String(normalized.chunkSecs));
-  target.setItem(STORAGE_KEYS.strideSecs, String(normalized.strideSecs));
   target.setItem(STORAGE_KEYS.silenceRms, String(normalized.silenceRms));
   target.setItem(STORAGE_KEYS.silencePeak, String(normalized.silencePeak));
   target.setItem(
-    STORAGE_KEYS.silenceHoldChunks,
-    String(normalized.silenceHoldChunks),
-  );
-  target.setItem(
-    STORAGE_KEYS.silenceProbeEvery,
-    String(normalized.silenceProbeEvery),
+    STORAGE_KEYS.silenceHangoverMs,
+    String(normalized.silenceHangoverMs),
   );
   target.setItem(
     STORAGE_KEYS.ortThreads,
