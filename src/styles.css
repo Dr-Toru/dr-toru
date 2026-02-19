@@ -80,8 +80,7 @@ body {
 .app {
   position: relative;
   height: 100%;
-  max-width: 430px;
-  margin: 0 auto;
+  width: 100%;
   overflow: hidden;
   padding-top: var(--safe-top);
 }
