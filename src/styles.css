@@ -260,31 +260,6 @@ body {
   transition: height 100ms ease-out;
 }
 
-/* ===== Local Badge ===== */
-
-.local-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  background: var(--accent-light);
-  color: var(--accent-primary);
-  border-radius: var(--radius-full);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  flex-shrink: 0;
-}
-
-.local-badge::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  background: var(--success);
-  border-radius: 50%;
-}
-
 /* ===== Session Cards (Level 1) ===== */
 
 .session-card {
@@ -1129,17 +1104,6 @@ body {
   font-size: 14px;
   font-weight: 500;
   z-index: 50;
-}
-
-/* ===== ASR Loading Indicator ===== */
-
-.asr-loading {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--accent-primary);
-  padding: var(--space-1) var(--space-2);
-  background: var(--accent-light);
-  border-radius: var(--radius-full);
 }
 
 /* ===== Fade-in Animation ===== */

@@ -57,8 +57,6 @@ let pluginSummaryEl: HTMLElement;
 let llmStatusEl: HTMLElement;
 let llmOutputEl: HTMLElement;
 let appErrorEl: HTMLElement;
-let asrLoadingEl: HTMLElement;
-let beamLoadingEl: HTMLElement;
 let settingsBtn: HTMLButtonElement;
 let uploadTranscriptBtn: HTMLButtonElement;
 let transcriptUploadInput: HTMLInputElement;
@@ -91,7 +89,6 @@ let currentRouteStateKey = "";
 let lastMainRoute: AppRoute = { name: "list" };
 let routeSeq = 0;
 let asrLoadTask: Promise<boolean> | null = null;
-let asrLoadPhase: "idle" | "asr" | "beam" = "idle";
 let devtoolsBusy = false;
 let devtoolsStatusError: string | null = null;
 let devtoolsState: DevtoolsState = {
@@ -109,8 +106,6 @@ window.addEventListener("DOMContentLoaded", () => {
   llmStatusEl = mustEl("llmServiceStatus");
   llmOutputEl = mustEl("llmOutput");
   appErrorEl = mustEl("appError");
-  asrLoadingEl = mustEl("asrLoading");
-  beamLoadingEl = mustEl("beamLoading");
   settingsBtn = mustBtn("settingsBtn");
   uploadTranscriptBtn = mustBtn("uploadTranscriptBtn");
   transcriptUploadInput = mustFileInput("transcriptUploadInput");
@@ -280,11 +275,10 @@ window.addEventListener("DOMContentLoaded", () => {
     appOrigin: appBase.href,
     asrRuntimeConfig: asrSettings.runtimeConfig,
     asrEvents: {
-      onStatus: (message) => {
-        updateAsrLoadPhaseFromStatus(message);
+      onStatus: () => {
+        updateAsrLoadingIndicator();
       },
       onCrash: (message) => {
-        asrLoadPhase = "idle";
         dictation.handleAsrCrash(message);
         recordingView.setTranscribeAvailable(isAsrTranscriptionEnabled());
       },
@@ -774,35 +768,12 @@ function showAppError(message: string): void {
   appErrorEl.hidden = false;
 }
 
-function updateAsrLoadPhaseFromStatus(message: string): void {
-  const normalized = message.toLowerCase();
-  if (normalized.includes("language model")) {
-    asrLoadPhase = "beam";
-  } else if (
-    normalized.includes("vocab") ||
-    normalized.includes("onnx") ||
-    normalized.includes("inference") ||
-    normalized.includes("model")
-  ) {
-    asrLoadPhase = "asr";
-  }
-  updateAsrLoadingIndicator();
-}
-
 function updateAsrLoadingIndicator(): void {
   const hasTranscription = isAsrTranscriptionEnabled();
   const isReady = hasTranscription && pluginPlatform.isAsrReady();
   const isLoading = asrLoadTask !== null;
   const showLoading = hasTranscription && isLoading && !isReady;
 
-  const showBeamLoading =
-    showLoading &&
-    asrLoadPhase === "beam" &&
-    asrSettings.runtimeConfig.decode.beamSearchEnabled;
-  const showAsrLoading = showLoading && !showBeamLoading;
-
-  asrLoadingEl.hidden = !showAsrLoading;
-  beamLoadingEl.hidden = !showBeamLoading;
   recordingView?.setModelLoading(
     currentRoute?.name === "recording" && showLoading,
   );
@@ -810,20 +781,17 @@ function updateAsrLoadingIndicator(): void {
 
 async function loadModel(): Promise<boolean> {
   if (!asrSettings.asrEnabled) {
-    asrLoadPhase = "idle";
     recordingView.setTranscribeAvailable(false);
     updateAsrLoadingIndicator();
     return false;
   }
 
   if (pluginPlatform.isAsrReady()) {
-    asrLoadPhase = "idle";
     updateAsrLoadingIndicator();
     return true;
   }
 
   if (!pluginState?.features.transcription) {
-    asrLoadPhase = "idle";
     recordingView.setTranscribeAvailable(false);
     updateAsrLoadingIndicator();
     return false;
@@ -833,7 +801,6 @@ async function loadModel(): Promise<boolean> {
     return asrLoadTask;
   }
 
-  asrLoadPhase = "asr";
   asrLoadTask = (async () => {
     const loaded = await dictation.loadModel();
     pluginState = await pluginPlatform.status();
@@ -847,7 +814,6 @@ async function loadModel(): Promise<boolean> {
     })
     .finally(() => {
       asrLoadTask = null;
-      asrLoadPhase = "idle";
       updateAsrLoadingIndicator();
     });
 
