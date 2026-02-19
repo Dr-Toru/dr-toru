@@ -366,6 +366,24 @@ pub fn storage_save_recording(app: AppHandle, recording: Recording) -> Result<()
 }
 
 #[tauri::command]
+pub fn storage_delete_recording(app: AppHandle, recording_id: String) -> Result<(), String> {
+    if !is_safe_id(&recording_id) {
+        return Err("Invalid recording id".to_string());
+    }
+
+    let paths = storage_paths(&app)?;
+    ensure_storage(&paths)?;
+
+    let dir_path = recording_dir(&paths, &recording_id);
+    if !dir_path.exists() {
+        return Ok(());
+    }
+
+    fs::remove_dir_all(&dir_path).map_err(err_to_string)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn storage_read_text(app: AppHandle, path: String) -> Result<String, String> {
     if !is_safe_relative_path(&path) || !path.starts_with("recordings/") {
         return Err("Invalid path".to_string());

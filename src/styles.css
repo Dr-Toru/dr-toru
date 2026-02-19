@@ -316,7 +316,6 @@ body {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  margin-bottom: var(--space-3);
   cursor: pointer;
   transition: background 0.15s ease;
 }
@@ -413,7 +412,6 @@ body {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  margin-bottom: var(--space-3);
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -1056,13 +1054,20 @@ body {
 .recording-item {
   display: flex;
   align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.recording-item-main {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: var(--space-4);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  margin-bottom: var(--space-3);
   cursor: pointer;
   transition: background 0.15s ease;
   font-family: inherit;
@@ -1070,7 +1075,57 @@ body {
   text-align: left;
 }
 
-.recording-item:active {
+.recording-item-main:active {
+  background: var(--bg-secondary);
+}
+
+.recording-item-actions {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.recording-item-selector {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.recording-item-selector:active {
+  background: var(--bg-secondary);
+}
+
+.recording-item-menu {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  min-width: 120px;
+  padding: var(--space-1);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  z-index: 20;
+}
+
+.recording-item-menu-item {
+  width: 100%;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--error);
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.recording-item-menu-item:active {
   background: var(--bg-secondary);
 }
 

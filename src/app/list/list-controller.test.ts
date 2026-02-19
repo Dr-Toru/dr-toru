@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 
 import { NoopRecordingStore } from "../../storage/noop-store";
 import type { RecordingService } from "../recording-service";
@@ -23,6 +23,7 @@ describe("ListController", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     container.remove();
   });
 
@@ -100,11 +101,127 @@ describe("ListController", () => {
     });
     await ctrl.refresh();
 
-    const first = container.querySelector<HTMLButtonElement>(".recording-item");
+    const first = container.querySelector<HTMLButtonElement>(
+      ".recording-item-main",
+    );
     expect(first).not.toBeNull();
     first?.click();
 
     expect(selectedId).not.toBeNull();
+  });
+
+  it("opens the selector menu and closes on outside click", async () => {
+    const store = new NoopRecordingStore();
+    const { RecordingService } = await import("../recording-service");
+    const service = new RecordingService(store);
+    await saveInNewRecording(service, "A note");
+
+    const ctrl = new ListController({ container, store });
+    await ctrl.refresh();
+
+    const selector = container.querySelector<HTMLButtonElement>(
+      ".recording-item-selector",
+    );
+    const menu = container.querySelector<HTMLElement>(".recording-item-menu");
+    expect(selector).not.toBeNull();
+    expect(menu).not.toBeNull();
+    expect(menu?.hidden).toBe(true);
+
+    selector?.click();
+    expect(menu?.hidden).toBe(false);
+
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(menu?.hidden).toBe(true);
+  });
+
+  it("asks for delete confirmation and removes recording on confirm", async () => {
+    const store = new NoopRecordingStore();
+    const { RecordingService } = await import("../recording-service");
+    const service = new RecordingService(store);
+    await saveInNewRecording(service, "A note");
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const ctrl = new ListController({ container, store });
+    await ctrl.refresh();
+
+    const selector = container.querySelector<HTMLButtonElement>(
+      ".recording-item-selector",
+    );
+    selector?.click();
+
+    const deleteButton = container.querySelector<HTMLButtonElement>(
+      ".recording-item-menu-item",
+    );
+    deleteButton?.click();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(confirmSpy).toHaveBeenCalledWith("Delete this recording?");
+    expect(container.querySelector(".empty-state")).not.toBeNull();
+  });
+
+  it("keeps recording when delete confirmation is canceled", async () => {
+    const store = new NoopRecordingStore();
+    const { RecordingService } = await import("../recording-service");
+    const service = new RecordingService(store);
+    await saveInNewRecording(service, "A note");
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    const ctrl = new ListController({ container, store });
+    await ctrl.refresh();
+
+    const selector = container.querySelector<HTMLButtonElement>(
+      ".recording-item-selector",
+    );
+    selector?.click();
+
+    const deleteButton = container.querySelector<HTMLButtonElement>(
+      ".recording-item-menu-item",
+    );
+    deleteButton?.click();
+    await flushMicrotasks();
+
+    expect(confirmSpy).toHaveBeenCalledWith("Delete this recording?");
+    expect(container.querySelectorAll(".recording-item")).toHaveLength(1);
+  });
+
+  it("waits for async confirmation before deleting", async () => {
+    const store = new NoopRecordingStore();
+    const { RecordingService } = await import("../recording-service");
+    const service = new RecordingService(store);
+    await saveInNewRecording(service, "A note");
+
+    const gate = deferred<boolean>();
+    const confirmSpy = vi
+      .spyOn(window, "confirm")
+      .mockImplementation(
+        (() => gate.promise) as unknown as typeof window.confirm,
+      );
+
+    const ctrl = new ListController({ container, store });
+    await ctrl.refresh();
+
+    const selector = container.querySelector<HTMLButtonElement>(
+      ".recording-item-selector",
+    );
+    selector?.click();
+
+    const deleteButton = container.querySelector<HTMLButtonElement>(
+      ".recording-item-menu-item",
+    );
+    deleteButton?.click();
+    await flushMicrotasks();
+
+    expect(confirmSpy).toHaveBeenCalledWith("Delete this recording?");
+    expect(container.querySelectorAll(".recording-item")).toHaveLength(1);
+
+    gate.resolve(true);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(container.querySelector(".empty-state")).not.toBeNull();
   });
 
   it("stops listening after unmount", async () => {
