@@ -29,6 +29,10 @@ export class TauriRecordingStore implements RecordingStore {
     return invoke<void>("storage_save_recording", { recording });
   }
 
+  deleteRecording(recordingId: string): Promise<void> {
+    return invoke<void>("storage_delete_recording", { recordingId });
+  }
+
   readText(path: string): Promise<string> {
     return invoke<string>("storage_read_text", { path });
   }

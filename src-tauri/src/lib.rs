@@ -81,6 +81,7 @@ pub fn run() {
             storage::storage_list_recordings,
             storage::storage_get_recording,
             storage::storage_save_recording,
+            storage::storage_delete_recording,
             storage::storage_read_text,
             storage::storage_write_attachment_text
         ])
