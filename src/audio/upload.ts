@@ -13,6 +13,7 @@ export async function decodeAudioFileToSamples(
   const decodeContext = new AudioContext();
 
   try {
+    // Some engines detach the incoming buffer during decode, so pass a copy.
     const decoded = await decodeContext.decodeAudioData(sourceBytes.slice(0));
     if (decoded.length === 0) {
       throw new Error("No audio data found in uploaded file.");
@@ -60,6 +61,7 @@ export function resampleLinear(
     return samples.slice();
   }
 
+  // Linear resampling keeps implementation simple with acceptable speech quality.
   const ratio = sourceRate / targetRate;
   const targetLength = Math.max(1, Math.round(samples.length / ratio));
   const resampled = new Float32Array(targetLength);

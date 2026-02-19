@@ -119,6 +119,21 @@ describe("RecordingViewController", () => {
     expect(transcribeBtn.disabled).toBe(false);
     expect(uploadBtn.disabled).toBe(false);
   });
+
+  it("disables actions while model loading is active", async () => {
+    const service = makeServiceStub();
+    const { controller, transcribeBtn, uploadBtn } = makeController(service);
+    await controller.openRoute(null);
+    controller.setTranscribeAvailable(true);
+
+    controller.setModelLoading(true);
+    expect(transcribeBtn.disabled).toBe(true);
+    expect(uploadBtn.disabled).toBe(true);
+
+    controller.setModelLoading(false);
+    expect(transcribeBtn.disabled).toBe(false);
+    expect(uploadBtn.disabled).toBe(false);
+  });
 });
 
 describe("formatElapsed", () => {

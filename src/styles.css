@@ -280,7 +280,8 @@ body {
     height 100ms ease-out;
 }
 
-#screen-recording:has(.transcribe-btn.recording) .status-indicator .bar {
+#screen-recording:has(.transcribe-btn.recording) .status-indicator .bar,
+#screen-recording:has(.header-record-btn.recording) .status-indicator .bar {
   background: var(--success);
 }
 
@@ -469,6 +470,52 @@ body {
 
 /* ===== Recording Action Bar ===== */
 
+#screen-recording .header-record-btn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  color: var(--accent-primary);
+  border: 1.5px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+#screen-recording .header-record-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+#screen-recording .header-record-btn .record-btn-label {
+  display: none;
+}
+
+#screen-recording .header-record-btn .loading-dots {
+  display: none;
+}
+
+#screen-recording .header-record-btn .icon-stop {
+  display: none;
+}
+
+#screen-recording .header-record-btn.recording {
+  background: var(--error);
+  border-color: var(--error);
+  color: white;
+}
+
+#screen-recording .header-record-btn.recording .icon-mic {
+  display: none;
+}
+
+#screen-recording .header-record-btn.recording .icon-stop {
+  display: block;
+}
+
 #screen-recording .transcribe-action-bar {
   display: flex;
   align-items: center;
@@ -531,6 +578,50 @@ body {
   display: none;
 }
 
+#screen-recording .transcribe-btn .loading-label,
+#screen-recording .transcribe-btn .loading-dots {
+  display: none;
+}
+
+#screen-recording .transcribe-btn.loading .icon-mic,
+#screen-recording .transcribe-btn.loading .icon-stop,
+#screen-recording .header-record-btn.loading .icon-mic,
+#screen-recording .header-record-btn.loading .icon-stop {
+  display: none;
+}
+
+#screen-recording .transcribe-btn.loading .record-btn-label {
+  display: none;
+}
+
+#screen-recording .transcribe-btn.loading .loading-label {
+  display: inline;
+}
+
+#screen-recording .transcribe-btn.loading .loading-dots,
+#screen-recording .header-record-btn.loading .loading-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#screen-recording .loading-dots .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+  animation: typingPulse 1.4s ease-in-out infinite;
+}
+
+#screen-recording .loading-dots .dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+#screen-recording .loading-dots .dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
 #screen-recording .transcribe-btn.recording {
   background: var(--error);
 }
@@ -544,11 +635,13 @@ body {
 }
 
 #screen-recording .transcribe-btn:not(:disabled):active,
+#screen-recording .header-record-btn:not(:disabled):active,
 #screen-recording .upload-btn:not(:disabled):active {
   transform: scale(0.98);
 }
 
 #screen-recording .transcribe-btn:disabled,
+#screen-recording .header-record-btn:disabled,
 #screen-recording .upload-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;

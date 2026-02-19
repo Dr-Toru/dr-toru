@@ -31,6 +31,7 @@ import {
 import { getRecordingStore } from "./storage";
 
 const SAMPLE_RATE = 16000;
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 const DEBUG_METRICS = isDebugMetricsEnabled();
 let asrSettings = loadAsrSettings();
 
@@ -187,6 +188,7 @@ window.addEventListener("DOMContentLoaded", () => {
     transcriptEl: mustEl("transcript"),
     contextNoteEl: mustTextarea("contextNote"),
     transcribeBtn: mustBtn("recordBtn"),
+    headerTranscribeBtn: mustBtn("headerRecordBtn"),
     uploadBtn: uploadTranscriptBtn,
     timerEl: mustEl("recordingTimer"),
     barEls,
@@ -437,6 +439,7 @@ async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
     if (syncHash) {
       syncRouteHash(nextRoute);
     }
+    updateAsrLoadingIndicator();
     if (nextRoute.name === "settings") {
       void refreshDevtoolsState();
     } else if (nextRoute.name === "recording" && asrSettings.asrEnabled) {
@@ -800,6 +803,7 @@ function updateAsrLoadingIndicator(): void {
 
   asrLoadingEl.hidden = !showAsrLoading;
   beamLoadingEl.hidden = !showBeamLoading;
+  recordingView?.setModelLoading(currentRoute?.name === "recording" && showLoading);
 }
 
 async function loadModel(): Promise<boolean> {
@@ -880,15 +884,21 @@ async function transcribeUploadedFile(file: File): Promise<void> {
     showAppError("Stop recording before uploading a file.");
     return;
   }
-  if (!dictation.isAsrReady()) {
-    const loaded = await loadModel();
-    if (!loaded) {
-      return;
-    }
-  }
 
   recordingView.setUploading(true);
   try {
+    if (file.size > MAX_UPLOAD_BYTES) {
+      const limitMb = Math.round(MAX_UPLOAD_BYTES / (1024 * 1024));
+      showAppError(`File is too large (${file.name}). Max upload is ${limitMb} MB.`);
+      return;
+    }
+    if (!dictation.isAsrReady()) {
+      const loaded = await loadModel();
+      if (!loaded) {
+        return;
+      }
+    }
+
     const samples = await decodeAudioFileToSamples(file, SAMPLE_RATE);
     if (samples.length === 0) {
       showAppError(`No audio detected in "${file.name}".`);
