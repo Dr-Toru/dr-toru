@@ -56,6 +56,19 @@ export class NoopRecordingStore implements RecordingStore {
     }
   }
 
+  canExportRecordings(): boolean {
+    return false;
+  }
+
+  async exportRecording(
+    _recordingId: string,
+    _destinationPath: string,
+  ): Promise<void> {
+    void _recordingId;
+    void _destinationPath;
+    throw new Error("Recording export is only available in the desktop app.");
+  }
+
   async readText(path: string): Promise<string> {
     const text = this.textByPath.get(path);
     if (text === undefined) {

@@ -33,6 +33,17 @@ export class TauriRecordingStore implements RecordingStore {
     return invoke<void>("storage_delete_recording", { recordingId });
   }
 
+  canExportRecordings(): boolean {
+    return true;
+  }
+
+  exportRecording(recordingId: string, destinationPath: string): Promise<void> {
+    return invoke<void>("storage_export_recording", {
+      recordingId,
+      destinationPath,
+    });
+  }
+
   readText(path: string): Promise<string> {
     return invoke<string>("storage_read_text", { path });
   }

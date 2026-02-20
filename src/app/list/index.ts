@@ -13,6 +13,7 @@ export class ListController {
   private readonly container: HTMLElement;
   private readonly store: RecordingStore;
   private readonly onSelect: (recordingId: string) => void;
+  private readonly canExportRecordings: boolean;
   private listening = false;
   private refreshSeq = 0;
   private itemDisposers: Array<() => void> = [];
@@ -24,6 +25,7 @@ export class ListController {
     this.container = options.container;
     this.store = options.store;
     this.onSelect = options.onSelect ?? (() => undefined);
+    this.canExportRecordings = this.store.canExportRecordings();
   }
 
   mount(): void {
@@ -67,7 +69,10 @@ export class ListController {
     const rendered = summaries.map((summary) =>
       renderItem({
         summary,
+        canExport: this.canExportRecordings,
         onSelect: this.onSelect,
+        onExport: (recordingId, createdAt) =>
+          this.exportRecording(recordingId, createdAt),
         onDelete: (recordingId) => this.deleteRecording(recordingId),
       }),
     );
@@ -98,11 +103,39 @@ export class ListController {
       await this.refresh();
     }
   }
+
+  private async exportRecording(
+    recordingId: string,
+    createdAt: string,
+  ): Promise<void> {
+    let destinationPath: string | null;
+    try {
+      destinationPath = await pickExportPath(createdAt);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      window.alert(`Failed to open export dialog: ${message}`);
+      return;
+    }
+
+    if (!destinationPath) {
+      return;
+    }
+
+    try {
+      await this.store.exportRecording(recordingId, destinationPath);
+      await notifyExportSuccess(destinationPath);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      window.alert(`Failed to export recording: ${message}`);
+    }
+  }
 }
 
 interface RenderItemOptions {
   summary: RecordingSummary;
+  canExport: boolean;
   onSelect: (recordingId: string) => void;
+  onExport: (recordingId: string, createdAt: string) => void | Promise<void>;
   onDelete: (recordingId: string) => void | Promise<void>;
 }
 
@@ -112,7 +145,7 @@ interface RenderedItem {
 }
 
 function renderItem(options: RenderItemOptions): RenderedItem {
-  const { summary, onSelect, onDelete } = options;
+  const { summary, canExport, onSelect, onExport, onDelete } = options;
 
   const element = document.createElement("div");
   element.className = "recording-item";
@@ -152,14 +185,26 @@ function renderItem(options: RenderItemOptions): RenderedItem {
   menu.setAttribute("role", "menu");
   menu.hidden = true;
 
+  let exportButton: HTMLButtonElement | null = null;
+  if (canExport) {
+    exportButton = document.createElement("button");
+    exportButton.type = "button";
+    exportButton.className = "recording-item-menu-item";
+    exportButton.textContent = "Export";
+    exportButton.setAttribute("role", "menuitem");
+    menu.append(exportButton);
+  }
+
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
-  deleteButton.className = "recording-item-menu-item";
+  deleteButton.className =
+    "recording-item-menu-item recording-item-menu-item-destructive";
   deleteButton.textContent = "Delete";
   deleteButton.setAttribute("role", "menuitem");
   menu.append(deleteButton);
 
   let menuOpen = false;
+  let exportPending = false;
   let deletePending = false;
   let removeDocClick: (() => void) | null = null;
 
@@ -200,6 +245,26 @@ function renderItem(options: RenderItemOptions): RenderedItem {
     openMenu();
   });
 
+  if (exportButton) {
+    const button = exportButton;
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (exportPending) {
+        return;
+      }
+      closeMenu();
+      exportPending = true;
+      button.disabled = true;
+
+      void Promise.resolve(
+        onExport(summary.recordingId, summary.createdAt),
+      ).finally(() => {
+        exportPending = false;
+        button.disabled = false;
+      });
+    });
+  }
+
   deleteButton.addEventListener("click", (event) => {
     event.stopPropagation();
     if (deletePending) {
@@ -228,6 +293,55 @@ function renderItem(options: RenderItemOptions): RenderedItem {
     element,
     dispose: closeMenu,
   };
+}
+
+async function pickExportPath(createdAt: string): Promise<string | null> {
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const selected = await save({
+    title: "Export Recording Session",
+    defaultPath: `${formatDateFilename(createdAt)}.zip`,
+    filters: [{ name: "Zip Archive", extensions: ["zip"] }],
+  });
+  if (typeof selected !== "string") {
+    return null;
+  }
+  const trimmed = selected.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return ensureZipExtension(trimmed);
+}
+
+function ensureZipExtension(path: string): string {
+  if (path.toLowerCase().endsWith(".zip")) {
+    return path;
+  }
+  return `${path}.zip`;
+}
+
+function formatDateFilename(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return "recording";
+  }
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${d}_${hh}-${mm}`;
+}
+
+async function notifyExportSuccess(destinationPath: string): Promise<void> {
+  try {
+    const { message } = await import("@tauri-apps/plugin-dialog");
+    await message(`Exported to ${destinationPath}`, {
+      title: "Success!",
+      kind: "info",
+    });
+  } catch {
+    // Best effort success notification; export already completed.
+  }
 }
 
 function formatDate(iso: string): string {

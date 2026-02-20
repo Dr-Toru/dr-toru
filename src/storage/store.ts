@@ -25,6 +25,8 @@ export interface RecordingStore {
   getRecording(recordingId: string): Promise<Recording | null>;
   saveRecording(recording: Recording): Promise<void>;
   deleteRecording(recordingId: string): Promise<void>;
+  canExportRecordings(): boolean;
+  exportRecording(recordingId: string, destinationPath: string): Promise<void>;
   readText(path: string): Promise<string>;
   writeAttachmentText(
     input: WriteAttachmentTextInput,
