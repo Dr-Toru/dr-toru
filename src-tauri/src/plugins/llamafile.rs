@@ -34,6 +34,28 @@ fn default_llamafile_prompt(action: &str) -> String {
             "Output only the SOAP note with no additional commentary or critique."
         )
         .to_string(),
+        "treatment_summary" => concat!(
+            "Convert the following clinical note into a treatment summary letter.\n\n",
+            "Write a professional clinical letter with these sections in order:\n\n",
+            "1. GREETING: Begin with \"To whom it may concern,\"\n",
+            "2. PATIENT RELATIONSHIP: State how the patient is known to the author ",
+            "(e.g. \"This patient has been followed at our clinic since...\", ",
+            "\"This patient presented to our clinic on...\").\n",
+            "3. CLINICAL PROBLEM AND NEEDS: Describe the clinical problem and ",
+            "what is being requested (e.g. additional examinations, specialist opinion, ",
+            "continued management).\n",
+            "4. MEDICATION AND TREATMENT NOTES: Note relevant medications, treatments ",
+            "given or not given and why (e.g. \"The patient declined X\" or ",
+            "\"X was not prescribed due to...\").\n",
+            "5. CLOSING: End with a polite professional closing ",
+            "(e.g. \"Thank you for your kind attention to this patient. ",
+            "Please do not hesitate to contact us if you require further information.\").\n\n",
+            "Keep medical terminology accurate. ",
+            "Write in a professional, concise tone. ",
+            "Do not invent a recipient name -- use \"Dear Colleague\" only. ",
+            "Output only the letter with no additional commentary or critique."
+        )
+        .to_string(),
         _ => "Correct grammar and punctuation while preserving clinical meaning.".to_string(),
     }
 }

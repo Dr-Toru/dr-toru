@@ -20,6 +20,7 @@ pub enum AttachmentKind {
     AudioCapture,
     ContextNote,
     SoapNote,
+    TreatmentSummary,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

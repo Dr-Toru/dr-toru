@@ -503,6 +503,10 @@ body {
   height: 16px;
 }
 
+#screen-recording .upload-btn {
+  font-size: 0.8125rem;
+}
+
 #screen-recording .transcribe-btn {
   min-height: 48px;
   flex: 1;

@@ -24,10 +24,18 @@ export interface RecordingViewControllerOptions {
   soapBlankStateEl: HTMLElement;
   soapCopyBtn: HTMLButtonElement;
   soapOverlayEl: HTMLElement;
+  treatmentSummaryBtn: HTMLButtonElement;
+  treatmentSummarySectionEl: HTMLElement;
+  treatmentSummaryContentEl: HTMLElement;
+  treatmentSummaryBlankStateEl: HTMLElement;
+  treatmentSummaryCopyBtn: HTMLButtonElement;
+  treatmentSummaryOverlayEl: HTMLElement;
   contextTabBtn: HTMLButtonElement;
   soapTabBtn: HTMLButtonElement;
+  treatmentSummaryTabBtn: HTMLButtonElement;
   contextPanel: HTMLElement;
   soapPanel: HTMLElement;
+  treatmentSummaryPanel: HTMLElement;
   timerEl: HTMLElement;
   barEls: readonly HTMLElement[];
   typingIndicatorEl: HTMLElement;
@@ -47,6 +55,8 @@ interface RecordingContext {
   contextText: string;
   soapAttachmentId: string | null;
   soapText: string;
+  treatmentSummaryAttachmentId: string | null;
+  treatmentSummaryText: string;
 }
 
 export type OpenRouteResult =
@@ -66,10 +76,18 @@ export class RecordingViewController {
   private readonly soapBlankStateEl: HTMLElement;
   private readonly soapCopyBtn: HTMLButtonElement;
   private readonly soapOverlayEl: HTMLElement;
+  private readonly treatmentSummaryBtn: HTMLButtonElement;
+  private readonly treatmentSummarySectionEl: HTMLElement;
+  private readonly treatmentSummaryContentEl: HTMLElement;
+  private readonly treatmentSummaryBlankStateEl: HTMLElement;
+  private readonly treatmentSummaryCopyBtn: HTMLButtonElement;
+  private readonly treatmentSummaryOverlayEl: HTMLElement;
   private readonly contextTabBtn: HTMLButtonElement;
   private readonly soapTabBtn: HTMLButtonElement;
+  private readonly treatmentSummaryTabBtn: HTMLButtonElement;
   private readonly contextPanel: HTMLElement;
   private readonly soapPanel: HTMLElement;
+  private readonly treatmentSummaryPanel: HTMLElement;
   private readonly timerEl: HTMLElement;
   private readonly barEls: readonly HTMLElement[];
   private readonly typingIndicatorEl: HTMLElement;
@@ -108,10 +126,18 @@ export class RecordingViewController {
     this.soapBlankStateEl = options.soapBlankStateEl;
     this.soapCopyBtn = options.soapCopyBtn;
     this.soapOverlayEl = options.soapOverlayEl;
+    this.treatmentSummaryBtn = options.treatmentSummaryBtn;
+    this.treatmentSummarySectionEl = options.treatmentSummarySectionEl;
+    this.treatmentSummaryContentEl = options.treatmentSummaryContentEl;
+    this.treatmentSummaryBlankStateEl = options.treatmentSummaryBlankStateEl;
+    this.treatmentSummaryCopyBtn = options.treatmentSummaryCopyBtn;
+    this.treatmentSummaryOverlayEl = options.treatmentSummaryOverlayEl;
     this.contextTabBtn = options.contextTabBtn;
     this.soapTabBtn = options.soapTabBtn;
+    this.treatmentSummaryTabBtn = options.treatmentSummaryTabBtn;
     this.contextPanel = options.contextPanel;
     this.soapPanel = options.soapPanel;
+    this.treatmentSummaryPanel = options.treatmentSummaryPanel;
     this.timerEl = options.timerEl;
     this.barEls = options.barEls;
     this.typingIndicatorEl = options.typingIndicatorEl;
@@ -132,11 +158,17 @@ export class RecordingViewController {
     this.soapBtn.addEventListener("click", () => {
       void this.generateSoapNote();
     });
+    this.treatmentSummaryBtn.addEventListener("click", () => {
+      void this.generateTreatmentSummary();
+    });
     this.contextTabBtn.addEventListener("click", () => {
       this.switchTab("context");
     });
     this.soapTabBtn.addEventListener("click", () => {
       this.switchTab("soap");
+    });
+    this.treatmentSummaryTabBtn.addEventListener("click", () => {
+      this.switchTab("treatment_summary");
     });
     this.contextNoteEl.addEventListener("input", () => {
       this.scheduleContextSave();
@@ -165,6 +197,7 @@ export class RecordingViewController {
         this.contextNoteEl.value = "";
         this.switchTab("context");
         this.renderSoap();
+        this.renderTreatmentSummary();
         this.render();
         return { status: "opened", recordingId: this.context.recordingId };
       }
@@ -190,8 +223,17 @@ export class RecordingViewController {
             this.context.soapAttachmentId = soap.attachmentId;
             this.context.soapText = soap.text;
           }
+          const summary = await this.recordingService.loadAttachmentText(
+            recordingId,
+            "treatment_summary",
+          );
+          if (summary) {
+            this.context.treatmentSummaryAttachmentId = summary.attachmentId;
+            this.context.treatmentSummaryText = summary.text;
+          }
           this.switchTab("context");
           this.renderSoap();
+          this.renderTreatmentSummary();
           this.render();
           return { status: "opened", recordingId: loaded.recordingId };
         }
@@ -281,6 +323,9 @@ export class RecordingViewController {
       this.context.soapAttachmentId = null;
       this.context.soapText = "";
       this.renderSoap();
+      this.context.treatmentSummaryAttachmentId = null;
+      this.context.treatmentSummaryText = "";
+      this.renderTreatmentSummary();
       this.onRecordingsChanged();
       this.liveTranscript = "";
       this.renderTranscript();
@@ -330,6 +375,8 @@ export class RecordingViewController {
     }
     this.uploadBtn.disabled = actionDisabled || this.recording;
     this.soapBtn.disabled =
+      !this.context?.transcript?.trim() || this.recording || this.generating;
+    this.treatmentSummaryBtn.disabled =
       !this.context?.transcript?.trim() || this.recording || this.generating;
     this.timerEl.classList.toggle("recording", this.recording);
     this.renderTranscript();
@@ -528,13 +575,65 @@ export class RecordingViewController {
     }
   }
 
-  switchTab(tab: "context" | "soap"): void {
-    const isContext = tab === "context";
-    this.contextTabBtn.classList.toggle("is-active", isContext);
-    this.soapTabBtn.classList.toggle("is-active", !isContext);
-    this.contextPanel.hidden = !isContext;
-    this.soapPanel.hidden = isContext;
+  async generateTreatmentSummary(): Promise<void> {
+    if (!this.context || this.generating) return;
+    if (!this.context.transcript.trim()) return;
+    if (!this.context.attachmentId) return;
+
+    this.generating = true;
+    this.treatmentSummaryOverlayEl.hidden = false;
+    this.treatmentSummaryOverlayEl.classList.add("visible");
+    this.render();
+
+    try {
+      await this.flushContextSave();
+
+      const transcript = this.context.transcript;
+      const context = this.contextNoteEl.value.trim();
+      let input = `Transcript:\n${transcript}`;
+      if (context) {
+        input += `\n\nClinician's Notes:\n${context}`;
+      }
+
+      const text = await this.platform.runLlm("treatment_summary", input);
+
+      const result = await this.recordingService.saveAttachmentText({
+        recordingId: this.context.recordingId,
+        attachmentId: this.context.treatmentSummaryAttachmentId,
+        kind: "treatment_summary",
+        createdBy: "llm",
+        text,
+        setActive: false,
+        role: "derived",
+        sourceAttachmentId: this.context.attachmentId,
+      });
+
+      this.context.treatmentSummaryAttachmentId = result.attachmentId;
+      this.context.treatmentSummaryText = text;
+      this.renderTreatmentSummary();
+      this.switchTab("treatment_summary");
+    } catch (err) {
+      this.onError(err, "Treatment summary generation");
+    } finally {
+      this.generating = false;
+      this.treatmentSummaryOverlayEl.classList.remove("visible");
+      this.treatmentSummaryOverlayEl.hidden = true;
+      this.render();
+    }
+  }
+
+  switchTab(tab: "context" | "soap" | "treatment_summary"): void {
+    this.contextTabBtn.classList.toggle("is-active", tab === "context");
+    this.soapTabBtn.classList.toggle("is-active", tab === "soap");
+    this.treatmentSummaryTabBtn.classList.toggle(
+      "is-active",
+      tab === "treatment_summary",
+    );
+    this.contextPanel.hidden = tab !== "context";
+    this.soapPanel.hidden = tab !== "soap";
+    this.treatmentSummaryPanel.hidden = tab !== "treatment_summary";
     this.updateSoapCopyBtn();
+    this.updateTreatmentSummaryCopyBtn();
   }
 
   private renderSoap(): void {
@@ -554,6 +653,27 @@ export class RecordingViewController {
   private updateSoapCopyBtn(): void {
     const show = !this.soapPanel.hidden && !this.soapSectionEl.hidden;
     this.soapCopyBtn.hidden = !show;
+  }
+
+  private renderTreatmentSummary(): void {
+    const text = this.context?.treatmentSummaryText ?? "";
+    if (text) {
+      this.treatmentSummaryContentEl.textContent = text;
+      this.treatmentSummarySectionEl.hidden = false;
+      this.treatmentSummaryBlankStateEl.hidden = true;
+    } else {
+      this.treatmentSummaryContentEl.textContent = "";
+      this.treatmentSummarySectionEl.hidden = true;
+      this.treatmentSummaryBlankStateEl.hidden = false;
+    }
+    this.updateTreatmentSummaryCopyBtn();
+  }
+
+  private updateTreatmentSummaryCopyBtn(): void {
+    const show =
+      !this.treatmentSummaryPanel.hidden &&
+      !this.treatmentSummarySectionEl.hidden;
+    this.treatmentSummaryCopyBtn.hidden = !show;
   }
 
   private scheduleContextSave(): void {
@@ -621,6 +741,8 @@ function createEmptyContext(recordingId: string): RecordingContext {
     contextText: "",
     soapAttachmentId: null,
     soapText: "",
+    treatmentSummaryAttachmentId: null,
+    treatmentSummaryText: "",
   };
 }
 
@@ -635,6 +757,8 @@ function mapLoadedContext(loaded: {
     transcript: loaded.transcript,
     soapAttachmentId: null,
     soapText: "",
+    treatmentSummaryAttachmentId: null,
+    treatmentSummaryText: "",
   };
 }
 

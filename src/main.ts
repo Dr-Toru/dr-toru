@@ -147,10 +147,18 @@ window.addEventListener("DOMContentLoaded", () => {
     soapBlankStateEl: mustEl("soapBlankState"),
     soapCopyBtn: mustBtn("soapCopyBtn"),
     soapOverlayEl: mustEl("soapOverlay"),
+    treatmentSummaryBtn: mustBtn("treatmentSummaryBtn"),
+    treatmentSummarySectionEl: mustEl("treatmentSummarySection"),
+    treatmentSummaryContentEl: mustEl("treatmentSummaryContent"),
+    treatmentSummaryBlankStateEl: mustEl("treatmentSummaryBlankState"),
+    treatmentSummaryCopyBtn: mustBtn("treatmentSummaryCopyBtn"),
+    treatmentSummaryOverlayEl: mustEl("treatmentSummaryOverlay"),
     contextTabBtn: mustBtn("tabContext"),
     soapTabBtn: mustBtn("tabSoap"),
+    treatmentSummaryTabBtn: mustBtn("tabTreatmentSummary"),
     contextPanel: mustEl("panelContext"),
     soapPanel: mustEl("panelSoap"),
+    treatmentSummaryPanel: mustEl("panelTreatmentSummary"),
     timerEl: mustEl("recordingTimer"),
     barEls,
     typingIndicatorEl: mustEl("typingIndicator"),
@@ -197,6 +205,21 @@ window.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => {
         soapCopyBtn.textContent = "Copy";
         soapCopyBtn.classList.remove("copied");
+      }, 1500);
+    });
+  });
+
+  const treatmentSummaryCopyBtn = mustBtn("treatmentSummaryCopyBtn");
+  treatmentSummaryCopyBtn.addEventListener("click", () => {
+    const el = mustEl("treatmentSummaryContent");
+    const text = el.textContent?.trim();
+    if (!text) return;
+    void navigator.clipboard.writeText(text).then(() => {
+      treatmentSummaryCopyBtn.textContent = "Copied";
+      treatmentSummaryCopyBtn.classList.add("copied");
+      setTimeout(() => {
+        treatmentSummaryCopyBtn.textContent = "Copy";
+        treatmentSummaryCopyBtn.classList.remove("copied");
       }, 1500);
     });
   });

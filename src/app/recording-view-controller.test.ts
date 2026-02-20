@@ -511,11 +511,21 @@ function makeController(
   const soapCopyBtn = document.createElement("button");
   soapCopyBtn.hidden = true;
   const soapOverlayEl = document.createElement("div");
+  const treatmentSummaryBtn = document.createElement("button");
+  const treatmentSummarySectionEl = document.createElement("div");
+  const treatmentSummaryContentEl = document.createElement("div");
+  const treatmentSummaryBlankStateEl = document.createElement("div");
+  const treatmentSummaryCopyBtn = document.createElement("button");
+  treatmentSummaryCopyBtn.hidden = true;
+  const treatmentSummaryOverlayEl = document.createElement("div");
   const contextTabBtn = document.createElement("button");
   const soapTabBtn = document.createElement("button");
+  const treatmentSummaryTabBtn = document.createElement("button");
   const contextPanel = document.createElement("div");
   const soapPanel = document.createElement("div");
   soapPanel.hidden = true;
+  const treatmentSummaryPanel = document.createElement("div");
+  treatmentSummaryPanel.hidden = true;
   const platform = {
     runLlm: vi.fn().mockResolvedValue(""),
   } as unknown as PluginPlatform;
@@ -531,10 +541,18 @@ function makeController(
     soapBlankStateEl,
     soapCopyBtn,
     soapOverlayEl,
+    treatmentSummaryBtn,
+    treatmentSummarySectionEl,
+    treatmentSummaryContentEl,
+    treatmentSummaryBlankStateEl,
+    treatmentSummaryCopyBtn,
+    treatmentSummaryOverlayEl,
     contextTabBtn,
     soapTabBtn,
+    treatmentSummaryTabBtn,
     contextPanel,
     soapPanel,
+    treatmentSummaryPanel,
     timerEl,
     barEls,
     typingIndicatorEl,
