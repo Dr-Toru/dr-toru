@@ -38,6 +38,31 @@ describe("PluginPlatform", () => {
     expect(state.canImport).toBe(false);
   });
 
+  it("tracks unloaded capability states by default", async () => {
+    const platform = createPlatform();
+    await platform.init();
+
+    expect(platform.getAsrLoadState()).toBe("unloaded");
+    expect(platform.getLlmLoadState()).toBe("unloaded");
+    expect(platform.isLlmBusy()).toBe(false);
+  });
+
+  it("allows no-op unload when no LLM provider is active", async () => {
+    const platform = createPlatform();
+    await platform.init();
+
+    await expect(platform.setLlmLoaded(false)).resolves.toBeUndefined();
+    expect(platform.getLlmLoadState()).toBe("unloaded");
+  });
+
+  it("setActivePlugin unloads before switching", async () => {
+    const platform = createPlatform();
+    await platform.init();
+    const state = await platform.setActivePlugin("asr", null);
+    expect(state.features.transcription).toBe(false);
+    expect(platform.getAsrLoadState()).toBe("unloaded");
+  });
+
   it("stays initialized when no ASR provider is active", async () => {
     const store = new NoopPluginRegistryStore();
     await store.setActivePlugin("asr", null);

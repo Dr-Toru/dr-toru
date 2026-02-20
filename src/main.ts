@@ -3,12 +3,12 @@ import { AudioCapture } from "./audio/capture";
 import {
   readAsrSettings,
   sanitizeAsrSettings,
+  writeAsrSettings,
   type AsrSettings,
 } from "./asr/settings";
 import { AsrSettingsController } from "./app/asr-settings-controller";
 import { DictationController } from "./app/dictation-controller";
 import { ListController, fireRecordingsChanged } from "./app/list";
-import { LlmController } from "./app/llm-controller";
 import { RecordingService } from "./app/recording-service";
 import { RecordingViewController } from "./app/recording-view-controller";
 import {
@@ -21,8 +21,6 @@ import {
 } from "./app/router";
 import {
   createPluginPlatform,
-  formatLlmStatus,
-  formatPluginSummary,
   type PluginPlatform,
   type PluginPlatformState,
 } from "./plugins";
@@ -30,6 +28,7 @@ import { getRecordingStore } from "./storage";
 
 const SAMPLE_RATE = 16000;
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
+const MODEL_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const DEBUG_METRICS = isDebugMetricsEnabled();
 const asrSettings = loadAsrSettings();
 
@@ -40,43 +39,51 @@ const ortDir = new URL("ort/", appBase).href;
 let pluginPlatform: PluginPlatform;
 let pluginState: PluginPlatformState | null = null;
 let dictation: DictationController;
-let llm: LlmController;
 let recordingView: RecordingViewController;
 let listController: ListController;
 
-let pluginSummaryEl: HTMLElement;
-let llmStatusEl: HTMLElement;
 let appErrorEl: HTMLElement;
 let settingsBtn: HTMLButtonElement;
 let uploadTranscriptBtn: HTMLButtonElement;
 let transcriptUploadInput: HTMLInputElement;
 let pluginListEl: HTMLElement;
 let importPluginBtn: HTMLButtonElement;
-let toggleLlmBtn: HTMLButtonElement;
 let navBtns: HTMLButtonElement[] = [];
 let screenEls: Record<RouteName, HTMLElement>;
 let currentRoute: AppRoute | null = null;
 let currentRouteStateKey = "";
 let lastMainRoute: AppRoute = { name: "list" };
 let routeSeq = 0;
-let asrLoadTask: Promise<boolean> | null = null;
+let pluginActivationTask: Promise<void> | null = null;
+let modelIdleUnloadTimer: ReturnType<typeof setTimeout> | null = null;
+let modelIdleUnloadTask: Promise<void> | null = null;
 
 window.addEventListener("DOMContentLoaded", () => {
-  pluginSummaryEl = mustEl("pluginSummary");
-  llmStatusEl = mustEl("llmServiceStatus");
   appErrorEl = mustEl("appError");
   settingsBtn = mustBtn("settingsBtn");
   uploadTranscriptBtn = mustBtn("uploadTranscriptBtn");
   transcriptUploadInput = mustFileInput("transcriptUploadInput");
   pluginListEl = mustEl("pluginList");
   importPluginBtn = mustBtn("importPluginBtn");
-  toggleLlmBtn = mustBtn("toggleLlmBtn");
 
   const asrSettingsController = new AsrSettingsController({
     isRecording: () => dictation?.isRecording ?? false,
     onError: (error, context) => reportUnexpectedError(error, context),
   });
   asrSettingsController.populate(asrSettings);
+
+  const asrEnabledInput = document.getElementById(
+    "asrEnabled",
+  ) as HTMLInputElement;
+  const beamSearchInput = document.getElementById(
+    "asrBeamSearchEnabled",
+  ) as HTMLInputElement;
+  asrEnabledInput.addEventListener("change", () => {
+    void applyAsrEnabled(asrEnabledInput.checked);
+  });
+  beamSearchInput.addEventListener("change", () => {
+    void applyBeamSearch(beamSearchInput.checked);
+  });
 
   screenEls = {
     recording: mustEl("screen-recording"),
@@ -176,11 +183,6 @@ window.addEventListener("DOMContentLoaded", () => {
       reportUnexpectedError(error, "Plugin import failed"),
     );
   });
-  toggleLlmBtn.addEventListener("click", () => {
-    void toggleLlmService().catch((error) =>
-      reportUnexpectedError(error, "AI tools toggle failed"),
-    );
-  });
   window.addEventListener("error", (event) => {
     reportUnexpectedError(event.error ?? event.message, "Runtime error");
   });
@@ -190,6 +192,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   window.addEventListener("beforeunload", () => {
+    clearModelUnloadTimer();
     void dictation.shutdown();
     void pluginPlatform.shutdown();
     listController.unmount();
@@ -208,16 +211,6 @@ window.addEventListener("DOMContentLoaded", () => {
         dictation.handleAsrCrash(message);
         recordingView.setTranscribeAvailable(isAsrTranscriptionEnabled());
       },
-    },
-  });
-  llm = new LlmController({
-    pluginPlatform,
-    onStatus: (message) => {
-      llmStatusEl.textContent = message;
-    },
-    onStateChange: (state) => {
-      pluginState = state;
-      renderPluginStatus();
     },
   });
   dictation = new DictationController({
@@ -306,11 +299,14 @@ async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
       listController.unmount();
     }
 
-    // Tear down the ASR worker when leaving the recording screen so
-    // its WASM heap is returned to the OS. The model binary is in the
-    // Cache API, so reloading on return is fast.
-    if (currentRoute?.name === "recording" && nextRoute.name !== "recording") {
-      void pluginPlatform.unloadAsr();
+    const leavingRecording =
+      currentRoute?.name === "recording" && nextRoute.name !== "recording";
+    const enteringRecording = nextRoute.name === "recording";
+    if (leavingRecording) {
+      scheduleModelUnloadAfterIdle();
+    }
+    if (enteringRecording) {
+      clearModelUnloadTimer();
     }
 
     currentRoute = nextRoute;
@@ -354,8 +350,8 @@ async function setRoute(route: AppRoute, syncHash: boolean): Promise<void> {
       syncRouteHash(nextRoute);
     }
     updateAsrLoadingIndicator();
-    if (nextRoute.name === "recording" && asrSettings.asrEnabled) {
-      void loadModel();
+    if (nextRoute.name === "recording") {
+      ensureRecordingServicesLoaded();
     }
   } catch (error) {
     reportUnexpectedError(error, "Navigation failed");
@@ -380,10 +376,9 @@ async function initializeStorage(): Promise<void> {
 async function initializePlugins(): Promise<void> {
   try {
     pluginState = await pluginPlatform.init();
-    llm.setState(pluginState);
     renderPluginStatus();
-    if (currentRoute?.name === "recording" && asrSettings.asrEnabled) {
-      void loadModel();
+    if (currentRoute?.name === "recording") {
+      ensureRecordingServicesLoaded();
     }
   } catch (error) {
     reportUnexpectedError(error, "Plugin init failed");
@@ -391,36 +386,19 @@ async function initializePlugins(): Promise<void> {
   }
 }
 
-function updateLlmControls(): void {
-  const hasProvider = Boolean(pluginState?.features.llm);
-  const canImport = pluginState?.canImport ?? false;
-  const running = pluginState?.llmRunning ?? false;
-  importPluginBtn.disabled = !canImport;
-  toggleLlmBtn.disabled = !hasProvider;
-  toggleLlmBtn.textContent = running
-    ? "Stop AI Tools Service"
-    : "Start AI Tools Service";
+async function refreshPluginState(): Promise<void> {
+  pluginState = await pluginPlatform.status();
+  renderPluginStatus();
+}
+
+function updateSettingsControls(): void {
+  importPluginBtn.disabled = !(pluginState?.canImport ?? false);
 }
 
 function renderPluginStatus(): void {
-  if (!pluginState) {
-    pluginSummaryEl.textContent = "Loading app capabilities...";
-    llmStatusEl.textContent = "AI tools: unavailable";
-    recordingView.setTranscribeAvailable(false);
-    updateAsrLoadingIndicator();
-    updateLlmControls();
-    renderPluginList();
-    return;
-  }
-
-  const summary = formatPluginSummary(pluginState);
-  pluginSummaryEl.textContent = asrSettings.asrEnabled
-    ? summary
-    : `${summary} | Dictation disabled in settings`;
-  llmStatusEl.textContent = formatLlmStatus(pluginState);
   recordingView.setTranscribeAvailable(isAsrTranscriptionEnabled());
   updateAsrLoadingIndicator();
-  updateLlmControls();
+  updateSettingsControls();
   renderPluginList();
 }
 
@@ -432,18 +410,20 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-function formatPluginType(kind: string): string {
-  return `type: ${kind.toUpperCase()}`;
-}
-
 function renderPluginList(): void {
   // Scoped to LLM for now
   const plugins = pluginState?.plugins.filter((p) => p.kind === "llm") ?? [];
   const activeId = pluginState?.activeLlm?.pluginId ?? null;
+  const llmState = pluginPlatform.getLlmLoadState();
+  const controlsDisabled =
+    pluginActivationTask !== null ||
+    llmState === "loading" ||
+    llmState === "unloading" ||
+    modelIdleUnloadTask !== null;
 
   if (plugins.length === 0) {
     pluginListEl.innerHTML =
-      '<p class="plugin-list-empty">No AI tools imported yet.</p>';
+      '<p class="plugin-list-empty">No plugins imported yet.</p>';
     return;
   }
 
@@ -462,47 +442,107 @@ function renderPluginList(): void {
 
     const meta = document.createElement("div");
     meta.className = "plugin-meta";
-    const parts: string[] = [formatPluginType(plugin.kind)];
-    if (plugin.pluginId === activeId) parts.push("active");
-    if (plugin.sizeBytes) parts.push(formatFileSize(plugin.sizeBytes));
-    meta.textContent = parts.join(" / ");
+    meta.textContent = plugin.sizeBytes ? formatFileSize(plugin.sizeBytes) : "";
     info.appendChild(meta);
 
     row.appendChild(info);
+
+    const controls = document.createElement("div");
+    controls.className = "plugin-controls";
+
+    const enabledLabel = document.createElement("label");
+    enabledLabel.className = "plugin-enabled-toggle";
+    const enabledInput = document.createElement("input");
+    enabledInput.type = "checkbox";
+    enabledInput.checked = plugin.pluginId === activeId;
+    enabledInput.disabled = controlsDisabled;
+    enabledInput.addEventListener("change", () => {
+      void setPluginEnabled(plugin.pluginId, enabledInput.checked);
+    });
+    const enabledText = document.createElement("span");
+    enabledText.textContent = "Enabled";
+    enabledLabel.append(enabledInput, enabledText);
+    controls.appendChild(enabledLabel);
 
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "plugin-delete-btn";
     deleteBtn.textContent = "Delete";
     deleteBtn.type = "button";
+    deleteBtn.disabled = controlsDisabled;
     deleteBtn.addEventListener("click", () => {
       void deletePlugin(plugin.pluginId, plugin.name);
     });
-    row.appendChild(deleteBtn);
+    controls.appendChild(deleteBtn);
+
+    row.appendChild(controls);
 
     pluginListEl.appendChild(row);
   }
 }
 
+async function setPluginEnabled(
+  pluginId: string,
+  enabled: boolean,
+): Promise<void> {
+  if (pluginActivationTask) {
+    await pluginActivationTask;
+  }
+
+  if (!enabled && pluginPlatform.isLlmBusy()) {
+    const proceed = window.confirm(
+      "A plugin is still processing a request. " +
+        "Press OK to stop now, or Cancel to wait.",
+    );
+    if (!proceed) {
+      renderPluginList();
+      return;
+    }
+  }
+
+  const activeId = pluginState?.activeLlm?.pluginId ?? null;
+  const nextId = enabled ? pluginId : null;
+  if (activeId === nextId) {
+    return;
+  }
+
+  pluginActivationTask = (async () => {
+    await pluginPlatform.setActivePlugin("llm", nextId);
+    await refreshPluginState();
+    if (isRecordingRouteOpen() && nextId) {
+      await setLlmLoaded(true).catch(() => undefined);
+    }
+  })()
+    .catch((error) => {
+      reportUnexpectedError(error, "Failed to update plugin state");
+    })
+    .finally(() => {
+      pluginActivationTask = null;
+      updateSettingsControls();
+      renderPluginList();
+    });
+
+  await pluginActivationTask;
+}
+
 async function deletePlugin(pluginId: string, name: string): Promise<void> {
   const confirmFn = window.confirm as unknown as (message?: string) => unknown;
   const confirmed = await confirmFn(
-    `Delete "${name}"? This removes the tool file permanently.`,
+    `Delete "${name}"? This removes the plugin permanently.`,
   );
   if (!confirmed) {
     return;
   }
   try {
     await pluginPlatform.removePlugin(pluginId);
-    await initializePlugins();
+    await refreshPluginState();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    llmStatusEl.textContent = `Delete failed: ${message}`;
+    reportUnexpectedError(error, "Delete failed");
   }
 }
 
 async function importPlugin(): Promise<void> {
   if (!pluginState?.canImport) {
-    llmStatusEl.textContent = "Imports are only available in the desktop app";
+    showAppError("Imports are only available in the desktop app");
     return;
   }
 
@@ -514,22 +554,15 @@ async function importPlugin(): Promise<void> {
     }
 
     const displayName = window.prompt(
-      "Optional display name for this tool (leave blank to use filename):",
+      "Optional display name for this plugin (leave blank to use filename):",
       "",
     );
 
-    llmStatusEl.textContent = "Importing tool\u2026 0%";
     const { listen } = await import("@tauri-apps/api/event");
     const unlisten = await listen<{
       copiedBytes: number;
       totalBytes: number;
-    }>("plugin-import-progress", (event) => {
-      const { copiedBytes, totalBytes } = event.payload;
-      if (totalBytes > 0) {
-        const pct = Math.round((copiedBytes / totalBytes) * 100);
-        llmStatusEl.textContent = `Importing tool\u2026 ${pct}%`;
-      }
-    });
+    }>("plugin-import-progress", () => undefined);
     let imported;
     try {
       imported = await pluginPlatform.importFromPath({
@@ -539,34 +572,19 @@ async function importPlugin(): Promise<void> {
     } finally {
       unlisten();
     }
-    llmStatusEl.textContent = `Imported tool: ${imported.name}`;
-    await initializePlugins();
+    await refreshPluginState();
     if (
       imported.kind === "asr" &&
       asrSettings.asrEnabled &&
       currentRoute?.name === "recording"
     ) {
-      void loadModel();
+      await setAsrLoaded(true).catch(() => undefined);
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    llmStatusEl.textContent = `Import failed: ${message}`;
+    reportUnexpectedError(error, "Import failed");
   } finally {
     importPluginBtn.disabled = false;
-    updateLlmControls();
-  }
-}
-
-async function toggleLlmService(): Promise<void> {
-  if (!llm.isReady()) {
-    return;
-  }
-
-  toggleLlmBtn.disabled = true;
-  try {
-    pluginState = await llm.setServiceRunning(!llm.isRunning());
-  } finally {
-    updateLlmControls();
+    updateSettingsControls();
   }
 }
 
@@ -619,7 +637,7 @@ function showAppError(message: string): void {
 function updateAsrLoadingIndicator(): void {
   const hasTranscription = isAsrTranscriptionEnabled();
   const isReady = hasTranscription && pluginPlatform.isAsrReady();
-  const isLoading = asrLoadTask !== null;
+  const isLoading = pluginPlatform.getAsrLoadState() === "loading";
   const showLoading = hasTranscription && isLoading && !isReady;
 
   recordingView?.setModelLoading(
@@ -627,46 +645,115 @@ function updateAsrLoadingIndicator(): void {
   );
 }
 
-async function loadModel(): Promise<boolean> {
-  if (!asrSettings.asrEnabled) {
-    recordingView.setTranscribeAvailable(false);
-    updateAsrLoadingIndicator();
-    return false;
+function clearModelUnloadTimer(): void {
+  if (modelIdleUnloadTimer === null) {
+    return;
+  }
+  window.clearTimeout(modelIdleUnloadTimer);
+  modelIdleUnloadTimer = null;
+}
+
+function scheduleModelUnloadAfterIdle(): void {
+  clearModelUnloadTimer();
+  modelIdleUnloadTimer = window.setTimeout(() => {
+    modelIdleUnloadTimer = null;
+    void unloadModelsAfterIdle();
+  }, MODEL_IDLE_TIMEOUT_MS);
+}
+
+async function unloadModelsAfterIdle(): Promise<void> {
+  if (isRecordingRouteOpen()) {
+    return;
+  }
+  if (modelIdleUnloadTask) {
+    return modelIdleUnloadTask;
   }
 
-  if (pluginPlatform.isAsrReady()) {
-    updateAsrLoadingIndicator();
-    return true;
-  }
-
-  if (!pluginState?.features.transcription) {
-    recordingView.setTranscribeAvailable(false);
-    updateAsrLoadingIndicator();
-    return false;
-  }
-
-  if (asrLoadTask) {
-    return asrLoadTask;
-  }
-
-  asrLoadTask = (async () => {
-    const loaded = await dictation.loadModel();
-    pluginState = await pluginPlatform.status();
-    llm.setState(pluginState);
-    renderPluginStatus();
-    return loaded;
+  modelIdleUnloadTask = (async () => {
+    if (!isRecordingRouteOpen()) {
+      await Promise.allSettled([setAsrLoaded(false), setLlmLoaded(false)]);
+    }
   })()
     .catch((error) => {
-      reportUnexpectedError(error, "ASR load failed");
-      return false;
+      console.error("Idle model unload failed:", error);
     })
     .finally(() => {
-      asrLoadTask = null;
+      modelIdleUnloadTask = null;
       updateAsrLoadingIndicator();
+      updateSettingsControls();
     });
 
+  return modelIdleUnloadTask;
+}
+
+function ensureRecordingServicesLoaded(): void {
+  clearModelUnloadTimer();
+  if (asrSettings.asrEnabled && pluginState?.features.transcription) {
+    void setAsrLoaded(true).catch((error) =>
+      reportUnexpectedError(error, "ASR load failed"),
+    );
+  }
+  if (pluginState?.features.llm) {
+    void setLlmLoaded(true).catch((error) =>
+      reportUnexpectedError(error, "Plugin load failed"),
+    );
+  }
+}
+
+async function applyAsrEnabled(enabled: boolean): Promise<void> {
+  asrSettings.asrEnabled = enabled;
+  try {
+    writeAsrSettings(asrSettings);
+  } catch {
+    // Best-effort persist; value is already applied in memory
+  }
+
+  if (!enabled) {
+    await setAsrLoaded(false).catch(() => undefined);
+  } else if (isRecordingRouteOpen() && pluginState?.features.transcription) {
+    void setAsrLoaded(true).catch((error) =>
+      reportUnexpectedError(error, "ASR load failed"),
+    );
+  }
+  recordingView.setTranscribeAvailable(isAsrTranscriptionEnabled());
   updateAsrLoadingIndicator();
-  return asrLoadTask;
+}
+
+async function applyBeamSearch(enabled: boolean): Promise<void> {
+  asrSettings.runtimeConfig.decode.beamSearchEnabled = enabled;
+  try {
+    writeAsrSettings(asrSettings);
+  } catch {
+    // Best-effort persist
+  }
+
+  // Beam search config is baked into the worker at load time, so cycle ASR
+  if (pluginPlatform.isAsrReady()) {
+    await setAsrLoaded(false).catch(() => undefined);
+    if (asrSettings.asrEnabled && isRecordingRouteOpen()) {
+      void setAsrLoaded(true).catch((error) =>
+        reportUnexpectedError(error, "ASR load failed"),
+      );
+    }
+  }
+}
+
+async function setAsrLoaded(
+  loaded: boolean,
+  options?: { force?: boolean },
+): Promise<boolean> {
+  await pluginPlatform.setAsrLoaded(loaded, options);
+  await refreshPluginState();
+  return pluginPlatform.isAsrReady();
+}
+
+async function setLlmLoaded(
+  loaded: boolean,
+  options?: { force?: boolean },
+): Promise<boolean> {
+  await pluginPlatform.setLlmLoaded(loaded, options);
+  await refreshPluginState();
+  return pluginState?.llmRunning ?? false;
 }
 
 async function toggleRecording(): Promise<void> {
@@ -675,7 +762,7 @@ async function toggleRecording(): Promise<void> {
   }
 
   if (!dictation.isAsrReady()) {
-    const loaded = await loadModel();
+    const loaded = await setAsrLoaded(true);
     if (!loaded) {
       return;
     }
@@ -711,7 +798,7 @@ async function transcribeUploadedFile(file: File): Promise<void> {
       return;
     }
     if (!dictation.isAsrReady()) {
-      const loaded = await loadModel();
+      const loaded = await setAsrLoaded(true);
       if (!loaded) {
         return;
       }
@@ -734,6 +821,10 @@ async function transcribeUploadedFile(file: File): Promise<void> {
 
 function isAsrTranscriptionEnabled(): boolean {
   return asrSettings.asrEnabled && Boolean(pluginState?.features.transcription);
+}
+
+function isRecordingRouteOpen(): boolean {
+  return currentRoute?.name === "recording";
 }
 
 function isDebugMetricsEnabled(): boolean {

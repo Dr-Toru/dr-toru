@@ -301,26 +301,38 @@
           <h2 class="view-title">Settings</h2>
         </header>
         <div class="view-body">
-          <h3>App</h3>
-          <p id="pluginSummary" class="placeholder">
-            Loading app capabilities...
-          </p>
           <h3>Dictation</h3>
-          <div class="settings-grid">
-            <label class="setting-toggle">
-              <input id="asrEnabled" type="checkbox" />
-              <span>Enable dictation</span>
-            </label>
-            <label class="setting-toggle">
-              <input id="asrBeamSearchEnabled" type="checkbox" />
-              <span>Enhanced dictation</span>
-            </label>
+          <div class="plugin-list">
+            <div class="plugin-row">
+              <div class="plugin-info">
+                <div class="plugin-name">Medical Dictation</div>
+                <div class="plugin-meta">Built-in</div>
+              </div>
+              <div class="plugin-controls">
+                <label class="plugin-enabled-toggle">
+                  <input id="asrEnabled" type="checkbox" />
+                  <span>Enabled</span>
+                </label>
+              </div>
+            </div>
+            <div class="plugin-row">
+              <div class="plugin-info">
+                <div class="plugin-name">Enhanced Dictation</div>
+                <div class="plugin-meta">
+                  Experimental, may be slower on some devices
+                </div>
+              </div>
+              <div class="plugin-controls">
+                <label class="plugin-enabled-toggle">
+                  <input id="asrBeamSearchEnabled" type="checkbox" />
+                  <span>Enabled</span>
+                </label>
+              </div>
+            </div>
           </div>
-          <p class="status">
-            Experimental: Enhanced dictation may be slower on some devices.
-          </p>
           <details class="settings-advanced">
             <summary>Advanced dictation tuning</summary>
+            <p id="asrSettingsStatus" class="status"></p>
             <div class="settings-grid">
               <label class="setting-field">
                 <span>Silence RMS</span>
@@ -414,25 +426,15 @@
                 />
               </label>
             </div>
+            <div class="actions" style="margin-top: var(--space-4)">
+              <button id="saveAsrSettingsBtn" type="button">Save</button>
+            </div>
           </details>
-          <div class="actions">
-            <button id="saveAsrSettingsBtn" type="button">
-              Save Dictation Settings
-            </button>
-          </div>
-          <p id="asrSettingsStatus" class="status"></p>
-          <h3>AI Tools</h3>
+          <h3>Plugins</h3>
           <div id="pluginList" class="plugin-list"></div>
           <div class="actions">
-            <button id="toggleLlmBtn" type="button" disabled>
-              Start AI Tools Service
-            </button>
+            <button id="importPluginBtn" type="button">Import Plugin</button>
           </div>
-          <h3>Imports</h3>
-          <div class="actions">
-            <button id="importPluginBtn" type="button">Import Tool File</button>
-          </div>
-          <p id="llmServiceStatus" class="status">AI tools: unavailable</p>
         </div>
       </section>
     </main>
