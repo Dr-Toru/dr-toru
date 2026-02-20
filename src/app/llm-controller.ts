@@ -49,7 +49,7 @@ export class LlmController {
     this.state = await this.platform.status();
     this.onStateChange(this.state);
     if (startError) {
-      this.onStatus(`LLM service error: ${startError}`);
+      this.onStatus(`AI tools error: ${startError}`);
     }
     return this.state;
   }

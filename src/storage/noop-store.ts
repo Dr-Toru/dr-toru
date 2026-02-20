@@ -30,6 +30,7 @@ export class NoopRecordingStore implements RecordingStore {
         updatedAt: recording.updatedAt,
         activeAttachmentId: recording.activeAttachmentId,
         attachmentCount: recording.attachments.length,
+        searchText: recording.searchText,
       });
     }
     return items.sort((left, right) =>
@@ -54,6 +55,19 @@ export class NoopRecordingStore implements RecordingStore {
         this.textByPath.delete(path);
       }
     }
+  }
+
+  canExportRecordings(): boolean {
+    return false;
+  }
+
+  async exportRecording(
+    _recordingId: string,
+    _destinationPath: string,
+  ): Promise<void> {
+    void _recordingId;
+    void _destinationPath;
+    throw new Error("Recording export is only available in the desktop app.");
   }
 
   async readText(path: string): Promise<string> {
