@@ -162,6 +162,7 @@ window.addEventListener("DOMContentLoaded", () => {
   listController = new ListController({
     container: mustEl("recording-list"),
     store,
+    searchInput: mustInput("recordingSearchInput"),
     onSelect: (recordingId) => {
       void setRoute({ name: "recording", recordingId }, true);
     },
@@ -595,12 +596,17 @@ function mustTextarea(id: string): HTMLTextAreaElement {
 }
 
 function mustFileInput(id: string): HTMLInputElement {
+  const el = mustInput(id);
+  if (el.type !== "file") {
+    throw new Error(`#${id} is not a file input`);
+  }
+  return el;
+}
+
+function mustInput(id: string): HTMLInputElement {
   const el = mustEl(id);
   if (!(el instanceof HTMLInputElement)) {
     throw new Error(`#${id} is not an input`);
-  }
-  if (el.type !== "file") {
-    throw new Error(`#${id} is not a file input`);
   }
   return el;
 }

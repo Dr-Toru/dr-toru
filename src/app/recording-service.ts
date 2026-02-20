@@ -7,6 +7,7 @@ import {
 } from "../domain/recording";
 import { createUlid } from "../domain/ulid";
 import type { RecordingStore } from "../storage/store";
+import { normalizeSearchText } from "./search-text";
 
 export interface SaveTranscriptInput {
   recordingId: string;
@@ -190,10 +191,57 @@ export class RecordingService {
     if (opts.setActive) {
       recording.activeAttachmentId = attachmentId;
     }
+    recording.searchText = await this.buildSearchText(recording, {
+      [opts.kind]: opts.text,
+    });
     recording.updatedAt = now;
 
     await this.store.saveRecording(recording);
     return { attachmentId };
+  }
+
+  private async buildSearchText(
+    recording: { activeAttachmentId: string | null; attachments: Attachment[] },
+    latestByKind: Partial<Record<TextAttachmentKind, string>>,
+  ): Promise<string> {
+    const chunks: string[] = [];
+    const seen = new Set<string>();
+    const sources: Array<[TextAttachmentKind, string | null]> = [
+      ["transcript_raw", recording.activeAttachmentId],
+      ["transcript_corrected", null],
+      ["context_note", null],
+    ];
+
+    for (const [kind, preferredId] of sources) {
+      const override = latestByKind[kind];
+      if (override !== undefined) {
+        const normalized = normalizeSearchText(override);
+        if (normalized && !seen.has(normalized)) {
+          chunks.push(normalized);
+          seen.add(normalized);
+        }
+        continue;
+      }
+
+      const target = pickByKind(recording.attachments, kind, preferredId);
+      if (!target) {
+        continue;
+      }
+
+      try {
+        const text = await this.store.readText(target.path);
+        const normalized = normalizeSearchText(text);
+        if (!normalized || seen.has(normalized)) {
+          continue;
+        }
+        chunks.push(normalized);
+        seen.add(normalized);
+      } catch {
+        continue;
+      }
+    }
+
+    return chunks.join(" ");
   }
 }
 

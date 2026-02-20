@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -11,7 +12,7 @@ use zip::CompressionMethod;
 const STORAGE_FORMAT: u8 = 1;
 const RECORDING_FILE_NAME: &str = "recording.json";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttachmentKind {
     TranscriptRaw,
@@ -60,6 +61,8 @@ pub struct Recording {
     pub updated_at: String,
     pub active_attachment_id: Option<String>,
     #[serde(default)]
+    pub search_text: String,
+    #[serde(default)]
     pub attachments: Vec<Attachment>,
 }
 
@@ -71,6 +74,7 @@ pub struct RecordingIndexEntry {
     pub updated_at: String,
     pub active_attachment_id: Option<String>,
     pub attachment_count: usize,
+    pub search_text: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -211,6 +215,89 @@ fn is_recording_attachment_path(recording_id: &str, path: &str) -> bool {
     path.starts_with(&format!("recordings/{recording_id}/attachments/"))
 }
 
+fn normalize_search_text(value: &str) -> String {
+    value
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn pick_attachment_by_kind<'a>(
+    recording: &'a Recording,
+    kind: AttachmentKind,
+    preferred_id: Option<&str>,
+) -> Option<&'a Attachment> {
+    if let Some(id) = preferred_id {
+        if let Some(preferred) = recording
+            .attachments
+            .iter()
+            .find(|attachment| attachment.attachment_id == id && attachment.kind == kind)
+        {
+            return Some(preferred);
+        }
+    }
+    recording
+        .attachments
+        .iter()
+        .filter(|attachment| attachment.kind == kind)
+        .max_by(|left, right| left.created_at.cmp(&right.created_at))
+}
+
+fn maybe_backfill_search_text(paths: &StoragePaths, recording: &mut Recording) {
+    if !recording.search_text.is_empty() {
+        return;
+    }
+
+    let mut chunks = Vec::new();
+    let mut seen = HashSet::new();
+    let sources = [
+        (
+            AttachmentKind::TranscriptRaw,
+            recording.active_attachment_id.as_deref(),
+        ),
+        (AttachmentKind::TranscriptCorrected, None),
+        (AttachmentKind::ContextNote, None),
+    ];
+
+    for (kind, preferred_id) in sources {
+        let Some(attachment) = pick_attachment_by_kind(recording, kind, preferred_id) else {
+            continue;
+        };
+        let path = attachment.path.as_str();
+        if !is_safe_relative_path(path)
+            || !is_recording_attachment_path(&recording.recording_id, path)
+        {
+            continue;
+        }
+
+        let full_path = paths.root.join(path);
+        let Ok(raw) = fs::read_to_string(full_path) else {
+            continue;
+        };
+        let normalized = normalize_search_text(&raw);
+        if normalized.is_empty() {
+            continue;
+        }
+        if seen.insert(normalized.clone()) {
+            chunks.push(normalized);
+        }
+    }
+
+    if chunks.is_empty() {
+        return;
+    }
+
+    recording.search_text = chunks.join(" ");
+    let file_path = recording_file(paths, &recording.recording_id);
+    if let Err(error) = write_json_atomic(&file_path, recording) {
+        eprintln!(
+            "Failed to persist search text backfill for {}: {}",
+            recording.recording_id, error
+        );
+    }
+}
+
 fn build_index_entry(recording: &Recording) -> RecordingIndexEntry {
     RecordingIndexEntry {
         recording_id: recording.recording_id.clone(),
@@ -218,6 +305,7 @@ fn build_index_entry(recording: &Recording) -> RecordingIndexEntry {
         updated_at: recording.updated_at.clone(),
         active_attachment_id: recording.active_attachment_id.clone(),
         attachment_count: recording.attachments.len(),
+        search_text: recording.search_text.clone(),
     }
 }
 
@@ -291,12 +379,13 @@ fn list_recording_entries_from_files(paths: &StoragePaths) -> Result<Vec<Recordi
         let Ok(raw) = fs::read_to_string(&file_path) else {
             continue;
         };
-        let Ok(recording) = serde_json::from_str::<Recording>(&raw) else {
+        let Ok(mut recording) = serde_json::from_str::<Recording>(&raw) else {
             continue;
         };
         if recording.format != STORAGE_FORMAT || recording.recording_id != folder_name {
             continue;
         }
+        maybe_backfill_search_text(paths, &mut recording);
 
         recordings.push(build_index_entry(&recording));
     }
@@ -442,16 +531,18 @@ pub fn storage_get_recording(
     }
 
     let raw = fs::read_to_string(&file_path).map_err(err_to_string)?;
-    let recording = serde_json::from_str::<Recording>(&raw).map_err(err_to_string)?;
+    let mut recording = serde_json::from_str::<Recording>(&raw).map_err(err_to_string)?;
     validate_recording(&recording)?;
     if recording.recording_id != recording_id {
         return Err("Recording id mismatch".to_string());
     }
+    maybe_backfill_search_text(&paths, &mut recording);
     Ok(Some(recording))
 }
 
 #[tauri::command]
-pub fn storage_save_recording(app: AppHandle, recording: Recording) -> Result<(), String> {
+pub fn storage_save_recording(app: AppHandle, mut recording: Recording) -> Result<(), String> {
+    recording.search_text = normalize_search_text(&recording.search_text);
     validate_recording(&recording)?;
 
     let paths = storage_paths(&app)?;
