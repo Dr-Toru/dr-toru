@@ -142,32 +142,60 @@
           </button>
         </header>
         <div class="view-body">
-          <div class="section-block">
-            <div class="section-header">
-              <span class="section-label"
-                ><svg
-                  class="section-icon"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path
-                    d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
-                  />
-                  <rect x="8" y="2" width="8" height="4" rx="1" ry="1" /></svg
-                >Context</span
-              >
-            </div>
+          <div class="recording-tabs">
+            <button id="tabContext" class="tab-btn is-active" type="button">
+              Context
+            </button>
+            <button id="tabSoap" class="tab-btn" type="button">
+              SOAP Note
+            </button>
+            <button
+              id="soapCopyBtn"
+              class="section-action-btn tab-action"
+              type="button"
+              hidden
+            >
+              Copy
+            </button>
+            <button id="tabTreatmentSummary" class="tab-btn" type="button">
+              Summary
+            </button>
+            <button
+              id="treatmentSummaryCopyBtn"
+              class="section-action-btn tab-action"
+              type="button"
+              hidden
+            >
+              Copy
+            </button>
+          </div>
+          <div id="panelContext" class="tab-panel">
             <textarea
               id="contextNote"
               class="section-input"
               aria-label="Clinical context notes"
               placeholder="Add any additional context about the patient or paste files here"
-              rows="6"
             ></textarea>
+          </div>
+          <div id="panelSoap" class="tab-panel" hidden>
+            <div id="soapSection" hidden>
+              <div id="soapContent" class="artifact-content"></div>
+            </div>
+            <div id="soapBlankState" class="artifact-blank-state">
+              <p class="blank-state-text">
+                Generate a SOAP note from your transcript
+              </p>
+            </div>
+          </div>
+          <div id="panelTreatmentSummary" class="tab-panel" hidden>
+            <div id="treatmentSummarySection" hidden>
+              <div id="treatmentSummaryContent" class="artifact-content"></div>
+            </div>
+            <div id="treatmentSummaryBlankState" class="artifact-blank-state">
+              <p class="blank-state-text">
+                Generate a treatment summary from your transcript
+              </p>
+            </div>
           </div>
           <div class="transcript-area">
             <div class="section-header">
@@ -223,6 +251,14 @@
               <span class="typing-label">Listening</span>
             </div>
           </div>
+          <div class="processing-overlay" id="soapOverlay" hidden>
+            <div class="spinner"></div>
+            <p>Generating SOAP note...</p>
+          </div>
+          <div class="processing-overlay" id="treatmentSummaryOverlay" hidden>
+            <div class="spinner"></div>
+            <p>Generating treatment summary...</p>
+          </div>
         </div>
         <div class="transcribe-action-bar">
           <input
@@ -250,6 +286,24 @@
               <path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
             </svg>
             Upload
+          </button>
+          <button
+            id="soapBtn"
+            class="upload-btn"
+            type="button"
+            disabled
+            aria-label="Generate SOAP note"
+          >
+            SOAP
+          </button>
+          <button
+            id="treatmentSummaryBtn"
+            class="upload-btn"
+            type="button"
+            disabled
+            aria-label="Generate treatment summary"
+          >
+            Summary
           </button>
           <button
             id="recordBtn"

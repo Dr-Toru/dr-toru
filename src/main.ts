@@ -126,16 +126,51 @@ window.addEventListener("DOMContentLoaded", () => {
     ),
   );
 
+  pluginPlatform = createPluginPlatform({
+    workerUrl: new URL("./asr.worker.ts", import.meta.url),
+    ortDir,
+    appOrigin: appBase.href,
+    asrRuntimeConfig: asrSettings.runtimeConfig,
+    asrEvents: {
+      onStatus: () => {
+        updateAsrLoadingIndicator();
+      },
+      onCrash: (message) => {
+        dictation.handleAsrCrash(message);
+        recordingView.setTranscribeAvailable(isAsrTranscriptionEnabled());
+      },
+    },
+  });
+
   recordingView = new RecordingViewController({
     transcriptEl: mustEl("transcript"),
     contextNoteEl: mustTextarea("contextNote"),
     transcribeBtn: mustBtn("recordBtn"),
     headerTranscribeBtn: mustBtn("headerRecordBtn"),
     uploadBtn: uploadTranscriptBtn,
+    soapBtn: mustBtn("soapBtn"),
+    soapSectionEl: mustEl("soapSection"),
+    soapContentEl: mustEl("soapContent"),
+    soapBlankStateEl: mustEl("soapBlankState"),
+    soapCopyBtn: mustBtn("soapCopyBtn"),
+    soapOverlayEl: mustEl("soapOverlay"),
+    treatmentSummaryBtn: mustBtn("treatmentSummaryBtn"),
+    treatmentSummarySectionEl: mustEl("treatmentSummarySection"),
+    treatmentSummaryContentEl: mustEl("treatmentSummaryContent"),
+    treatmentSummaryBlankStateEl: mustEl("treatmentSummaryBlankState"),
+    treatmentSummaryCopyBtn: mustBtn("treatmentSummaryCopyBtn"),
+    treatmentSummaryOverlayEl: mustEl("treatmentSummaryOverlay"),
+    contextTabBtn: mustBtn("tabContext"),
+    soapTabBtn: mustBtn("tabSoap"),
+    treatmentSummaryTabBtn: mustBtn("tabTreatmentSummary"),
+    contextPanel: mustEl("panelContext"),
+    soapPanel: mustEl("panelSoap"),
+    treatmentSummaryPanel: mustEl("panelTreatmentSummary"),
     timerEl: mustEl("recordingTimer"),
     barEls,
     typingIndicatorEl: mustEl("typingIndicator"),
     recordingService,
+    platform: pluginPlatform,
     onToggleRecording: () => toggleRecording(),
     onUploadRequested: () => requestTranscriptUpload(),
     onRecordingsChanged: () => fireRecordingsChanged(),
@@ -162,6 +197,36 @@ window.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => {
         copyBtn.textContent = "Copy";
         copyBtn.classList.remove("copied");
+      }, 1500);
+    });
+  });
+
+  const soapCopyBtn = mustBtn("soapCopyBtn");
+  soapCopyBtn.addEventListener("click", () => {
+    const soapEl = mustEl("soapContent");
+    const text = soapEl.textContent?.trim();
+    if (!text) return;
+    void navigator.clipboard.writeText(text).then(() => {
+      soapCopyBtn.textContent = "Copied";
+      soapCopyBtn.classList.add("copied");
+      setTimeout(() => {
+        soapCopyBtn.textContent = "Copy";
+        soapCopyBtn.classList.remove("copied");
+      }, 1500);
+    });
+  });
+
+  const treatmentSummaryCopyBtn = mustBtn("treatmentSummaryCopyBtn");
+  treatmentSummaryCopyBtn.addEventListener("click", () => {
+    const el = mustEl("treatmentSummaryContent");
+    const text = el.textContent?.trim();
+    if (!text) return;
+    void navigator.clipboard.writeText(text).then(() => {
+      treatmentSummaryCopyBtn.textContent = "Copied";
+      treatmentSummaryCopyBtn.classList.add("copied");
+      setTimeout(() => {
+        treatmentSummaryCopyBtn.textContent = "Copy";
+        treatmentSummaryCopyBtn.classList.remove("copied");
       }, 1500);
     });
   });
@@ -199,21 +264,6 @@ window.addEventListener("DOMContentLoaded", () => {
     listController.unmount();
   });
 
-  pluginPlatform = createPluginPlatform({
-    workerUrl: new URL("./asr.worker.ts", import.meta.url),
-    ortDir,
-    appOrigin: appBase.href,
-    asrRuntimeConfig: asrSettings.runtimeConfig,
-    asrEvents: {
-      onStatus: () => {
-        updateAsrLoadingIndicator();
-      },
-      onCrash: (message) => {
-        dictation.handleAsrCrash(message);
-        recordingView.setTranscribeAvailable(isAsrTranscriptionEnabled());
-      },
-    },
-  });
   dictation = new DictationController({
     pluginPlatform,
     capture,

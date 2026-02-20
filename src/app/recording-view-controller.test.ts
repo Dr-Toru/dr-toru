@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { vi } from "vitest";
 
 import { computeRms } from "../audio/capture";
+import type { PluginPlatform } from "../plugins/platform";
 import type { RecordingService } from "./recording-service";
 import {
   RecordingViewController,
@@ -503,16 +504,60 @@ function makeController(
   timerEl.textContent = "0:00";
   const typingIndicatorEl = document.createElement("div");
   typingIndicatorEl.hidden = true;
+  const soapBtn = document.createElement("button");
+  const soapSectionEl = document.createElement("div");
+  const soapContentEl = document.createElement("div");
+  const soapBlankStateEl = document.createElement("div");
+  const soapCopyBtn = document.createElement("button");
+  soapCopyBtn.hidden = true;
+  const soapOverlayEl = document.createElement("div");
+  const treatmentSummaryBtn = document.createElement("button");
+  const treatmentSummarySectionEl = document.createElement("div");
+  const treatmentSummaryContentEl = document.createElement("div");
+  const treatmentSummaryBlankStateEl = document.createElement("div");
+  const treatmentSummaryCopyBtn = document.createElement("button");
+  treatmentSummaryCopyBtn.hidden = true;
+  const treatmentSummaryOverlayEl = document.createElement("div");
+  const contextTabBtn = document.createElement("button");
+  const soapTabBtn = document.createElement("button");
+  const treatmentSummaryTabBtn = document.createElement("button");
+  const contextPanel = document.createElement("div");
+  const soapPanel = document.createElement("div");
+  soapPanel.hidden = true;
+  const treatmentSummaryPanel = document.createElement("div");
+  treatmentSummaryPanel.hidden = true;
+  const platform = {
+    runLlm: vi.fn().mockResolvedValue(""),
+  } as unknown as PluginPlatform;
   const onRecordingsChanged = vi.fn();
   const controller = new RecordingViewController({
     transcriptEl,
     contextNoteEl,
     transcribeBtn,
     uploadBtn,
+    soapBtn,
+    soapSectionEl,
+    soapContentEl,
+    soapBlankStateEl,
+    soapCopyBtn,
+    soapOverlayEl,
+    treatmentSummaryBtn,
+    treatmentSummarySectionEl,
+    treatmentSummaryContentEl,
+    treatmentSummaryBlankStateEl,
+    treatmentSummaryCopyBtn,
+    treatmentSummaryOverlayEl,
+    contextTabBtn,
+    soapTabBtn,
+    treatmentSummaryTabBtn,
+    contextPanel,
+    soapPanel,
+    treatmentSummaryPanel,
     timerEl,
     barEls,
     typingIndicatorEl,
     recordingService: service,
+    platform,
     onToggleRecording: async () => undefined,
     onUploadRequested: () => undefined,
     onRecordingsChanged,
@@ -539,6 +584,7 @@ function makeServiceStub(
     createDraftRecordingId: () => `draft-${++seq}`,
     loadTranscript: async () => null,
     loadContext: async () => null,
+    loadAttachmentText: async () => null,
     saveTranscript: async (input: {
       recordingId: string;
       transcript: string;

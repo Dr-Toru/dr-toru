@@ -1,3 +1,4 @@
+import type { PluginPlatform } from "../plugins/platform";
 import { RecordingService } from "./recording-service";
 
 const MIN_BAR_HEIGHT = 4;
@@ -17,10 +18,29 @@ export interface RecordingViewControllerOptions {
   transcribeBtn: HTMLButtonElement;
   headerTranscribeBtn?: HTMLButtonElement;
   uploadBtn: HTMLButtonElement;
+  soapBtn: HTMLButtonElement;
+  soapSectionEl: HTMLElement;
+  soapContentEl: HTMLElement;
+  soapBlankStateEl: HTMLElement;
+  soapCopyBtn: HTMLButtonElement;
+  soapOverlayEl: HTMLElement;
+  treatmentSummaryBtn: HTMLButtonElement;
+  treatmentSummarySectionEl: HTMLElement;
+  treatmentSummaryContentEl: HTMLElement;
+  treatmentSummaryBlankStateEl: HTMLElement;
+  treatmentSummaryCopyBtn: HTMLButtonElement;
+  treatmentSummaryOverlayEl: HTMLElement;
+  contextTabBtn: HTMLButtonElement;
+  soapTabBtn: HTMLButtonElement;
+  treatmentSummaryTabBtn: HTMLButtonElement;
+  contextPanel: HTMLElement;
+  soapPanel: HTMLElement;
+  treatmentSummaryPanel: HTMLElement;
   timerEl: HTMLElement;
   barEls: readonly HTMLElement[];
   typingIndicatorEl: HTMLElement;
   recordingService: RecordingService;
+  platform: PluginPlatform;
   onToggleRecording: () => Promise<void>;
   onUploadRequested: () => void;
   onRecordingsChanged: () => void;
@@ -33,6 +53,10 @@ interface RecordingContext {
   transcript: string;
   contextAttachmentId: string | null;
   contextText: string;
+  soapAttachmentId: string | null;
+  soapText: string;
+  treatmentSummaryAttachmentId: string | null;
+  treatmentSummaryText: string;
 }
 
 export type OpenRouteResult =
@@ -46,10 +70,29 @@ export class RecordingViewController {
   private readonly contextNoteEl: HTMLTextAreaElement;
   private readonly transcribeBtns: readonly HTMLButtonElement[];
   private readonly uploadBtn: HTMLButtonElement;
+  private readonly soapBtn: HTMLButtonElement;
+  private readonly soapSectionEl: HTMLElement;
+  private readonly soapContentEl: HTMLElement;
+  private readonly soapBlankStateEl: HTMLElement;
+  private readonly soapCopyBtn: HTMLButtonElement;
+  private readonly soapOverlayEl: HTMLElement;
+  private readonly treatmentSummaryBtn: HTMLButtonElement;
+  private readonly treatmentSummarySectionEl: HTMLElement;
+  private readonly treatmentSummaryContentEl: HTMLElement;
+  private readonly treatmentSummaryBlankStateEl: HTMLElement;
+  private readonly treatmentSummaryCopyBtn: HTMLButtonElement;
+  private readonly treatmentSummaryOverlayEl: HTMLElement;
+  private readonly contextTabBtn: HTMLButtonElement;
+  private readonly soapTabBtn: HTMLButtonElement;
+  private readonly treatmentSummaryTabBtn: HTMLButtonElement;
+  private readonly contextPanel: HTMLElement;
+  private readonly soapPanel: HTMLElement;
+  private readonly treatmentSummaryPanel: HTMLElement;
   private readonly timerEl: HTMLElement;
   private readonly barEls: readonly HTMLElement[];
   private readonly typingIndicatorEl: HTMLElement;
   private readonly recordingService: RecordingService;
+  private readonly platform: PluginPlatform;
   private readonly onToggleRecording: () => Promise<void>;
   private readonly onUploadRequested: () => void;
   private readonly onRecordingsChanged: () => void;
@@ -61,6 +104,7 @@ export class RecordingViewController {
   private toggling = false;
   private uploading = false;
   private modelLoading = false;
+  private generating = false;
   private timerInterval: ReturnType<typeof setInterval> | null = null;
   private recordingStartTime: number | null = null;
   private elapsedOffset = 0;
@@ -76,10 +120,29 @@ export class RecordingViewController {
       ? [options.headerTranscribeBtn, options.transcribeBtn]
       : [options.transcribeBtn];
     this.uploadBtn = options.uploadBtn;
+    this.soapBtn = options.soapBtn;
+    this.soapSectionEl = options.soapSectionEl;
+    this.soapContentEl = options.soapContentEl;
+    this.soapBlankStateEl = options.soapBlankStateEl;
+    this.soapCopyBtn = options.soapCopyBtn;
+    this.soapOverlayEl = options.soapOverlayEl;
+    this.treatmentSummaryBtn = options.treatmentSummaryBtn;
+    this.treatmentSummarySectionEl = options.treatmentSummarySectionEl;
+    this.treatmentSummaryContentEl = options.treatmentSummaryContentEl;
+    this.treatmentSummaryBlankStateEl = options.treatmentSummaryBlankStateEl;
+    this.treatmentSummaryCopyBtn = options.treatmentSummaryCopyBtn;
+    this.treatmentSummaryOverlayEl = options.treatmentSummaryOverlayEl;
+    this.contextTabBtn = options.contextTabBtn;
+    this.soapTabBtn = options.soapTabBtn;
+    this.treatmentSummaryTabBtn = options.treatmentSummaryTabBtn;
+    this.contextPanel = options.contextPanel;
+    this.soapPanel = options.soapPanel;
+    this.treatmentSummaryPanel = options.treatmentSummaryPanel;
     this.timerEl = options.timerEl;
     this.barEls = options.barEls;
     this.typingIndicatorEl = options.typingIndicatorEl;
     this.recordingService = options.recordingService;
+    this.platform = options.platform;
     this.onToggleRecording = options.onToggleRecording;
     this.onUploadRequested = options.onUploadRequested;
     this.onRecordingsChanged = options.onRecordingsChanged;
@@ -91,6 +154,21 @@ export class RecordingViewController {
     }
     this.uploadBtn.addEventListener("click", () => {
       this.requestUpload();
+    });
+    this.soapBtn.addEventListener("click", () => {
+      void this.generateSoapNote();
+    });
+    this.treatmentSummaryBtn.addEventListener("click", () => {
+      void this.generateTreatmentSummary();
+    });
+    this.contextTabBtn.addEventListener("click", () => {
+      this.switchTab("context");
+    });
+    this.soapTabBtn.addEventListener("click", () => {
+      this.switchTab("soap");
+    });
+    this.treatmentSummaryTabBtn.addEventListener("click", () => {
+      this.switchTab("treatment_summary");
     });
     this.contextNoteEl.addEventListener("input", () => {
       this.scheduleContextSave();
@@ -104,11 +182,11 @@ export class RecordingViewController {
         return { status: "opened", recordingId };
       }
 
-      if (this.recording) {
+      if (this.recording || this.generating) {
         return { status: "blocked" };
       }
 
-      this.flushContextSave();
+      await this.flushContextSave();
 
       if (recordingId === null) {
         this.resetTimer();
@@ -117,6 +195,9 @@ export class RecordingViewController {
         );
         this.liveTranscript = "";
         this.contextNoteEl.value = "";
+        this.switchTab("context");
+        this.renderSoap();
+        this.renderTreatmentSummary();
         this.render();
         return { status: "opened", recordingId: this.context.recordingId };
       }
@@ -133,6 +214,26 @@ export class RecordingViewController {
           };
           this.liveTranscript = "";
           this.contextNoteEl.value = this.context.contextText;
+
+          const soap = await this.recordingService.loadAttachmentText(
+            recordingId,
+            "soap_note",
+          );
+          if (soap) {
+            this.context.soapAttachmentId = soap.attachmentId;
+            this.context.soapText = soap.text;
+          }
+          const summary = await this.recordingService.loadAttachmentText(
+            recordingId,
+            "treatment_summary",
+          );
+          if (summary) {
+            this.context.treatmentSummaryAttachmentId = summary.attachmentId;
+            this.context.treatmentSummaryText = summary.text;
+          }
+          this.switchTab("context");
+          this.renderSoap();
+          this.renderTreatmentSummary();
           this.render();
           return { status: "opened", recordingId: loaded.recordingId };
         }
@@ -219,6 +320,12 @@ export class RecordingViewController {
       });
       this.context.attachmentId = saved.attachmentId;
       this.context.transcript = saved.transcript;
+      this.context.soapAttachmentId = null;
+      this.context.soapText = "";
+      this.renderSoap();
+      this.context.treatmentSummaryAttachmentId = null;
+      this.context.treatmentSummaryText = "";
+      this.renderTreatmentSummary();
       this.onRecordingsChanged();
       this.liveTranscript = "";
       this.renderTranscript();
@@ -267,6 +374,10 @@ export class RecordingViewController {
       transcribeBtn.disabled = actionDisabled;
     }
     this.uploadBtn.disabled = actionDisabled || this.recording;
+    this.soapBtn.disabled =
+      !this.context?.transcript?.trim() || this.recording || this.generating;
+    this.treatmentSummaryBtn.disabled =
+      !this.context?.transcript?.trim() || this.recording || this.generating;
     this.timerEl.classList.toggle("recording", this.recording);
     this.renderTranscript();
   }
@@ -417,6 +528,154 @@ export class RecordingViewController {
     this.typingIndicatorEl.hidden = true;
   }
 
+  async generateSoapNote(): Promise<void> {
+    if (!this.context || this.generating) return;
+    if (!this.context.transcript.trim()) return;
+    if (!this.context.attachmentId) return;
+
+    this.generating = true;
+    this.soapOverlayEl.hidden = false;
+    this.soapOverlayEl.classList.add("visible");
+    this.render();
+
+    try {
+      await this.flushContextSave();
+
+      const transcript = this.context.transcript;
+      const context = this.contextNoteEl.value.trim();
+      let input = `Transcript:\n${transcript}`;
+      if (context) {
+        input += `\n\nClinician's Notes:\n${context}`;
+      }
+
+      const soapText = await this.platform.runLlm("soap", input);
+
+      const result = await this.recordingService.saveAttachmentText({
+        recordingId: this.context.recordingId,
+        attachmentId: this.context.soapAttachmentId,
+        kind: "soap_note",
+        createdBy: "llm",
+        text: soapText,
+        setActive: false,
+        role: "derived",
+        sourceAttachmentId: this.context.attachmentId,
+      });
+
+      this.context.soapAttachmentId = result.attachmentId;
+      this.context.soapText = soapText;
+      this.renderSoap();
+      this.switchTab("soap");
+    } catch (err) {
+      this.onError(err, "SOAP generation");
+    } finally {
+      this.generating = false;
+      this.soapOverlayEl.classList.remove("visible");
+      this.soapOverlayEl.hidden = true;
+      this.render();
+    }
+  }
+
+  async generateTreatmentSummary(): Promise<void> {
+    if (!this.context || this.generating) return;
+    if (!this.context.transcript.trim()) return;
+    if (!this.context.attachmentId) return;
+
+    this.generating = true;
+    this.treatmentSummaryOverlayEl.hidden = false;
+    this.treatmentSummaryOverlayEl.classList.add("visible");
+    this.render();
+
+    try {
+      await this.flushContextSave();
+
+      const transcript = this.context.transcript;
+      const context = this.contextNoteEl.value.trim();
+      let input = `Transcript:\n${transcript}`;
+      if (context) {
+        input += `\n\nClinician's Notes:\n${context}`;
+      }
+
+      const text = await this.platform.runLlm("treatment_summary", input);
+
+      const result = await this.recordingService.saveAttachmentText({
+        recordingId: this.context.recordingId,
+        attachmentId: this.context.treatmentSummaryAttachmentId,
+        kind: "treatment_summary",
+        createdBy: "llm",
+        text,
+        setActive: false,
+        role: "derived",
+        sourceAttachmentId: this.context.attachmentId,
+      });
+
+      this.context.treatmentSummaryAttachmentId = result.attachmentId;
+      this.context.treatmentSummaryText = text;
+      this.renderTreatmentSummary();
+      this.switchTab("treatment_summary");
+    } catch (err) {
+      this.onError(err, "Treatment summary generation");
+    } finally {
+      this.generating = false;
+      this.treatmentSummaryOverlayEl.classList.remove("visible");
+      this.treatmentSummaryOverlayEl.hidden = true;
+      this.render();
+    }
+  }
+
+  switchTab(tab: "context" | "soap" | "treatment_summary"): void {
+    this.contextTabBtn.classList.toggle("is-active", tab === "context");
+    this.soapTabBtn.classList.toggle("is-active", tab === "soap");
+    this.treatmentSummaryTabBtn.classList.toggle(
+      "is-active",
+      tab === "treatment_summary",
+    );
+    this.contextPanel.hidden = tab !== "context";
+    this.soapPanel.hidden = tab !== "soap";
+    this.treatmentSummaryPanel.hidden = tab !== "treatment_summary";
+    this.updateSoapCopyBtn();
+    this.updateTreatmentSummaryCopyBtn();
+  }
+
+  private renderSoap(): void {
+    const text = this.context?.soapText ?? "";
+    if (text) {
+      this.soapContentEl.textContent = text;
+      this.soapSectionEl.hidden = false;
+      this.soapBlankStateEl.hidden = true;
+    } else {
+      this.soapContentEl.textContent = "";
+      this.soapSectionEl.hidden = true;
+      this.soapBlankStateEl.hidden = false;
+    }
+    this.updateSoapCopyBtn();
+  }
+
+  private updateSoapCopyBtn(): void {
+    const show = !this.soapPanel.hidden && !this.soapSectionEl.hidden;
+    this.soapCopyBtn.hidden = !show;
+  }
+
+  private renderTreatmentSummary(): void {
+    const text = this.context?.treatmentSummaryText ?? "";
+    if (text) {
+      this.treatmentSummaryContentEl.textContent = text;
+      this.treatmentSummarySectionEl.hidden = false;
+      this.treatmentSummaryBlankStateEl.hidden = true;
+    } else {
+      this.treatmentSummaryContentEl.textContent = "";
+      this.treatmentSummarySectionEl.hidden = true;
+      this.treatmentSummaryBlankStateEl.hidden = false;
+    }
+    this.updateTreatmentSummaryCopyBtn();
+  }
+
+  private updateTreatmentSummaryCopyBtn(): void {
+    const show =
+      !this.treatmentSummaryPanel.hidden &&
+      !this.treatmentSummarySectionEl.hidden;
+    this.treatmentSummaryCopyBtn.hidden = !show;
+  }
+
   private scheduleContextSave(): void {
     if (this.contextSaveTimer !== null) {
       clearTimeout(this.contextSaveTimer);
@@ -427,11 +686,11 @@ export class RecordingViewController {
     }, 1000);
   }
 
-  private flushContextSave(): void {
+  private async flushContextSave(): Promise<void> {
     if (this.contextSaveTimer !== null) {
       clearTimeout(this.contextSaveTimer);
       this.contextSaveTimer = null;
-      void this.saveContext();
+      await this.saveContext();
     }
   }
 
@@ -480,6 +739,10 @@ function createEmptyContext(recordingId: string): RecordingContext {
     transcript: "",
     contextAttachmentId: null,
     contextText: "",
+    soapAttachmentId: null,
+    soapText: "",
+    treatmentSummaryAttachmentId: null,
+    treatmentSummaryText: "",
   };
 }
 
@@ -492,6 +755,10 @@ function mapLoadedContext(loaded: {
     recordingId: loaded.recordingId,
     attachmentId: loaded.attachmentId,
     transcript: loaded.transcript,
+    soapAttachmentId: null,
+    soapText: "",
+    treatmentSummaryAttachmentId: null,
+    treatmentSummaryText: "",
   };
 }
 

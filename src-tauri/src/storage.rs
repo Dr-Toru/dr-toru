@@ -19,6 +19,8 @@ pub enum AttachmentKind {
     TranscriptCorrected,
     AudioCapture,
     ContextNote,
+    SoapNote,
+    TreatmentSummary,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

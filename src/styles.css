@@ -503,6 +503,10 @@ body {
   height: 16px;
 }
 
+#screen-recording .upload-btn {
+  font-size: 0.8125rem;
+}
+
 #screen-recording .transcribe-btn {
   min-height: 48px;
   flex: 1;
@@ -1391,6 +1395,7 @@ body {
 
 #screen-recording .section-input {
   width: 100%;
+  height: 100%;
   padding: var(--space-3) var(--space-4);
   border: none;
   background: transparent;
@@ -1404,6 +1409,80 @@ body {
 
 #screen-recording .section-input::placeholder {
   color: var(--text-muted);
+}
+
+/* ===== Recording Tabs ===== */
+
+.recording-tabs {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.tab-btn {
+  padding: var(--space-2) var(--space-4);
+  background: none;
+  border: none;
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+.tab-btn.is-active {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.tab-action {
+  margin-left: auto;
+}
+
+.tab-panel {
+  flex-shrink: 0;
+  height: 260px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.tab-panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+.tab-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tab-panel::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.tab-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+.artifact-content {
+  padding: 0 var(--space-4) var(--space-3);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+
+.artifact-blank-state {
+  padding: var(--space-8) var(--space-4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* ===== Recording Transcript ===== */

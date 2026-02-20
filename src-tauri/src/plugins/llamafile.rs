@@ -19,10 +19,45 @@ pub(super) struct RunningLlamafile {
 }
 
 fn default_llamafile_prompt(action: &str) -> String {
-    if action == "soap" {
-        return "Convert the note into SOAP format.".to_string();
+    match action {
+        "soap" => concat!(
+            "Convert the following clinical note into SOAP format.\n\n",
+            "Use these section headers exactly:\n",
+            "SUBJECTIVE:\n",
+            "OBJECTIVE:\n",
+            "ASSESSMENT:\n",
+            "PLAN:\n\n",
+            "Keep medical terminology accurate. ",
+            "If information for a section is not available, ",
+            "write \"Not documented.\" ",
+            "Be concise but thorough. ",
+            "Output only the SOAP note with no additional commentary or critique."
+        )
+        .to_string(),
+        "treatment_summary" => concat!(
+            "Convert the following clinical note into a treatment summary letter.\n\n",
+            "Write a professional clinical letter with these sections in order:\n\n",
+            "1. GREETING: Begin with \"To whom it may concern,\"\n",
+            "2. PATIENT RELATIONSHIP: State how the patient is known to the author ",
+            "(e.g. \"This patient has been followed at our clinic since...\", ",
+            "\"This patient presented to our clinic on...\").\n",
+            "3. CLINICAL PROBLEM AND NEEDS: Describe the clinical problem and ",
+            "what is being requested (e.g. additional examinations, specialist opinion, ",
+            "continued management).\n",
+            "4. MEDICATION AND TREATMENT NOTES: Note relevant medications, treatments ",
+            "given or not given and why (e.g. \"The patient declined X\" or ",
+            "\"X was not prescribed due to...\").\n",
+            "5. CLOSING: End with a polite professional closing ",
+            "(e.g. \"Thank you for your kind attention to this patient. ",
+            "Please do not hesitate to contact us if you require further information.\").\n\n",
+            "Keep medical terminology accurate. ",
+            "Write in a professional, concise tone. ",
+            "Do not invent a recipient name -- use \"Dear Colleague\" only. ",
+            "Output only the letter with no additional commentary or critique."
+        )
+        .to_string(),
+        _ => "Correct grammar and punctuation while preserving clinical meaning.".to_string(),
     }
-    "Correct grammar and punctuation while preserving clinical meaning.".to_string()
 }
 
 fn normalize_http_path(path: &str, default_path: &str) -> String {
@@ -375,13 +410,18 @@ pub(super) fn execute_blocking(
         json!({
             "model": "local",
             "messages": [{ "role": "user", "content": full_prompt }],
-            "temperature": 0.2
+            "temperature": 0.2,
+            "max_tokens": 2048,
+            "frequency_penalty": 1.3,
+            "stop": ["<end_of_turn>"]
         })
     } else {
         json!({
             "prompt": full_prompt,
-            "n_predict": 512,
-            "temperature": 0.2
+            "n_predict": 2048,
+            "temperature": 0.2,
+            "repeat_penalty": 1.3,
+            "stop": ["<end_of_turn>", "\nCritique:", "\n**Critique"]
         })
     };
 
