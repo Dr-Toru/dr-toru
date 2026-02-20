@@ -40,34 +40,34 @@ function toErrorMessage(error: unknown): string {
 
 export function formatPluginSummary(state: PluginPlatformState): string {
   if (state.error) {
-    return `Plugin platform error: ${state.error}`;
+    return `App capabilities unavailable: ${state.error}`;
   }
 
   const lines: string[] = [];
   if (state.activeAsr) {
-    lines.push(`ASR: ${state.activeAsr.name}`);
+    lines.push(`Dictation: ${state.activeAsr.name}`);
   } else {
-    lines.push("ASR: none configured");
+    lines.push("Dictation: unavailable");
   }
 
   if (state.activeLlm) {
-    lines.push(`LLM: ${state.activeLlm.name}`);
+    lines.push(`AI tools: ${state.activeLlm.name}`);
   } else if (state.llmCount > 0) {
-    lines.push(`LLM: ${state.llmCount} installed, none active`);
+    lines.push(`AI tools: ${state.llmCount} installed, none active`);
   } else {
-    lines.push("LLM: unavailable (core dictation only)");
+    lines.push("AI tools: unavailable");
   }
   return lines.join(" | ");
 }
 
 export function formatLlmStatus(state: PluginPlatformState): string {
   if (!state.activeLlm) {
-    return "LLM service: unavailable";
+    return "AI tools: unavailable";
   }
   if (state.llmEndpoint) {
-    return `LLM service: ${state.llmStatus} (${state.llmEndpoint})`;
+    return `AI tools: ${state.llmStatus} (${state.llmEndpoint})`;
   }
-  return `LLM service: ${state.llmStatus}`;
+  return `AI tools: ${state.llmStatus}`;
 }
 
 async function resolveAppDataDir(): Promise<string> {

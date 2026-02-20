@@ -81,12 +81,13 @@ export class AsrSettingsController {
     );
     this.updateFieldState();
     this.statusEl.textContent =
-      "Tune ASR values here. Saving reloads the app and applies new settings.";
+      "Tune dictation behavior here. Saving reloads the app and applies updates.";
   }
 
   private save(): void {
     if (this.isRecording()) {
-      this.statusEl.textContent = "Stop recording before saving ASR settings.";
+      this.statusEl.textContent =
+        "Stop recording before saving dictation settings.";
       return;
     }
 
@@ -112,12 +113,12 @@ export class AsrSettingsController {
       writeAsrSettings(next);
       this.populate(next);
       this.statusEl.textContent =
-        "ASR settings saved. Reloading to apply updated runtime settings...";
+        "Dictation settings saved. Reloading to apply updates...";
       window.setTimeout(() => {
         window.location.reload();
       }, 150);
     } catch (error) {
-      this.onError(error, "Failed to save ASR settings");
+      this.onError(error, "Failed to save dictation settings");
     }
   }
 

@@ -1143,6 +1143,25 @@ body {
   margin-bottom: var(--space-4);
 }
 
+#screen-settings .settings-advanced {
+  margin-bottom: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+#screen-settings .settings-advanced > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+#screen-settings .settings-advanced .settings-grid {
+  margin-top: var(--space-3);
+}
+
 #screen-settings .actions {
   display: flex;
   gap: var(--space-2);

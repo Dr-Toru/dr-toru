@@ -178,7 +178,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   toggleLlmBtn.addEventListener("click", () => {
     void toggleLlmService().catch((error) =>
-      reportUnexpectedError(error, "LLM service toggle failed"),
+      reportUnexpectedError(error, "AI tools toggle failed"),
     );
   });
   window.addEventListener("error", (event) => {
@@ -397,13 +397,15 @@ function updateLlmControls(): void {
   const running = pluginState?.llmRunning ?? false;
   importPluginBtn.disabled = !canImport;
   toggleLlmBtn.disabled = !hasProvider;
-  toggleLlmBtn.textContent = running ? "Stop LLM Service" : "Start LLM Service";
+  toggleLlmBtn.textContent = running
+    ? "Stop AI Tools Service"
+    : "Start AI Tools Service";
 }
 
 function renderPluginStatus(): void {
   if (!pluginState) {
-    pluginSummaryEl.textContent = "Plugin registry loading...";
-    llmStatusEl.textContent = "LLM service: unavailable";
+    pluginSummaryEl.textContent = "Loading app capabilities...";
+    llmStatusEl.textContent = "AI tools: unavailable";
     recordingView.setTranscribeAvailable(false);
     updateAsrLoadingIndicator();
     updateLlmControls();
@@ -414,7 +416,7 @@ function renderPluginStatus(): void {
   const summary = formatPluginSummary(pluginState);
   pluginSummaryEl.textContent = asrSettings.asrEnabled
     ? summary
-    : `${summary} | ASR disabled in settings`;
+    : `${summary} | Dictation disabled in settings`;
   llmStatusEl.textContent = formatLlmStatus(pluginState);
   recordingView.setTranscribeAvailable(isAsrTranscriptionEnabled());
   updateAsrLoadingIndicator();
@@ -430,6 +432,10 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+function formatPluginType(kind: string): string {
+  return `type: ${kind.toUpperCase()}`;
+}
+
 function renderPluginList(): void {
   // Scoped to LLM for now
   const plugins = pluginState?.plugins.filter((p) => p.kind === "llm") ?? [];
@@ -437,7 +443,7 @@ function renderPluginList(): void {
 
   if (plugins.length === 0) {
     pluginListEl.innerHTML =
-      '<p class="plugin-list-empty">No models imported yet.</p>';
+      '<p class="plugin-list-empty">No AI tools imported yet.</p>';
     return;
   }
 
@@ -456,7 +462,7 @@ function renderPluginList(): void {
 
     const meta = document.createElement("div");
     meta.className = "plugin-meta";
-    const parts: string[] = [plugin.kind.toUpperCase()];
+    const parts: string[] = [formatPluginType(plugin.kind)];
     if (plugin.pluginId === activeId) parts.push("active");
     if (plugin.sizeBytes) parts.push(formatFileSize(plugin.sizeBytes));
     meta.textContent = parts.join(" / ");
@@ -480,7 +486,7 @@ function renderPluginList(): void {
 async function deletePlugin(pluginId: string, name: string): Promise<void> {
   const confirmFn = window.confirm as unknown as (message?: string) => unknown;
   const confirmed = await confirmFn(
-    `Delete "${name}"? This removes the model file permanently.`,
+    `Delete "${name}"? This removes the tool file permanently.`,
   );
   if (!confirmed) {
     return;
@@ -496,7 +502,7 @@ async function deletePlugin(pluginId: string, name: string): Promise<void> {
 
 async function importPlugin(): Promise<void> {
   if (!pluginState?.canImport) {
-    llmStatusEl.textContent = "Import unavailable outside desktop runtime";
+    llmStatusEl.textContent = "Imports are only available in the desktop app";
     return;
   }
 
@@ -508,11 +514,11 @@ async function importPlugin(): Promise<void> {
     }
 
     const displayName = window.prompt(
-      "Optional display name for this model (leave blank to use filename):",
+      "Optional display name for this tool (leave blank to use filename):",
       "",
     );
 
-    llmStatusEl.textContent = "Importing model\u2026 0%";
+    llmStatusEl.textContent = "Importing tool\u2026 0%";
     const { listen } = await import("@tauri-apps/api/event");
     const unlisten = await listen<{
       copiedBytes: number;
@@ -521,7 +527,7 @@ async function importPlugin(): Promise<void> {
       const { copiedBytes, totalBytes } = event.payload;
       if (totalBytes > 0) {
         const pct = Math.round((copiedBytes / totalBytes) * 100);
-        llmStatusEl.textContent = `Importing model\u2026 ${pct}%`;
+        llmStatusEl.textContent = `Importing tool\u2026 ${pct}%`;
       }
     });
     let imported;
@@ -533,7 +539,7 @@ async function importPlugin(): Promise<void> {
     } finally {
       unlisten();
     }
-    llmStatusEl.textContent = `Imported plugin: ${imported.name}`;
+    llmStatusEl.textContent = `Imported tool: ${imported.name}`;
     await initializePlugins();
     if (
       imported.kind === "asr" &&
