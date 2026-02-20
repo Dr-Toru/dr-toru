@@ -301,119 +301,138 @@
           <h2 class="view-title">Settings</h2>
         </header>
         <div class="view-body">
+          <h3>App</h3>
           <p id="pluginSummary" class="placeholder">
-            Plugin registry loading...
+            Loading app capabilities...
           </p>
-          <h3>ASR Runtime</h3>
+          <h3>Dictation</h3>
           <div class="settings-grid">
             <label class="setting-toggle">
               <input id="asrEnabled" type="checkbox" />
-              <span>Enable ASR</span>
+              <span>Enable dictation</span>
             </label>
             <label class="setting-toggle">
               <input id="asrBeamSearchEnabled" type="checkbox" />
-              <span>Enable Beam Search (KenLM)</span>
+              <span>Enhanced dictation</span>
             </label>
           </div>
-          <h3>ASR Quality</h3>
-          <div class="settings-grid">
-            <label class="setting-field">
-              <span>Silence RMS</span>
-              <input
-                id="asrSilenceRms"
-                type="number"
-                min="0.0001"
-                max="0.05"
-                step="0.0001"
-              />
-            </label>
-            <label class="setting-field">
-              <span>Silence Peak</span>
-              <input
-                id="asrSilencePeak"
-                type="number"
-                min="0.0001"
-                max="0.2"
-                step="0.0001"
-              />
-            </label>
-            <label class="setting-field">
-              <span>Silence Hangover (ms)</span>
-              <input
-                id="asrSilenceHangoverMs"
-                type="range"
-                min="100"
-                max="2000"
-                step="50"
-              />
-              <output id="asrSilenceHangoverOutput">500</output>
-            </label>
-            <label class="setting-field">
-              <span>ORT Threads</span>
-              <input
-                id="asrOrtThreads"
-                type="number"
-                min="1"
-                max="2"
-                step="1"
-              />
-            </label>
-            <label class="setting-field">
-              <span>Beam Width</span>
-              <input
-                id="asrBeamWidth"
-                type="number"
-                min="1"
-                max="32"
-                step="1"
-              />
-            </label>
-            <label class="setting-field">
-              <span>LM Alpha</span>
-              <input id="asrLmAlpha" type="number" min="0" max="3" step="0.1" />
-            </label>
-            <label class="setting-field">
-              <span>LM Beta</span>
-              <input id="asrLmBeta" type="number" min="-2" max="5" step="0.1" />
-            </label>
-            <label class="setting-field">
-              <span>Min Token LogP</span>
-              <input
-                id="asrMinTokenLogp"
-                type="number"
-                min="-20"
-                max="0"
-                step="0.1"
-              />
-            </label>
-            <label class="setting-field">
-              <span>Beam Prune LogP</span>
-              <input
-                id="asrBeamPruneLogp"
-                type="number"
-                min="-30"
-                max="0"
-                step="0.1"
-              />
-            </label>
-          </div>
+          <p class="status">
+            Experimental: Enhanced dictation may be slower on some devices.
+          </p>
+          <details class="settings-advanced">
+            <summary>Advanced dictation tuning</summary>
+            <div class="settings-grid">
+              <label class="setting-field">
+                <span>Silence RMS</span>
+                <input
+                  id="asrSilenceRms"
+                  type="number"
+                  min="0.0001"
+                  max="0.05"
+                  step="0.0001"
+                />
+              </label>
+              <label class="setting-field">
+                <span>Silence Peak</span>
+                <input
+                  id="asrSilencePeak"
+                  type="number"
+                  min="0.0001"
+                  max="0.2"
+                  step="0.0001"
+                />
+              </label>
+              <label class="setting-field">
+                <span>Silence Hangover (ms)</span>
+                <input
+                  id="asrSilenceHangoverMs"
+                  type="range"
+                  min="100"
+                  max="2000"
+                  step="50"
+                />
+                <output id="asrSilenceHangoverOutput">500</output>
+              </label>
+              <label class="setting-field">
+                <span>ORT Threads</span>
+                <input
+                  id="asrOrtThreads"
+                  type="number"
+                  min="1"
+                  max="2"
+                  step="1"
+                />
+              </label>
+              <label class="setting-field">
+                <span>Beam Width</span>
+                <input
+                  id="asrBeamWidth"
+                  type="number"
+                  min="1"
+                  max="32"
+                  step="1"
+                />
+              </label>
+              <label class="setting-field">
+                <span>LM Alpha</span>
+                <input
+                  id="asrLmAlpha"
+                  type="number"
+                  min="0"
+                  max="3"
+                  step="0.1"
+                />
+              </label>
+              <label class="setting-field">
+                <span>LM Beta</span>
+                <input
+                  id="asrLmBeta"
+                  type="number"
+                  min="-2"
+                  max="5"
+                  step="0.1"
+                />
+              </label>
+              <label class="setting-field">
+                <span>Min Token LogP</span>
+                <input
+                  id="asrMinTokenLogp"
+                  type="number"
+                  min="-20"
+                  max="0"
+                  step="0.1"
+                />
+              </label>
+              <label class="setting-field">
+                <span>Beam Prune LogP</span>
+                <input
+                  id="asrBeamPruneLogp"
+                  type="number"
+                  min="-30"
+                  max="0"
+                  step="0.1"
+                />
+              </label>
+            </div>
+          </details>
           <div class="actions">
             <button id="saveAsrSettingsBtn" type="button">
-              Save ASR Settings
+              Save Dictation Settings
             </button>
           </div>
           <p id="asrSettingsStatus" class="status"></p>
-          <h3>Models</h3>
+          <h3>AI Tools</h3>
           <div id="pluginList" class="plugin-list"></div>
           <div class="actions">
-            <button id="importPluginBtn" type="button">
-              Import Model File
-            </button>
             <button id="toggleLlmBtn" type="button" disabled>
-              Start LLM Service
+              Start AI Tools Service
             </button>
           </div>
-          <p id="llmServiceStatus" class="status">LLM service: unavailable</p>
+          <h3>Imports</h3>
+          <div class="actions">
+            <button id="importPluginBtn" type="button">Import Tool File</button>
+          </div>
+          <p id="llmServiceStatus" class="status">AI tools: unavailable</p>
         </div>
       </section>
     </main>
