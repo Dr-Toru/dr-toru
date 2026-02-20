@@ -34,40 +34,14 @@ export interface PluginPlatformState {
   llmEndpoint: string | null;
 }
 
+export type CapabilityLoadState =
+  | "unloaded"
+  | "loading"
+  | "loaded"
+  | "unloading";
+
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-export function formatPluginSummary(state: PluginPlatformState): string {
-  if (state.error) {
-    return `App capabilities unavailable: ${state.error}`;
-  }
-
-  const lines: string[] = [];
-  if (state.activeAsr) {
-    lines.push(`Dictation: ${state.activeAsr.name}`);
-  } else {
-    lines.push("Dictation: unavailable");
-  }
-
-  if (state.activeLlm) {
-    lines.push(`AI tools: ${state.activeLlm.name}`);
-  } else if (state.llmCount > 0) {
-    lines.push(`AI tools: ${state.llmCount} installed, none active`);
-  } else {
-    lines.push("AI tools: unavailable");
-  }
-  return lines.join(" | ");
-}
-
-export function formatLlmStatus(state: PluginPlatformState): string {
-  if (!state.activeLlm) {
-    return "AI tools: unavailable";
-  }
-  if (state.llmEndpoint) {
-    return `AI tools: ${state.llmStatus} (${state.llmEndpoint})`;
-  }
-  return `AI tools: ${state.llmStatus}`;
 }
 
 async function resolveAppDataDir(): Promise<string> {
@@ -83,6 +57,7 @@ export class PluginPlatform {
   private readonly service: PluginService;
   private readonly canImport = canUseTauriPluginStore();
   private initTask: Promise<PluginPlatformState> | null = null;
+  private llmLoadTask: Promise<PluginManifest> | null = null;
   private initialized = false;
   private initError: string | null = null;
   private resolvedDataDir = "";
@@ -95,6 +70,20 @@ export class PluginPlatform {
   private llmRuntime: RuntimeAdapter | null = null;
   private asrReady = false;
   private asrUnloadTask: Promise<void> | null = null;
+  private asrLoadState: CapabilityLoadState = "unloaded";
+  private llmLoadState: CapabilityLoadState = "unloaded";
+  private asrTargetLoaded = false;
+  private llmTargetLoaded = false;
+  private asrSetLoadedTask: Promise<void> | null = null;
+  private llmSetLoadedTask: Promise<void> | null = null;
+  private asrInFlightCount = 0;
+  private asrForceUnload = false;
+  private asrCancelGeneration = 0;
+  private asrIdleResolvers: Array<() => void> = [];
+  private llmInFlightCount = 0;
+  private llmForceUnload = false;
+  private llmCancelGeneration = 0;
+  private llmIdleResolvers: Array<() => void> = [];
 
   constructor(
     store: PluginRegistryStore,
@@ -105,6 +94,59 @@ export class PluginPlatform {
 
   isAsrReady(): boolean {
     return this.asrReady;
+  }
+
+  getAsrLoadState(): CapabilityLoadState {
+    return this.asrLoadState;
+  }
+
+  getLlmLoadState(): CapabilityLoadState {
+    return this.llmLoadState;
+  }
+
+  isLlmBusy(): boolean {
+    return this.llmInFlightCount > 0;
+  }
+
+  isAsrBusy(): boolean {
+    return this.asrInFlightCount > 0;
+  }
+
+  async setAsrLoaded(
+    loaded: boolean,
+    options: { force?: boolean } = {},
+  ): Promise<void> {
+    if (this.asrSetLoadedTask) {
+      await this.asrSetLoadedTask.catch(() => undefined);
+    }
+    this.asrTargetLoaded = loaded;
+    this.asrForceUnload = !loaded && Boolean(options.force);
+    if (!loaded && options.force) {
+      this.asrCancelGeneration += 1;
+    }
+    while (this.asrTargetLoaded !== this.asrReady) {
+      const task = this.asrSetLoadedTask ?? this.startAsrSetLoadedLoop();
+      await task;
+    }
+  }
+
+  async setLlmLoaded(
+    loaded: boolean,
+    options: { force?: boolean } = {},
+  ): Promise<void> {
+    if (this.llmSetLoadedTask) {
+      await this.llmSetLoadedTask.catch(() => undefined);
+    }
+    this.llmTargetLoaded = loaded;
+    this.llmForceUnload = !loaded && Boolean(options.force);
+    if (!loaded && options.force) {
+      this.llmCancelGeneration += 1;
+    }
+
+    while (this.llmTargetLoaded !== this.isLlmRunning()) {
+      const task = this.llmSetLoadedTask ?? this.startLlmSetLoadedLoop();
+      await task;
+    }
   }
 
   async init(): Promise<PluginPlatformState> {
@@ -127,6 +169,7 @@ export class PluginPlatform {
       await this.init();
     } else {
       await this.refreshLlmHealth();
+      this.syncCapabilityStates();
     }
     return this.snapshot();
   }
@@ -165,6 +208,19 @@ export class PluginPlatform {
     await this.init();
   }
 
+  async setActivePlugin(
+    kind: "asr" | "llm",
+    pluginId: string | null,
+  ): Promise<PluginPlatformState> {
+    if (kind === "asr") {
+      await this.setAsrLoaded(false, { force: true }).catch(() => undefined);
+    } else {
+      await this.setLlmLoaded(false, { force: true }).catch(() => undefined);
+    }
+    await this.service.setActivePlugin(kind, pluginId);
+    return this.init();
+  }
+
   async loadAsr(): Promise<PluginManifest> {
     if (this.asrUnloadTask) {
       await this.asrUnloadTask;
@@ -193,11 +249,27 @@ export class PluginPlatform {
     if (!this.asrReady || !this.asrRuntime) {
       throw new Error("ASR runtime is not ready");
     }
-    const result = await this.asrRuntime.execute({
-      type: "asr.transcribe",
-      samples,
-    });
-    return result.text;
+    const cancelGeneration = this.asrCancelGeneration;
+    this.asrInFlightCount += 1;
+    try {
+      const result = await this.asrRuntime.execute({
+        type: "asr.transcribe",
+        samples,
+      });
+      if (cancelGeneration !== this.asrCancelGeneration) {
+        throw new Error("ASR request canceled");
+      }
+      return result.text;
+    } finally {
+      this.asrInFlightCount = Math.max(0, this.asrInFlightCount - 1);
+      if (this.asrInFlightCount === 0) {
+        const resolvers = this.asrIdleResolvers;
+        this.asrIdleResolvers = [];
+        for (const resolve of resolvers) {
+          resolve();
+        }
+      }
+    }
   }
 
   async unloadAsr(): Promise<void> {
@@ -222,7 +294,7 @@ export class PluginPlatform {
     await unloadTask;
   }
 
-  async setLlmServiceRunning(running: boolean): Promise<PluginPlatformState> {
+  async loadLlm(): Promise<PluginManifest> {
     const state = await this.init();
     if (state.error) {
       throw new Error(state.error);
@@ -230,19 +302,55 @@ export class PluginPlatform {
     if (!this.activeLlm) {
       throw new Error("No active LLM provider configured");
     }
+    if (this.llmHealth?.running) {
+      return this.activeLlm;
+    }
 
-    try {
-      if (running) {
+    const loadTask =
+      this.llmLoadTask ??
+      (async () => {
+        const activeLlm = this.activeLlm;
+        if (!activeLlm) {
+          throw new Error("No active LLM provider configured");
+        }
         const runtime = await this.ensureLlmRuntime();
         await runtime.init();
-      } else {
-        await this.llmRuntime?.shutdown();
+        await this.refreshLlmHealth();
+        if (!this.llmHealth?.running) {
+          throw new Error(this.llmHealth?.message ?? "LLM service failed");
+        }
+        return activeLlm;
+      })();
+    this.llmLoadTask = loadTask;
+
+    try {
+      return await loadTask;
+    } finally {
+      if (this.llmLoadTask === loadTask) {
+        this.llmLoadTask = null;
+      }
+    }
+  }
+
+  async unloadLlm(): Promise<void> {
+    if (this.llmLoadTask) {
+      await this.llmLoadTask.catch(() => undefined);
+    }
+    if (!this.activeLlm) {
+      this.llmHealth = null;
+      return;
+    }
+
+    try {
+      if (this.llmRuntime) {
+        await this.llmRuntime.shutdown();
+        this.llmRuntime = null;
+      } else if (this.llmHealth?.running) {
+        await this.service.stopService(this.activeLlm.pluginId);
       }
     } finally {
       await this.refreshLlmHealth();
     }
-
-    return this.snapshot();
   }
 
   async runLlm(
@@ -261,6 +369,8 @@ export class PluginPlatform {
       throw new Error("Start the LLM service first");
     }
 
+    const cancelGeneration = this.llmCancelGeneration;
+    this.llmInFlightCount += 1;
     try {
       const runtime = await this.ensureLlmRuntime();
       const result = await runtime.execute({
@@ -269,18 +379,28 @@ export class PluginPlatform {
         input,
         prompt,
       });
+      if (cancelGeneration !== this.llmCancelGeneration) {
+        throw new Error("LLM request canceled");
+      }
       return result.text;
     } catch (error) {
       await this.refreshLlmHealth();
       throw new Error(toErrorMessage(error));
+    } finally {
+      this.llmInFlightCount = Math.max(0, this.llmInFlightCount - 1);
+      if (this.llmInFlightCount === 0) {
+        const resolvers = this.llmIdleResolvers;
+        this.llmIdleResolvers = [];
+        for (const resolve of resolvers) {
+          resolve();
+        }
+      }
     }
   }
 
   async shutdown(): Promise<void> {
-    await this.unloadAsr().catch(() => undefined);
-    await this.llmRuntime?.shutdown().catch(() => undefined);
-    this.llmRuntime = null;
-    this.llmHealth = null;
+    await this.setAsrLoaded(false).catch(() => undefined);
+    await this.setLlmLoaded(false, { force: true }).catch(() => undefined);
   }
 
   private async initNow(): Promise<PluginPlatformState> {
@@ -312,6 +432,7 @@ export class PluginPlatform {
       this.initialized = true;
 
       await this.refreshLlmHealth();
+      this.syncCapabilityStates();
       return this.snapshot();
     } catch (error) {
       this.plugins = [];
@@ -322,6 +443,7 @@ export class PluginPlatform {
       this.asrReady = false;
       this.initError = toErrorMessage(error);
       this.initialized = true;
+      this.syncCapabilityStates();
       return this.snapshot();
     }
   }
@@ -391,6 +513,122 @@ export class PluginPlatform {
       });
     }
     return this.llmRuntime;
+  }
+
+  private startAsrSetLoadedLoop(): Promise<void> {
+    const task = (async () => {
+      while (this.asrTargetLoaded !== this.asrReady) {
+        if (this.asrTargetLoaded) {
+          this.asrLoadState = "loading";
+          await this.loadAsr();
+          continue;
+        }
+
+        if (!this.asrForceUnload && this.asrInFlightCount > 0) {
+          this.asrLoadState = "loaded";
+          await this.waitForAsrIdle();
+          continue;
+        }
+
+        this.asrLoadState = "unloading";
+        await this.unloadAsr();
+      }
+      this.asrLoadState = this.asrReady ? "loaded" : "unloaded";
+      this.asrForceUnload = false;
+    })()
+      .catch((error) => {
+        this.asrLoadState = this.asrReady ? "loaded" : "unloaded";
+        const resolvers = this.asrIdleResolvers;
+        this.asrIdleResolvers = [];
+        for (const resolve of resolvers) resolve();
+        throw error;
+      })
+      .finally(() => {
+        if (this.asrSetLoadedTask === task) {
+          this.asrSetLoadedTask = null;
+        }
+      });
+    this.asrSetLoadedTask = task;
+    return task;
+  }
+
+  private startLlmSetLoadedLoop(): Promise<void> {
+    const task = (async () => {
+      while (this.llmTargetLoaded !== this.isLlmRunning()) {
+        if (this.llmTargetLoaded) {
+          this.llmLoadState = "loading";
+          await this.loadLlm();
+          continue;
+        }
+
+        if (!this.llmForceUnload && this.llmInFlightCount > 0) {
+          this.llmLoadState = "loaded";
+          await this.waitForLlmIdle();
+          continue;
+        }
+
+        this.llmLoadState = "unloading";
+        await this.unloadLlm();
+      }
+
+      this.llmLoadState = this.isLlmRunning() ? "loaded" : "unloaded";
+      this.llmForceUnload = false;
+    })()
+      .catch((error) => {
+        this.llmLoadState = this.isLlmRunning() ? "loaded" : "unloaded";
+        const resolvers = this.llmIdleResolvers;
+        this.llmIdleResolvers = [];
+        for (const resolve of resolvers) resolve();
+        throw error;
+      })
+      .finally(() => {
+        if (this.llmSetLoadedTask === task) {
+          this.llmSetLoadedTask = null;
+        }
+      });
+    this.llmSetLoadedTask = task;
+    return task;
+  }
+
+  private async waitForLlmIdle(): Promise<void> {
+    if (this.llmInFlightCount === 0) {
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      this.llmIdleResolvers.push(resolve);
+    });
+  }
+
+  private async waitForAsrIdle(): Promise<void> {
+    if (this.asrInFlightCount === 0) {
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      this.asrIdleResolvers.push(resolve);
+    });
+  }
+
+  private isLlmRunning(): boolean {
+    return this.llmHealth?.running ?? false;
+  }
+
+  private syncCapabilityStates(): void {
+    if (!this.asrSetLoadedTask) {
+      this.asrLoadState = this.asrReady ? "loaded" : "unloaded";
+      if (!this.activeAsr) {
+        this.asrTargetLoaded = false;
+      }
+    }
+
+    if (!this.llmSetLoadedTask) {
+      const running = this.isLlmRunning();
+      this.llmLoadState = running ? "loaded" : "unloaded";
+      if (!this.activeLlm) {
+        this.llmTargetLoaded = false;
+      }
+    }
   }
 
   private async refreshLlmHealth(): Promise<void> {
