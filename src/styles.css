@@ -1073,7 +1073,7 @@ body {
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--error);
+  color: var(--text-primary);
   text-align: left;
   padding: var(--space-2) var(--space-3);
   font-size: 14px;
@@ -1082,6 +1082,15 @@ body {
 
 .recording-item-menu-item:active {
   background: var(--bg-secondary);
+}
+
+.recording-item-menu-item:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.recording-item-menu-item-destructive {
+  color: var(--error);
 }
 
 .recording-date {

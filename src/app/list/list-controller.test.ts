@@ -9,6 +9,16 @@ import {
   fireRecordingsChanged,
 } from "./index";
 
+const { saveDialogMock, messageDialogMock } = vi.hoisted(() => ({
+  saveDialogMock: vi.fn(),
+  messageDialogMock: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  save: saveDialogMock,
+  message: messageDialogMock,
+}));
+
 function makeContainer(): HTMLElement {
   const el = document.createElement("div");
   document.body.appendChild(el);
@@ -24,6 +34,8 @@ describe("ListController", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    saveDialogMock.mockReset();
+    messageDialogMock.mockReset();
     container.remove();
   });
 
@@ -159,6 +171,121 @@ describe("ListController", () => {
 
     expect(confirmSpy).toHaveBeenCalledWith("Delete this recording?");
     expect(container.querySelector(".empty-state")).not.toBeNull();
+  });
+
+  it("shows export action when store supports export", async () => {
+    const store = new NoopRecordingStore();
+    store.canExportRecordings = () => true;
+
+    const { RecordingService } = await import("../recording-service");
+    const service = new RecordingService(store);
+    await saveInNewRecording(service, "A note");
+
+    const ctrl = new ListController({ container, store });
+    await ctrl.refresh();
+
+    const selector = container.querySelector<HTMLButtonElement>(
+      ".recording-item-selector",
+    );
+    selector?.click();
+
+    const labels = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        ".recording-item-menu-item",
+      ),
+    ).map((button) => button.textContent);
+    expect(labels).toEqual(["Export", "Delete"]);
+  });
+
+  it("exports recording with save dialog path", async () => {
+    const store = new NoopRecordingStore();
+    store.canExportRecordings = () => true;
+
+    const exportSpy = vi.fn(async () => undefined);
+    store.exportRecording = exportSpy;
+    saveDialogMock.mockResolvedValue("/tmp/session-export");
+
+    const { RecordingService } = await import("../recording-service");
+    const service = new RecordingService(store);
+    await saveInNewRecording(service, "A note");
+
+    const ctrl = new ListController({ container, store });
+    await ctrl.refresh();
+
+    const recordingId =
+      container.querySelector<HTMLElement>(".recording-item")?.dataset
+        .recordingId;
+    expect(recordingId).toBeTruthy();
+    const recording = (await store.listRecordings())[0];
+    expect(recording).toBeTruthy();
+
+    const selector = container.querySelector<HTMLButtonElement>(
+      ".recording-item-selector",
+    );
+    selector?.click();
+
+    const exportButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        ".recording-item-menu-item",
+      ),
+    ).find((button) => button.textContent === "Export");
+    exportButton?.click();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(saveDialogMock).toHaveBeenCalledWith({
+      title: "Export Recording Session",
+      defaultPath: `${toDateFilename(recording!.createdAt)}.zip`,
+      filters: [{ name: "Zip Archive", extensions: ["zip"] }],
+    });
+    expect(exportSpy).toHaveBeenCalledWith(
+      recordingId,
+      "/tmp/session-export.zip",
+    );
+  });
+
+  it("shows success notification after export", async () => {
+    const store = new NoopRecordingStore();
+    store.canExportRecordings = () => true;
+
+    const exportSpy = vi.fn(async () => undefined);
+    store.exportRecording = exportSpy;
+    saveDialogMock.mockResolvedValue("/tmp/session-export");
+
+    const { RecordingService } = await import("../recording-service");
+    const service = new RecordingService(store);
+    await saveInNewRecording(service, "A note");
+
+    const ctrl = new ListController({ container, store });
+    await ctrl.refresh();
+
+    const recordingId =
+      container.querySelector<HTMLElement>(".recording-item")?.dataset
+        .recordingId;
+    expect(recordingId).toBeTruthy();
+
+    const selector = container.querySelector<HTMLButtonElement>(
+      ".recording-item-selector",
+    );
+    selector?.click();
+
+    const exportButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        ".recording-item-menu-item",
+      ),
+    ).find((button) => button.textContent === "Export");
+    exportButton?.click();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(exportSpy).toHaveBeenCalled();
+    expect(messageDialogMock).toHaveBeenCalledWith(
+      "Exported to /tmp/session-export.zip",
+      {
+        title: "Success!",
+        kind: "info",
+      },
+    );
   });
 
   it("keeps recording when delete confirmation is canceled", async () => {
@@ -297,6 +424,16 @@ describe("ListController", () => {
 
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function toDateFilename(iso: string): string {
+  const date = new Date(iso);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${d}_${hh}-${mm}`;
 }
 
 function deferred<T>(): {
