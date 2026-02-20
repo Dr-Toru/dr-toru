@@ -34,6 +34,7 @@ export interface Recording {
   updatedAt: string;
   activeAttachmentId: string | null;
   attachments: Attachment[];
+  searchText: string;
 }
 
 export interface RecordingSummary {
@@ -42,6 +43,7 @@ export interface RecordingSummary {
   updatedAt: string;
   activeAttachmentId: string | null;
   attachmentCount: number;
+  searchText: string;
 }
 
 export interface NewRecordingInput {
@@ -69,6 +71,7 @@ export function createRecording(input: NewRecordingInput = {}): Recording {
     updatedAt: createdAt,
     activeAttachmentId: null,
     attachments: [],
+    searchText: "",
   };
 }
 

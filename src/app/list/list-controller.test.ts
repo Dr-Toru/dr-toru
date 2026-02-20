@@ -25,6 +25,13 @@ function makeContainer(): HTMLElement {
   return el;
 }
 
+function makeSearchInput(): HTMLInputElement {
+  const el = document.createElement("input");
+  el.type = "search";
+  document.body.appendChild(el);
+  return el;
+}
+
 describe("ListController", () => {
   let container: HTMLElement;
 
@@ -72,6 +79,48 @@ describe("ListController", () => {
     const counts = container.querySelectorAll(".recording-attachment-count");
     for (const countEl of counts) {
       expect(countEl.textContent).toBe("1 attachment");
+    }
+  });
+
+  it("filters sessions by transcript text", async () => {
+    vi.useFakeTimers();
+    try {
+      const store = new NoopRecordingStore();
+      const { RecordingService } = await import("../recording-service");
+      const service = new RecordingService(store);
+
+      await saveInNewRecording(service, "Acute shortness of breath");
+      await saveInNewRecording(
+        service,
+        "Patient denies chest pain but reports chest tightness",
+      );
+
+      const searchInput = makeSearchInput();
+      const ctrl = new ListController({ container, store, searchInput });
+      ctrl.mount();
+      await ctrl.refresh();
+
+      expect(container.querySelectorAll(".recording-item")).toHaveLength(2);
+      expect(container.querySelector(".recording-match-count")).toBeNull();
+
+      searchInput.value = "CHEST";
+      searchInput.dispatchEvent(new Event("input"));
+      vi.advanceTimersByTime(300);
+      expect(container.querySelectorAll(".recording-item")).toHaveLength(1);
+      expect(
+        container.querySelector(".recording-match-count")?.textContent,
+      ).toBe("2 matches");
+
+      searchInput.value = "xylophone";
+      searchInput.dispatchEvent(new Event("input"));
+      vi.advanceTimersByTime(300);
+      expect(container.querySelectorAll(".recording-item")).toHaveLength(0);
+      expect(container.textContent).toContain("No matching sessions");
+
+      ctrl.unmount();
+      searchInput.remove();
+    } finally {
+      vi.useRealTimers();
     }
   });
 

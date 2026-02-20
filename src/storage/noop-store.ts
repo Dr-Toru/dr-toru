@@ -30,6 +30,7 @@ export class NoopRecordingStore implements RecordingStore {
         updatedAt: recording.updatedAt,
         activeAttachmentId: recording.activeAttachmentId,
         attachmentCount: recording.attachments.length,
+        searchText: recording.searchText,
       });
     }
     return items.sort((left, right) =>

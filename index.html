@@ -41,7 +41,20 @@
             </svg>
           </button>
         </header>
-        <div class="view-body" id="recording-list"></div>
+        <div class="view-body">
+          <div class="recording-search-wrap">
+            <input
+              id="recordingSearchInput"
+              class="recording-search-input"
+              type="search"
+              placeholder="Search transcripts"
+              aria-label="Search transcripts"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <div id="recording-list" class="recording-list"></div>
+        </div>
         <div class="view-fab">
           <a href="#recording" class="fab-btn fab-primary">
             <svg
