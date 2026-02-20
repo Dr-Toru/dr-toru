@@ -4,12 +4,7 @@ import {
   TauriPluginRegistryStore,
   canUseTauriPluginStore,
 } from "./store";
-import {
-  PluginPlatform,
-  type PluginPlatformOptions,
-  formatPluginSummary,
-  formatLlmStatus,
-} from "./platform";
+import { PluginPlatform, type PluginPlatformOptions } from "./platform";
 
 let registryStore: PluginRegistryStore | null = null;
 let pluginPlatform: PluginPlatform | null = null;
@@ -39,5 +34,8 @@ export function createPluginPlatform(
 }
 
 export { PluginPlatform };
-export type { PluginPlatformOptions, PluginPlatformState } from "./platform";
-export { formatPluginSummary, formatLlmStatus };
+export type {
+  PluginPlatformOptions,
+  PluginPlatformState,
+  CapabilityLoadState,
+} from "./platform";
