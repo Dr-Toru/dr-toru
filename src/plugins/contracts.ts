@@ -29,9 +29,11 @@ export interface PluginValidationIssue {
   message: string;
 }
 
+export const BUILTIN_MED_ASR_PLUGIN_ID = "builtin.asr.ort.medasr";
+
 export const BUILTIN_ORT_ASR_PLUGIN: PluginManifest = {
-  pluginId: "builtin.asr.ort.medasr",
-  name: "Built-in Medical ASR",
+  pluginId: BUILTIN_MED_ASR_PLUGIN_ID,
+  name: "Google MedASR",
   version: "1.0.0",
   kind: "asr",
   runtime: "ort-ctc",
@@ -39,6 +41,7 @@ export const BUILTIN_ORT_ASR_PLUGIN: PluginManifest = {
   hash: "05c1907f53d9dea3db23092e4d730f011ee400b3fb282d6af8443276dfb9d270",
   modelFamily: "medasr_lasr",
   metadata: {
+    language: "en",
     vocabPath: "models/medasr_lasr_vocab.json",
     vocabHash:
       "631bd152b5beca9a74d21bd1c3ff53fecf63d10d11aae72e491cacdfbf69a756",
@@ -56,7 +59,7 @@ const ID_RE = /^[A-Za-z0-9._-]{3,128}$/;
 
 function isSupportedRuntime(kind: PluginKind, runtime: string): boolean {
   if (kind === "asr") {
-    return runtime === "ort-ctc" || runtime === "ort-whisper";
+    return runtime === "ort-ctc" || runtime === "whisper";
   }
   return runtime === "llamafile";
 }

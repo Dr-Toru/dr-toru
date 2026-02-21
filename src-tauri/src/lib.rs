@@ -1,5 +1,6 @@
 pub mod plugins;
 mod storage;
+mod util;
 
 use serde::Serialize;
 use tauri::WebviewWindow;

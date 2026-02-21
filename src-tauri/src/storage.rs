@@ -2,12 +2,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 use zip::write::SimpleFileOptions;
 use zip::CompressionMethod;
+
+use crate::util::{write_bytes_atomic, write_json_atomic};
 
 const STORAGE_FORMAT: u8 = 1;
 const RECORDING_FILE_NAME: &str = "recording.json";
@@ -125,57 +126,6 @@ fn storage_paths(app: &AppHandle) -> Result<StoragePaths, String> {
 fn ensure_storage(paths: &StoragePaths) -> Result<(), String> {
     fs::create_dir_all(&paths.recordings_dir).map_err(err_to_string)?;
     Ok(())
-}
-
-fn unique_suffix() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("{nanos}-{}", std::process::id())
-}
-
-fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let Some(parent) = path.parent() else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Path has no parent directory",
-        ));
-    };
-    fs::create_dir_all(parent)?;
-
-    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Path has no valid file name",
-        ));
-    };
-
-    let tmp_path = parent.join(format!(".{file_name}.tmp-{}", unique_suffix()));
-    {
-        let mut file = File::create(&tmp_path)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-    }
-
-    if let Err(rename_error) = fs::rename(&tmp_path, path) {
-        if path.exists() {
-            fs::remove_file(path)?;
-            fs::rename(&tmp_path, path)?;
-            return Ok(());
-        }
-
-        let _ = fs::remove_file(&tmp_path);
-        return Err(rename_error);
-    }
-
-    Ok(())
-}
-
-fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
-    let encoded = serde_json::to_vec_pretty(value)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-    write_bytes_atomic(path, &encoded)
 }
 
 fn recording_dir(paths: &StoragePaths, recording_id: &str) -> PathBuf {
@@ -354,7 +304,9 @@ fn validate_recording(recording: &Recording) -> Result<(), String> {
     Ok(())
 }
 
-fn list_recording_entries_from_files(paths: &StoragePaths) -> Result<Vec<RecordingIndexEntry>, String> {
+fn list_recording_entries_from_files(
+    paths: &StoragePaths,
+) -> Result<Vec<RecordingIndexEntry>, String> {
     let mut recordings = Vec::new();
     if !paths.recordings_dir.exists() {
         return Ok(recordings);
@@ -648,7 +600,10 @@ pub fn storage_write_attachment_text(
     write_bytes_atomic(&file_path, request.text.as_bytes()).map_err(err_to_string)?;
 
     Ok(WriteAttachmentTextResult {
-        path: format!("recordings/{}/attachments/{}", request.recording_id, file_name),
+        path: format!(
+            "recordings/{}/attachments/{}",
+            request.recording_id, file_name
+        ),
         size_bytes: request.text.len(),
     })
 }

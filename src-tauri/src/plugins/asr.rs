@@ -1,10 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use ort::value::Tensor;
 use realfft::{RealFftPlanner, RealToComplex};
 use serde::Deserialize;
+use transcribe_rs::engines::whisper::{WhisperEngine, WhisperInferenceParams, WhisperModelParams};
+use transcribe_rs::TranscriptionEngine;
 
 use super::RuntimeExecuteResult;
 
@@ -30,7 +33,7 @@ pub struct AsrVocab {
     special_ids: HashSet<usize>,
 }
 
-pub struct AsrSession {
+pub struct CtcSession {
     session: Mutex<ort::session::Session>,
     vocab: AsrVocab,
     mel_filterbank: Vec<f64>,
@@ -38,7 +41,23 @@ pub struct AsrSession {
     fft_plan: Arc<dyn RealToComplex<f64>>,
 }
 
-pub struct RunningAsr(pub Arc<AsrSession>);
+pub struct WhisperSession {
+    engine: Mutex<WhisperEngine>,
+    inference_params: WhisperInferenceParams,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct WhisperRuntimeConfig {
+    pub language: Option<String>,
+    pub translate: bool,
+    pub initial_prompt: Option<String>,
+}
+
+#[derive(Clone)]
+pub enum RunningAsr {
+    Ctc(Arc<CtcSession>),
+    Whisper(Arc<WhisperSession>),
+}
 
 fn hertz_to_mel(freq: f64) -> f64 {
     1127.0 * (1.0 + freq / 700.0).ln()
@@ -215,11 +234,7 @@ fn decode_ctc(logits: &[f32], frames: usize, vocab_size: usize, vocab: &AsrVocab
         prev_token = best_idx as isize;
     }
 
-    result
-        .join("")
-        .replace('\u{2581}', " ")
-        .trim()
-        .to_string()
+    result.join("").replace('\u{2581}', " ").trim().to_string()
 }
 
 fn normalize_section_headers(text: &str) -> String {
@@ -293,10 +308,7 @@ fn strip_leading_bracket_artifact(text: &str) -> String {
     }
 }
 
-pub fn load_session(
-    model_path: &str,
-    vocab_path: &str,
-) -> Result<RunningAsr, String> {
+pub fn load_ctc_session(model_path: &str, vocab_path: &str) -> Result<RunningAsr, String> {
     // Load vocab
     let vocab_bytes = std::fs::read(vocab_path)
         .map_err(|e| format!("Failed to read vocab file {vocab_path}: {e}"))?;
@@ -325,7 +337,7 @@ pub fn load_session(
     let mut planner = RealFftPlanner::<f64>::new();
     let fft_plan = planner.plan_fft_forward(N_FFT);
 
-    Ok(RunningAsr(Arc::new(AsrSession {
+    Ok(RunningAsr::Ctc(Arc::new(CtcSession {
         session: Mutex::new(session),
         vocab,
         mel_filterbank,
@@ -334,10 +346,41 @@ pub fn load_session(
     })))
 }
 
-pub fn transcribe(
-    asr: &AsrSession,
-    samples: &[f32],
-) -> Result<RuntimeExecuteResult, String> {
+pub(super) fn normalize_optional_text(value: Option<String>) -> Option<String> {
+    value
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+}
+
+pub fn load_whisper_session(
+    model_path: &str,
+    runtime_config: WhisperRuntimeConfig,
+) -> Result<RunningAsr, String> {
+    let mut engine = WhisperEngine::new();
+    let params = WhisperModelParams { use_gpu: false };
+    engine
+        .load_model_with_params(Path::new(model_path), params)
+        .map_err(|e| format!("Failed to load Whisper model {model_path}: {e}"))?;
+
+    let mut inference_params = WhisperInferenceParams::default();
+    inference_params.language = normalize_optional_text(runtime_config.language);
+    inference_params.translate = runtime_config.translate;
+    inference_params.initial_prompt = normalize_optional_text(runtime_config.initial_prompt);
+
+    Ok(RunningAsr::Whisper(Arc::new(WhisperSession {
+        engine: Mutex::new(engine),
+        inference_params,
+    })))
+}
+
+pub fn transcribe(asr: &RunningAsr, samples: &[f32]) -> Result<RuntimeExecuteResult, String> {
+    match asr {
+        RunningAsr::Ctc(session) => transcribe_ctc(session, samples),
+        RunningAsr::Whisper(session) => transcribe_whisper(session, samples),
+    }
+}
+
+fn transcribe_ctc(asr: &CtcSession, samples: &[f32]) -> Result<RuntimeExecuteResult, String> {
     let (features, frames) = extract_mel_features(
         samples,
         &asr.mel_filterbank,
@@ -390,9 +433,23 @@ pub fn transcribe(
     Ok(RuntimeExecuteResult { text })
 }
 
-pub(super) fn unload(
-    running: &mut HashMap<String, RunningAsr>,
-    plugin_id: &str,
-) {
+fn transcribe_whisper(
+    asr: &WhisperSession,
+    samples: &[f32],
+) -> Result<RuntimeExecuteResult, String> {
+    let mut engine = asr
+        .engine
+        .lock()
+        .map_err(|e| format!("Failed to lock Whisper session: {e}"))?;
+    let result = engine
+        .transcribe_samples(samples.to_vec(), Some(asr.inference_params.clone()))
+        .map_err(|e| format!("Whisper inference failed: {e}"))?;
+
+    Ok(RuntimeExecuteResult {
+        text: result.text.trim().to_string(),
+    })
+}
+
+pub(super) fn unload(running: &mut HashMap<String, RunningAsr>, plugin_id: &str) {
     running.remove(plugin_id);
 }

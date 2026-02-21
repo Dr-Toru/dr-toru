@@ -281,8 +281,7 @@ fn merge_chunk_text(current_text: &str, next_text: &str) -> String {
         if suffix.is_empty() {
             return current_text.to_string();
         }
-        if overlap_count == 1
-            && normalize_merge_token(next_words[0]).len() <= SHORT_STRIDE_WORD_LEN
+        if overlap_count == 1 && normalize_merge_token(next_words[0]).len() <= SHORT_STRIDE_WORD_LEN
         {
             return format!("{current_text} {suffix}");
         }
@@ -451,10 +450,7 @@ fn main() {
     println!("ASR Benchmark (native Rust ORT)");
     println!("===============================");
     println!("Audio: {}", cli.audio_path);
-    println!(
-        "Reference: \"{}\"",
-        truncate(&cli.reference, 60)
-    );
+    println!("Reference: \"{}\"", truncate(&cli.reference, 60));
     println!();
 
     // Load audio
@@ -471,17 +467,17 @@ fn main() {
     // Load ASR model
     println!("Model: {}", cli.model_path);
     println!("Loading ASR model...");
-    let running = asr::load_session(&cli.model_path, &cli.vocab_path).unwrap_or_else(|e| {
+    let running = asr::load_ctc_session(&cli.model_path, &cli.vocab_path).unwrap_or_else(|e| {
         eprintln!("Failed to load ASR: {e}");
         std::process::exit(1);
     });
-    let session = &running.0;
+    let session = &running;
     println!("  Model loaded");
     println!();
 
     // Chunk configs: (chunk_secs, stride_secs)
     let chunk_configs: Vec<(f64, f64)> = vec![
-        (6.0, 1.5),   // app default
+        (6.0, 1.5), // app default
         (10.0, 2.0),
         (15.0, 1.5),
         (20.0, 2.0),
@@ -600,10 +596,6 @@ fn main() {
         .iter()
         .min_by(|a, b| a.wer.partial_cmp(&b.wer).unwrap())
     {
-        println!(
-            "Best: {} — WER={:.1}%",
-            best.label,
-            best.wer * 100.0
-        );
+        println!("Best: {} — WER={:.1}%", best.label, best.wer * 100.0);
     }
 }

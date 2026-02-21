@@ -1,6 +1,7 @@
 import { decodeAudioFileToSamples } from "./audio/upload";
 import { AudioCapture } from "./audio/capture";
 import {
+  DEFAULT_ASR_SETTINGS,
   readAsrSettings,
   sanitizeAsrSettings,
   writeAsrSettings,
@@ -24,6 +25,10 @@ import {
   type PluginPlatform,
   type PluginPlatformState,
 } from "./plugins";
+import {
+  BUILTIN_MED_ASR_PLUGIN_ID,
+  type PluginManifest,
+} from "./plugins/contracts";
 import { getRecordingStore } from "./storage";
 
 const SAMPLE_RATE = 16000;
@@ -47,6 +52,7 @@ let settingsBtn: HTMLButtonElement;
 let uploadTranscriptBtn: HTMLButtonElement;
 let transcriptUploadInput: HTMLInputElement;
 let pluginListEl: HTMLElement;
+let asrPluginSettingsPanelEl: HTMLElement;
 let importPluginBtn: HTMLButtonElement;
 let importProgressEl: HTMLElement;
 let importProgressLabel: HTMLElement;
@@ -66,6 +72,7 @@ window.addEventListener("DOMContentLoaded", () => {
   uploadTranscriptBtn = mustBtn("uploadTranscriptBtn");
   transcriptUploadInput = mustFileInput("transcriptUploadInput");
   pluginListEl = mustEl("pluginList");
+  asrPluginSettingsPanelEl = mustEl("asrPluginSettingsPanel");
   importPluginBtn = mustBtn("importPluginBtn");
   importProgressEl = mustEl("importProgress");
   importProgressLabel = importProgressEl.querySelector(
@@ -78,15 +85,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   asrSettingsController.populate(asrSettings);
 
-  const asrEnabledInput = document.getElementById(
-    "asrEnabled",
-  ) as HTMLInputElement;
-  const beamSearchInput = document.getElementById(
-    "asrBeamSearchEnabled",
-  ) as HTMLInputElement;
-  asrEnabledInput.addEventListener("change", () => {
-    void applyAsrEnabled(asrEnabledInput.checked);
-  });
+  const beamSearchInput = mustInput("asrBeamSearchEnabled");
   beamSearchInput.addEventListener("change", () => {
     void applyBeamSearch(beamSearchInput.checked);
   });
@@ -446,6 +445,13 @@ async function initializeStorage(): Promise<void> {
 async function initializePlugins(): Promise<void> {
   try {
     pluginState = await pluginPlatform.init();
+    if (!pluginState.activeAsr) {
+      const builtInAsrId = findBuiltInAsrPluginId();
+      if (builtInAsrId) {
+        await pluginPlatform.setActivePlugin("asr", builtInAsrId);
+        pluginState = await pluginPlatform.status();
+      }
+    }
     renderPluginStatus();
     if (currentRoute?.name === "recording") {
       ensureRecordingServicesLoaded();
@@ -458,6 +464,13 @@ async function initializePlugins(): Promise<void> {
 
 async function refreshPluginState(): Promise<void> {
   pluginState = await pluginPlatform.status();
+  if (!pluginState.activeAsr) {
+    const builtInAsrId = findBuiltInAsrPluginId();
+    if (builtInAsrId) {
+      await pluginPlatform.setActivePlugin("asr", builtInAsrId);
+      pluginState = await pluginPlatform.status();
+    }
+  }
   renderPluginStatus();
 }
 
@@ -466,6 +479,7 @@ function updateSettingsControls(): void {
 }
 
 function renderPluginStatus(): void {
+  syncDictationTuningForActiveAsr();
   recordingView.setTranscribeAvailable(isAsrTranscriptionEnabled());
   updateAsrLoadingIndicator();
   updateSettingsControls();
@@ -480,25 +494,78 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+function formatPluginKindLabel(plugin: PluginManifest): string {
+  if (plugin.kind === "llm") {
+    return "Text Generation";
+  }
+  const language = parseAsrLanguage(plugin.metadata);
+  return language ? `Dictation (${language})` : "Dictation";
+}
+
+function parseAsrLanguage(metadata: PluginManifest["metadata"]): string | null {
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+
+  const asRecord = metadata as Record<string, unknown>;
+  const direct = normalizeMetadataText(asRecord.language);
+  if (direct) {
+    return direct;
+  }
+
+  const runtimeConfig = asRecord.runtimeConfig;
+  if (!runtimeConfig || typeof runtimeConfig !== "object") {
+    return null;
+  }
+  const asRuntimeRecord = runtimeConfig as Record<string, unknown>;
+  return normalizeMetadataText(asRuntimeRecord.language);
+}
+
+function normalizeMetadataText(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const text = value.trim();
+  return text ? text : null;
+}
+
 function renderPluginList(): void {
-  // Scoped to LLM for now
-  const plugins = pluginState?.plugins.filter((p) => p.kind === "llm") ?? [];
-  const activeId = pluginState?.activeLlm?.pluginId ?? null;
+  const plugins =
+    pluginState?.plugins.sort((a, b) => {
+      if (a.kind !== b.kind) {
+        return a.kind.localeCompare(b.kind);
+      }
+      const aBuiltin = a.pluginId.startsWith("builtin.");
+      const bBuiltin = b.pluginId.startsWith("builtin.");
+      if (aBuiltin !== bBuiltin) {
+        return aBuiltin ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    }) ?? [];
+  const activeAsrId = pluginState?.activeAsr?.pluginId ?? null;
+  const activeLlmId = pluginState?.activeLlm?.pluginId ?? null;
   const llmState = pluginPlatform.getLlmLoadState();
-  const controlsDisabled =
-    pluginActivationTask !== null ||
-    llmState === "loading" ||
-    llmState === "unloading" ||
-    modelIdleUnloadTask !== null;
+  const asrState = pluginPlatform.getAsrLoadState();
+  let panelAttached = false;
 
   if (plugins.length === 0) {
     pluginListEl.innerHTML =
       '<p class="plugin-list-empty">No plugins imported yet.</p>';
+    asrPluginSettingsPanelEl.hidden = true;
     return;
   }
 
   pluginListEl.innerHTML = "";
   for (const plugin of plugins) {
+    const isBuiltIn = plugin.pluginId.startsWith("builtin.");
+    const activeId = plugin.kind === "asr" ? activeAsrId : activeLlmId;
+    const loadState = plugin.kind === "asr" ? asrState : llmState;
+    const controlsDisabled =
+      pluginActivationTask !== null ||
+      loadState === "loading" ||
+      loadState === "unloading" ||
+      modelIdleUnloadTask !== null;
+
     const row = document.createElement("div");
     row.className = "plugin-row";
 
@@ -512,7 +579,14 @@ function renderPluginList(): void {
 
     const meta = document.createElement("div");
     meta.className = "plugin-meta";
-    meta.textContent = plugin.sizeBytes ? formatFileSize(plugin.sizeBytes) : "";
+    const metaParts = [formatPluginKindLabel(plugin)];
+    if (isBuiltIn) {
+      metaParts.push("Built-in");
+    }
+    if (plugin.sizeBytes) {
+      metaParts.push(formatFileSize(plugin.sizeBytes));
+    }
+    meta.textContent = metaParts.join(" · ");
     info.appendChild(meta);
 
     row.appendChild(info);
@@ -527,30 +601,66 @@ function renderPluginList(): void {
     enabledInput.checked = plugin.pluginId === activeId;
     enabledInput.disabled = controlsDisabled;
     enabledInput.addEventListener("change", () => {
-      void setPluginEnabled(plugin.pluginId, enabledInput.checked);
+      void setPluginEnabled(plugin.kind, plugin.pluginId, enabledInput.checked);
     });
     const enabledText = document.createElement("span");
     enabledText.textContent = "Enabled";
     enabledLabel.append(enabledInput, enabledText);
     controls.appendChild(enabledLabel);
 
-    const deleteBtn = document.createElement("button");
-    deleteBtn.className = "plugin-delete-btn";
-    deleteBtn.textContent = "Delete";
-    deleteBtn.type = "button";
-    deleteBtn.disabled = controlsDisabled;
-    deleteBtn.addEventListener("click", () => {
-      void deletePlugin(plugin.pluginId, plugin.name);
-    });
-    controls.appendChild(deleteBtn);
+    if (!isBuiltIn) {
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "plugin-delete-btn";
+      deleteBtn.textContent = "Delete";
+      deleteBtn.type = "button";
+      deleteBtn.disabled = controlsDisabled;
+      deleteBtn.addEventListener("click", () => {
+        void deletePlugin(plugin.pluginId, plugin.name);
+      });
+      controls.appendChild(deleteBtn);
+    }
 
     row.appendChild(controls);
 
+    if (plugin.kind === "asr" && plugin.pluginId === activeAsrId) {
+      const ownsSettings = ownsAsrSettingsPanel(
+        plugin.pluginId,
+        plugin.runtime,
+      );
+      if (!ownsSettings) {
+        pluginListEl.appendChild(row);
+        continue;
+      }
+      updateBeamSearchAvailabilityForRuntime(plugin.runtime);
+      asrPluginSettingsPanelEl.hidden = false;
+      row.appendChild(asrPluginSettingsPanelEl);
+      panelAttached = true;
+    }
+
     pluginListEl.appendChild(row);
+  }
+
+  if (!panelAttached) {
+    asrPluginSettingsPanelEl.hidden = true;
   }
 }
 
+function findBuiltInAsrPluginId(): string | null {
+  const medAsr = pluginState?.plugins.find(
+    (plugin) =>
+      plugin.kind === "asr" && plugin.pluginId === BUILTIN_MED_ASR_PLUGIN_ID,
+  );
+  if (medAsr) {
+    return medAsr.pluginId;
+  }
+  const fallback = pluginState?.plugins.find(
+    (plugin) => plugin.kind === "asr" && plugin.pluginId.startsWith("builtin."),
+  );
+  return fallback?.pluginId ?? null;
+}
+
 async function setPluginEnabled(
+  kind: "asr" | "llm",
   pluginId: string,
   enabled: boolean,
 ): Promise<void> {
@@ -558,27 +668,42 @@ async function setPluginEnabled(
     await pluginActivationTask;
   }
 
-  if (!enabled && pluginPlatform.isLlmBusy()) {
-    const proceed = window.confirm(
-      "A plugin is still processing a request. " +
-        "Press OK to stop now, or Cancel to wait.",
-    );
-    if (!proceed) {
-      renderPluginList();
-      return;
+  if (!enabled) {
+    const busy =
+      kind === "asr" ? pluginPlatform.isAsrBusy() : pluginPlatform.isLlmBusy();
+    if (busy) {
+      const proceed = window.confirm(
+        kind === "asr"
+          ? "ASR is still transcribing. Press OK to stop now, or Cancel to wait."
+          : "A plugin is still processing a request. Press OK to stop now, or Cancel to wait.",
+      );
+      if (!proceed) {
+        renderPluginList();
+        return;
+      }
     }
   }
 
-  const activeId = pluginState?.activeLlm?.pluginId ?? null;
-  const nextId = enabled ? pluginId : null;
+  const activeId =
+    kind === "asr"
+      ? (pluginState?.activeAsr?.pluginId ?? null)
+      : (pluginState?.activeLlm?.pluginId ?? null);
+  let nextId = enabled ? pluginId : null;
+  if (kind === "asr" && !enabled) {
+    nextId = findBuiltInAsrPluginId();
+  }
   if (activeId === nextId) {
+    renderPluginList();
     return;
   }
 
   pluginActivationTask = (async () => {
-    await pluginPlatform.setActivePlugin("llm", nextId);
+    await pluginPlatform.setActivePlugin(kind, nextId);
     await refreshPluginState();
-    if (isRecordingRouteOpen() && nextId) {
+    if (isRecordingRouteOpen() && nextId && kind === "asr") {
+      await setAsrLoaded(true).catch(() => undefined);
+    }
+    if (isRecordingRouteOpen() && nextId && kind === "llm") {
       await setLlmLoaded(true).catch(() => undefined);
     }
   })()
@@ -652,11 +777,7 @@ async function importPlugin(): Promise<void> {
       importProgressEl.hidden = true;
     }
     await refreshPluginState();
-    if (
-      imported.kind === "asr" &&
-      asrSettings.asrEnabled &&
-      currentRoute?.name === "recording"
-    ) {
+    if (imported.kind === "asr" && currentRoute?.name === "recording") {
       await setAsrLoaded(true).catch(() => undefined);
     }
   } catch (error) {
@@ -772,7 +893,7 @@ async function unloadModelsAfterIdle(): Promise<void> {
 
 function ensureRecordingServicesLoaded(): void {
   clearModelUnloadTimer();
-  if (asrSettings.asrEnabled && pluginState?.features.transcription) {
+  if (pluginState?.features.transcription) {
     void setAsrLoaded(true).catch((error) =>
       reportUnexpectedError(error, "ASR load failed"),
     );
@@ -784,23 +905,49 @@ function ensureRecordingServicesLoaded(): void {
   }
 }
 
-async function applyAsrEnabled(enabled: boolean): Promise<void> {
-  asrSettings.asrEnabled = enabled;
-  try {
-    writeAsrSettings(asrSettings);
-  } catch {
-    // Best-effort persist; value is already applied in memory
+function updateBeamSearchAvailabilityForRuntime(runtime: string): void {
+  const beamSearchInput = document.getElementById("asrBeamSearchEnabled");
+  const beamMeta = document.getElementById("beamSearchMeta");
+  if (!(beamSearchInput instanceof HTMLInputElement)) {
+    return;
   }
 
-  if (!enabled) {
-    await setAsrLoaded(false).catch(() => undefined);
-  } else if (isRecordingRouteOpen() && pluginState?.features.transcription) {
-    void setAsrLoaded(true).catch((error) =>
-      reportUnexpectedError(error, "ASR load failed"),
-    );
+  const beamSupported = runtime === "ort-ctc";
+  beamSearchInput.disabled = !beamSupported;
+  if (!beamSupported) {
+    beamSearchInput.checked = false;
+    if (asrSettings.runtimeConfig.decode.beamSearchEnabled) {
+      asrSettings.runtimeConfig.decode.beamSearchEnabled = false;
+      try {
+        writeAsrSettings(asrSettings);
+      } catch {
+        // Best-effort persist
+      }
+    }
   }
-  recordingView.setTranscribeAvailable(isAsrTranscriptionEnabled());
-  updateAsrLoadingIndicator();
+
+  if (beamMeta instanceof HTMLElement) {
+    beamMeta.textContent = beamSupported
+      ? "Improves quality but uses more memory"
+      : "Unavailable for current ASR plugin";
+  }
+}
+
+function ownsAsrSettingsPanel(pluginId: string, runtime: string): boolean {
+  return pluginId === BUILTIN_MED_ASR_PLUGIN_ID && runtime === "ort-ctc";
+}
+
+function syncDictationTuningForActiveAsr(): void {
+  const activeAsr = pluginState?.activeAsr;
+  const tuningSource =
+    activeAsr && ownsAsrSettingsPanel(activeAsr.pluginId, activeAsr.runtime)
+      ? asrSettings
+      : DEFAULT_ASR_SETTINGS;
+  dictation.setVadSettings({
+    silenceRms: tuningSource.silenceRms,
+    silencePeak: tuningSource.silencePeak,
+    silenceHangoverMs: tuningSource.silenceHangoverMs,
+  });
 }
 
 async function applyBeamSearch(enabled: boolean): Promise<void> {
@@ -814,7 +961,7 @@ async function applyBeamSearch(enabled: boolean): Promise<void> {
   // Beam search config is baked into the worker at load time, so cycle ASR
   if (pluginPlatform.isAsrReady()) {
     await setAsrLoaded(false).catch(() => undefined);
-    if (asrSettings.asrEnabled && isRecordingRouteOpen()) {
+    if (isRecordingRouteOpen() && pluginState?.features.transcription) {
       void setAsrLoaded(true).catch((error) =>
         reportUnexpectedError(error, "ASR load failed"),
       );
@@ -904,7 +1051,7 @@ async function transcribeUploadedFile(file: File): Promise<void> {
 }
 
 function isAsrTranscriptionEnabled(): boolean {
-  return asrSettings.asrEnabled && Boolean(pluginState?.features.transcription);
+  return Boolean(pluginState?.features.transcription);
 }
 
 function isRecordingRouteOpen(): boolean {

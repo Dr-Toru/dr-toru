@@ -7,11 +7,8 @@ mod registry;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::{self, Write};
-use std::path::Path;
+use std::fs;
 use std::sync::{Mutex, MutexGuard};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, State};
 
 use asr::RunningAsr;
@@ -137,57 +134,6 @@ fn err_to_string(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
-fn unique_suffix() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("{nanos}-{}", std::process::id())
-}
-
-fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let Some(parent) = path.parent() else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Path has no parent directory",
-        ));
-    };
-    fs::create_dir_all(parent)?;
-
-    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Path has no valid file name",
-        ));
-    };
-
-    let tmp_path = parent.join(format!(".{file_name}.tmp-{}", unique_suffix()));
-    {
-        let mut file = File::create(&tmp_path)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-    }
-
-    if let Err(rename_error) = fs::rename(&tmp_path, path) {
-        if path.exists() {
-            fs::remove_file(path)?;
-            fs::rename(&tmp_path, path)?;
-            return Ok(());
-        }
-
-        let _ = fs::remove_file(&tmp_path);
-        return Err(rename_error);
-    }
-
-    Ok(())
-}
-
-fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
-    let encoded = serde_json::to_vec_pretty(value)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-    write_bytes_atomic(path, &encoded)
-}
-
 fn parse_string_field(metadata: &Option<Value>, field: &str) -> Option<String> {
     let Some(Value::Object(map)) = metadata else {
         return None;
@@ -214,6 +160,32 @@ fn parse_string_array_field(metadata: &Option<Value>, field: &str) -> Option<Vec
         args.push(text.clone());
     }
     Some(args)
+}
+
+fn parse_runtime_config_string_field(metadata: &Option<Value>, field: &str) -> Option<String> {
+    let Some(Value::Object(map)) = metadata else {
+        return None;
+    };
+    let Some(Value::Object(runtime_config)) = map.get("runtimeConfig") else {
+        return None;
+    };
+    let Some(Value::String(value)) = runtime_config.get(field) else {
+        return None;
+    };
+    Some(value.clone())
+}
+
+fn parse_runtime_config_bool_field(metadata: &Option<Value>, field: &str) -> Option<bool> {
+    let Some(Value::Object(map)) = metadata else {
+        return None;
+    };
+    let Some(Value::Object(runtime_config)) = map.get("runtimeConfig") else {
+        return None;
+    };
+    let Some(Value::Bool(value)) = runtime_config.get(field) else {
+        return None;
+    };
+    Some(*value)
 }
 
 // -- Tauri commands --
@@ -506,28 +478,45 @@ pub async fn plugin_asr_load(app: AppHandle, plugin_id: String) -> Result<Runtim
         if plugin.kind != PluginKind::Asr {
             return Err(format!("Plugin {plugin_id} is not an ASR plugin"));
         }
-        if plugin.runtime != "ort-ctc" {
-            return Err(format!(
-                "ASR runtime {} is not supported yet for {plugin_id}",
-                plugin.runtime
-            ));
-        }
 
         let model_path = resolve_entrypoint(&app, &plugin.entrypoint_path)?;
         if !model_path.exists() {
             return Err(format!("Model file not found: {}", model_path.display()));
         }
 
-        let vocab_rel = parse_string_field(&plugin.metadata, "vocabPath")
-            .ok_or_else(|| format!("Plugin {plugin_id} missing metadata.vocabPath"))?;
-        let vocab_path = resolve_entrypoint(&app, &vocab_rel)?;
-        if !vocab_path.exists() {
-            return Err(format!("Vocab file not found: {}", vocab_path.display()));
-        }
-
         let model_str = model_path.to_string_lossy().to_string();
-        let vocab_str = vocab_path.to_string_lossy().to_string();
-        let session = asr::load_session(&model_str, &vocab_str)?;
+        let session = match plugin.runtime.as_str() {
+            "ort-ctc" => {
+                let vocab_rel = parse_string_field(&plugin.metadata, "vocabPath")
+                    .ok_or_else(|| format!("Plugin {plugin_id} missing metadata.vocabPath"))?;
+                let vocab_path = resolve_entrypoint(&app, &vocab_rel)?;
+                if !vocab_path.exists() {
+                    return Err(format!("Vocab file not found: {}", vocab_path.display()));
+                }
+
+                let vocab_str = vocab_path.to_string_lossy().to_string();
+                asr::load_ctc_session(&model_str, &vocab_str)?
+            }
+            "whisper" => {
+                let whisper_config = asr::WhisperRuntimeConfig {
+                    language: asr::normalize_optional_text(parse_runtime_config_string_field(
+                        &plugin.metadata,
+                        "language",
+                    )),
+                    translate: parse_runtime_config_bool_field(&plugin.metadata, "translate")
+                        .unwrap_or(false),
+                    initial_prompt: asr::normalize_optional_text(
+                        parse_runtime_config_string_field(&plugin.metadata, "initialPrompt"),
+                    ),
+                };
+                asr::load_whisper_session(&model_str, whisper_config)?
+            }
+            runtime => {
+                return Err(format!(
+                    "ASR runtime {runtime} is not supported yet for {plugin_id}",
+                ));
+            }
+        };
 
         let mut running = runtime_state.lock_running_asr();
         running.insert(plugin_id.clone(), session);
@@ -550,14 +539,14 @@ pub async fn plugin_asr_transcribe(
     plugin_id: String,
     samples: Vec<f32>,
 ) -> Result<RuntimeExecuteResult, String> {
-    // Grab a clone of the Arc<AsrSession> so we don't hold the mutex during inference
+    // Grab a clone so we don't hold the runtime-state lock during inference.
     let session = {
         let runtime_state = app.state::<PluginRuntimeState>();
         let running = runtime_state.lock_running_asr();
-        let Some(running_asr) = running.get(&plugin_id) else {
+        let Some(running_asr) = running.get(&plugin_id).cloned() else {
             return Err(format!("ASR session not loaded for {plugin_id}"));
         };
-        running_asr.0.clone()
+        running_asr
     };
 
     tauri::async_runtime::spawn_blocking(move || asr::transcribe(&session, &samples))

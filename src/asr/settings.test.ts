@@ -63,12 +63,10 @@ describe("readAsrSettings", () => {
     const storage = createMemoryStorage({
       "toru.silence.hangover.ms": "nope",
       "toru.asr.decode.beam.width": "n/a",
-      "toru.asr.enabled": "wat",
       "toru.asr.decode.beam.enabled": "wat",
     });
 
     const settings = readAsrSettings(storage);
-    expect(settings.asrEnabled).toBe(DEFAULT_ASR_SETTINGS.asrEnabled);
     expect(settings.runtimeConfig.decode.beamSearchEnabled).toBe(
       DEFAULT_ASR_SETTINGS.runtimeConfig.decode.beamSearchEnabled,
     );
@@ -100,7 +98,6 @@ describe("writeAsrSettings", () => {
     writeAsrSettings(
       {
         ...DEFAULT_ASR_SETTINGS,
-        asrEnabled: false,
         silenceHangoverMs: 800,
         runtimeConfig: {
           ...DEFAULT_ASR_SETTINGS.runtimeConfig,
@@ -115,13 +112,11 @@ describe("writeAsrSettings", () => {
     );
 
     const loaded = readAsrSettings(storage);
-    expect(loaded.asrEnabled).toBe(false);
     expect(loaded.silenceHangoverMs).toBe(800);
     expect(loaded.runtimeConfig.decode.beamSearchEnabled).toBe(false);
     expect(loaded.runtimeConfig.decode.beamWidth).toBe(32);
 
     const snapshot = storage.snapshot();
-    expect(snapshot["toru.asr.enabled"]).toBe("0");
     expect(snapshot["toru.silence.hangover.ms"]).toBe("800");
     expect(snapshot["toru.asr.decode.beam.enabled"]).toBe("0");
     expect(snapshot["toru.asr.decode.beam.width"]).toBe("32");
