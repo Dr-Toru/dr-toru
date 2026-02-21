@@ -5,8 +5,10 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
 use super::{
-    err_to_string, parse_string_field, write_json_atomic, ActivePlugins, PluginKind,
-    PluginManifest, PluginRegistryState,
+    err_to_string,
+    manifest_utils::{is_supported_runtime, is_valid_semver},
+    parse_string_field, write_json_atomic, ActivePlugins, PluginKind, PluginManifest,
+    PluginRegistryState,
 };
 
 const REGISTRY_FORMAT: u8 = 1;
@@ -58,8 +60,9 @@ pub(super) fn builtin_ort_asr_plugin() -> PluginManifest {
         name: "Built-in Medical ASR".to_string(),
         version: "1.0.0".to_string(),
         kind: PluginKind::Asr,
+        runtime: "ort-ctc".to_string(),
         entrypoint_path: "models/medasr_lasr_ctc_int8.onnx".to_string(),
-        sha256: "05c1907f53d9dea3db23092e4d730f011ee400b3fb282d6af8443276dfb9d270".to_string(),
+        hash: "05c1907f53d9dea3db23092e4d730f011ee400b3fb282d6af8443276dfb9d270".to_string(),
         model_family: Some("medasr_lasr".to_string()),
         size_bytes: None,
         license: None,
@@ -70,7 +73,7 @@ pub(super) fn builtin_ort_asr_plugin() -> PluginManifest {
                 Value::String("models/medasr_lasr_vocab.json".to_string()),
             ),
             (
-                "vocabSha256".to_string(),
+                "vocabHash".to_string(),
                 Value::String(
                     "631bd152b5beca9a74d21bd1c3ff53fecf63d10d11aae72e491cacdfbf69a756".to_string(),
                 ),
@@ -82,6 +85,13 @@ pub(super) fn builtin_ort_asr_plugin() -> PluginManifest {
             (
                 "kenlmWasmPath".to_string(),
                 Value::String("kenlm/kenlm.js".to_string()),
+            ),
+            (
+                "runtimeConfig".to_string(),
+                Value::Object(Map::from_iter([(
+                    "asrType".to_string(),
+                    Value::String("ctc".to_string()),
+                )])),
             ),
         ]))),
     }
@@ -97,34 +107,11 @@ fn is_valid_plugin_id(value: &str) -> bool {
         .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'_' || byte == b'-')
 }
 
-fn is_valid_sha256(value: &str) -> bool {
+fn is_valid_hash(value: &str) -> bool {
     value.len() == 64
         && value
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-}
-
-fn is_valid_semver(value: &str) -> bool {
-    let (core, _) = value.split_once('-').unwrap_or((value, ""));
-    let mut parts = core.split('.');
-    let Some(major) = parts.next() else {
-        return false;
-    };
-    let Some(minor) = parts.next() else {
-        return false;
-    };
-    let Some(patch) = parts.next() else {
-        return false;
-    };
-    if parts.next().is_some() {
-        return false;
-    }
-    !major.is_empty()
-        && !minor.is_empty()
-        && !patch.is_empty()
-        && major.bytes().all(|byte| byte.is_ascii_digit())
-        && minor.bytes().all(|byte| byte.is_ascii_digit())
-        && patch.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 pub(super) fn validate_manifest(manifest: &PluginManifest) -> Result<(), String> {
@@ -137,14 +124,23 @@ pub(super) fn validate_manifest(manifest: &PluginManifest) -> Result<(), String>
     if !is_valid_semver(&manifest.version) {
         return Err("version must follow semver x.y.z".to_string());
     }
+    if manifest.runtime.trim().is_empty() {
+        return Err("runtime is required".to_string());
+    }
+    if !is_supported_runtime(&manifest.kind, manifest.runtime.trim()) {
+        return Err(format!(
+            "runtime {} is not supported for kind {:?}",
+            manifest.runtime, manifest.kind
+        ));
+    }
     if manifest.entrypoint_path.trim().is_empty() {
         return Err("entrypointPath is required".to_string());
     }
-    if !is_valid_sha256(&manifest.sha256) {
-        return Err("sha256 must be 64 lowercase hex chars".to_string());
+    if !is_valid_hash(&manifest.hash) {
+        return Err("hash must be 64 lowercase hex chars".to_string());
     }
 
-    if manifest.kind == PluginKind::Asr {
+    if manifest.kind == PluginKind::Asr && manifest.runtime == "ort-ctc" {
         if parse_string_field(&manifest.metadata, "vocabPath")
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
@@ -201,9 +197,9 @@ fn sanitize_registry(mut state: PluginRegistryState) -> Result<PluginRegistrySta
         .llm
         .as_ref()
         .map(|plugin_id| {
-            valid_plugins.iter().any(|plugin| {
-                plugin.plugin_id == *plugin_id && plugin.kind == PluginKind::Llm
-            })
+            valid_plugins
+                .iter()
+                .any(|plugin| plugin.plugin_id == *plugin_id && plugin.kind == PluginKind::Llm)
         })
         .unwrap_or(false);
     if !has_llm_active {
@@ -217,10 +213,7 @@ fn sanitize_registry(mut state: PluginRegistryState) -> Result<PluginRegistrySta
     })
 }
 
-pub(super) fn auto_activate_vacant(
-    state: &mut PluginRegistryState,
-    manifest: &PluginManifest,
-) {
+pub(super) fn auto_activate_vacant(state: &mut PluginRegistryState, manifest: &PluginManifest) {
     match manifest.kind {
         PluginKind::Asr => {
             if state.active_plugins.asr.is_none() {

@@ -1,6 +1,7 @@
 pub mod asr;
 mod import;
 mod llamafile;
+mod manifest_utils;
 mod registry;
 
 use serde::{Deserialize, Serialize};
@@ -13,11 +14,11 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, State};
 
-use import::{imported_asset_dir, imported_plugin_manifest};
 use asr::RunningAsr;
+use import::{imported_asset_dir, imported_plugin_manifest};
 use llamafile::{
-    execute_blocking, service_start_blocking, service_status_blocking,
-    stop_service, RunningLlamafile,
+    execute_blocking, service_start_blocking, service_status_blocking, stop_service,
+    RunningLlamafile,
 };
 use registry::{
     auto_activate_vacant, ensure_registry, load_registry, plugin_paths, resolve_entrypoint,
@@ -38,8 +39,10 @@ pub struct PluginManifest {
     pub name: String,
     pub version: String,
     pub kind: PluginKind,
+    pub runtime: String,
     pub entrypoint_path: String,
-    pub sha256: String,
+    #[serde(alias = "sha256")]
+    pub hash: String,
     pub model_family: Option<String>,
     pub size_bytes: Option<u64>,
     pub license: Option<String>,
@@ -98,9 +101,7 @@ impl PluginRuntimeState {
     }
 
     fn lock_running_asr(&self) -> MutexGuard<'_, HashMap<String, RunningAsr>> {
-        self.running_asr
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        self.running_asr.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn stop_all_running(&self) {
@@ -478,10 +479,7 @@ pub async fn plugin_runtime_llamafile_execute(
 }
 
 #[tauri::command]
-pub async fn plugin_asr_load(
-    app: AppHandle,
-    plugin_id: String,
-) -> Result<RuntimeHealth, String> {
+pub async fn plugin_asr_load(app: AppHandle, plugin_id: String) -> Result<RuntimeHealth, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let runtime_state = app.state::<PluginRuntimeState>();
 
@@ -507,6 +505,12 @@ pub async fn plugin_asr_load(
         };
         if plugin.kind != PluginKind::Asr {
             return Err(format!("Plugin {plugin_id} is not an ASR plugin"));
+        }
+        if plugin.runtime != "ort-ctc" {
+            return Err(format!(
+                "ASR runtime {} is not supported yet for {plugin_id}",
+                plugin.runtime
+            ));
         }
 
         let model_path = resolve_entrypoint(&app, &plugin.entrypoint_path)?;
@@ -562,10 +566,7 @@ pub async fn plugin_asr_transcribe(
 }
 
 #[tauri::command]
-pub fn plugin_asr_unload(
-    plugin_id: String,
-    runtime_state: State<'_, PluginRuntimeState>,
-) {
+pub fn plugin_asr_unload(plugin_id: String, runtime_state: State<'_, PluginRuntimeState>) {
     let mut running = runtime_state.lock_running_asr();
     asr::unload(&mut running, &plugin_id);
 }

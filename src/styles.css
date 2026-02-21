@@ -1388,6 +1388,35 @@ body {
   border-color: var(--text-secondary);
 }
 
+#screen-settings .import-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: var(--space-2);
+}
+
+#screen-settings .import-progress .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: typingPulse 1.4s ease-in-out infinite;
+}
+
+#screen-settings .import-progress .dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+#screen-settings .import-progress .dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+#screen-settings .import-progress-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
 #screen-settings .plugin-list-empty {
   font-size: 13px;
   color: var(--text-muted);

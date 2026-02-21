@@ -31,8 +31,32 @@ describe("plugin contracts", () => {
       name: "Test LLM",
       version: "1.0.0",
       kind: "llm",
+      runtime: "llamafile",
       entrypointPath: "/tmp/model.llamafile",
-      sha256: "a".repeat(64),
+      hash: "a".repeat(64),
+    };
+
+    const issues = validatePluginManifest(manifest);
+    expect(issues).toHaveLength(0);
+  });
+
+  it("rejects unsupported runtime for kind", () => {
+    const manifest: PluginManifest = {
+      ...BUILTIN_ORT_ASR_PLUGIN,
+      pluginId: "bad.asr.runtime",
+      runtime: "llamafile",
+    };
+
+    const issues = validatePluginManifest(manifest);
+    expect(issues.some((issue) => issue.field === "runtime")).toBe(true);
+  });
+
+  it("accepts whisper runtime without CTC vocab metadata", () => {
+    const manifest: PluginManifest = {
+      ...BUILTIN_ORT_ASR_PLUGIN,
+      pluginId: "test.asr.whisper",
+      runtime: "ort-whisper",
+      metadata: {},
     };
 
     const issues = validatePluginManifest(manifest);

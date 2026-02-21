@@ -183,9 +183,7 @@ export class PluginPlatform {
     const sourcePath = await open({
       title: "Import Model File or Package",
       multiple: false,
-      filters: [
-        { name: "Model Files", extensions: ["llamafile", "onnx", "asrpkg"] },
-      ],
+      filters: [{ name: "Model Files", extensions: ["llamafile", "zip"] }],
     });
     if (typeof sourcePath !== "string") {
       return null;
