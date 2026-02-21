@@ -418,6 +418,13 @@ fn resolve_extracted_asset_path(root: &Path, value: &str) -> Result<InstallAsset
     })
 }
 
+fn has_extension(path: &Path, expected: &str) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.eq_ignore_ascii_case(expected))
+        .unwrap_or(false)
+}
+
 fn insert_default_llm_metadata(fields: &mut Map<String, Value>) {
     fields.insert(
         "serviceStartArgs".to_string(),
@@ -434,7 +441,7 @@ fn insert_default_llm_metadata(fields: &mut Map<String, Value>) {
 }
 
 fn default_asr_runtime_config(runtime: &str) -> Value {
-    let asr_type = if runtime == "ort-whisper" {
+    let asr_type = if runtime == "whisper" {
         "whisper"
     } else {
         "ctc"
@@ -580,6 +587,13 @@ fn load_zip_package(extract_root: &Path) -> Result<ParsedZipPackage, String> {
                     relative_path: wasm_relative,
                 });
             }
+        }
+    } else if kind == PluginKind::Asr && runtime == "whisper" {
+        // transcribe-rs WhisperEngine loads a single GGML model file.
+        if !has_extension(&entrypoint.relative_path, "bin") {
+            return Err(
+                "ASR runtime whisper requires entrypoint to be a GGML .bin file".to_string(),
+            );
         }
     }
 
@@ -889,6 +903,65 @@ mod tests {
         assert_eq!(parsed.version, "1.2.3");
         assert_eq!(parsed.assets.len(), 2);
         assert_eq!(parsed.supplemental_assets.len(), 1);
+    }
+
+    #[test]
+    fn load_zip_package_accepts_valid_whisper_manifest() {
+        let dir = TempDir::new("valid-whisper");
+        write_file(
+            dir.path().join("models/whisper-medium-q4_1.bin").as_path(),
+            b"ggml",
+        );
+
+        let manifest = format!(
+            r#"{{
+  "schema": "{schema}",
+  "kind": "asr",
+  "runtime": "whisper",
+  "name": "Zip Whisper ASR",
+  "version": "1.0.0",
+  "entrypoint": "models/whisper-medium-q4_1.bin",
+  "runtimeConfig": {{
+    "asrType": "whisper",
+    "language": "en"
+  }}
+}}"#,
+            schema = PACKAGE_SCHEMA_V1
+        );
+        write_file(
+            dir.path().join(PACKAGE_MANIFEST_FILE).as_path(),
+            manifest.as_bytes(),
+        );
+
+        let parsed = load_zip_package(dir.path()).expect("expected valid whisper package");
+        assert_eq!(parsed.runtime, "whisper");
+        assert_eq!(parsed.assets.len(), 0);
+    }
+
+    #[test]
+    fn load_zip_package_rejects_whisper_without_bin_entrypoint() {
+        let dir = TempDir::new("invalid-whisper-entrypoint");
+        write_file(dir.path().join("models/model.onnx").as_path(), b"onnx");
+
+        let manifest = format!(
+            r#"{{
+  "schema": "{schema}",
+  "kind": "asr",
+  "runtime": "whisper",
+  "name": "Zip Whisper ASR",
+  "version": "1.0.0",
+  "entrypoint": "models/model.onnx"
+}}"#,
+            schema = PACKAGE_SCHEMA_V1
+        );
+        write_file(
+            dir.path().join(PACKAGE_MANIFEST_FILE).as_path(),
+            manifest.as_bytes(),
+        );
+
+        let error =
+            load_zip_package(dir.path()).expect_err("expected whisper entrypoint format rejection");
+        assert!(error.contains("GGML .bin"));
     }
 
     #[test]

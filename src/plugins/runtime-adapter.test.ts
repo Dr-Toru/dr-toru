@@ -54,11 +54,49 @@ describe("runtime adapter", () => {
         {
           ...BUILTIN_ORT_ASR_PLUGIN,
           pluginId: "bad.asr.runtime-whisper-web",
-          runtime: "ort-whisper",
+          runtime: "whisper",
           metadata: {},
         },
         OPTIONS,
       ),
     ).toThrowError(/only supported in native desktop mode/);
+  });
+
+  it("applies custom runtime config only to built-in Med ASR", () => {
+    const tunedOptions = {
+      ...OPTIONS,
+      asrRuntimeConfig: {
+        ortThreads: 2,
+        decode: {
+          beamSearchEnabled: true,
+          beamWidth: 16,
+          lmAlpha: 0.9,
+          lmBeta: 2.1,
+          minTokenLogp: -3,
+          beamPruneLogp: -7,
+        },
+      },
+    };
+
+    const builtInAdapter = createRuntimeAdapter(
+      BUILTIN_ORT_ASR_PLUGIN,
+      tunedOptions,
+    ) as unknown as { asrRuntimeConfig: typeof tunedOptions.asrRuntimeConfig };
+    expect(builtInAdapter.asrRuntimeConfig.decode.beamSearchEnabled).toBe(true);
+    expect(builtInAdapter.asrRuntimeConfig.ortThreads).toBe(2);
+
+    const importedAdapter = createRuntimeAdapter(
+      {
+        ...BUILTIN_ORT_ASR_PLUGIN,
+        pluginId: "import.asr.ort.custom",
+      },
+      tunedOptions,
+    ) as unknown as { asrRuntimeConfig: typeof tunedOptions.asrRuntimeConfig };
+    expect(importedAdapter.asrRuntimeConfig.decode.beamSearchEnabled).toBe(
+      DEFAULT_ASR_RUNTIME_CONFIG.decode.beamSearchEnabled,
+    );
+    expect(importedAdapter.asrRuntimeConfig.ortThreads).toBe(
+      DEFAULT_ASR_RUNTIME_CONFIG.ortThreads,
+    );
   });
 });

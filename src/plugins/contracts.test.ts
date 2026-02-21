@@ -55,7 +55,7 @@ describe("plugin contracts", () => {
     const manifest: PluginManifest = {
       ...BUILTIN_ORT_ASR_PLUGIN,
       pluginId: "test.asr.whisper",
-      runtime: "ort-whisper",
+      runtime: "whisper",
       metadata: {},
     };
 

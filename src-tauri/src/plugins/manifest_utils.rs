@@ -2,7 +2,7 @@ use super::PluginKind;
 
 pub(super) fn is_supported_runtime(kind: &PluginKind, runtime: &str) -> bool {
     match kind {
-        PluginKind::Asr => matches!(runtime, "ort-ctc" | "ort-whisper"),
+        PluginKind::Asr => matches!(runtime, "ort-ctc" | "whisper"),
         PluginKind::Llm => matches!(runtime, "llamafile"),
     }
 }

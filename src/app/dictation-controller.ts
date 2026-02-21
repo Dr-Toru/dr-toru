@@ -18,6 +18,12 @@ export interface DictationControllerOptions {
   onLevel?: (rms: number) => void;
 }
 
+export interface DictationVadSettings {
+  silenceRms: number;
+  silencePeak: number;
+  silenceHangoverMs: number;
+}
+
 const VAD_FRAME_SAMPLES = 2048;
 const VAD_SPEECH_ONSET_MS = 150;
 const VAD_MAX_SEGMENT_SECS = 18;
@@ -31,8 +37,15 @@ export class DictationController {
   private metricChunkId = 0;
   private overloadDropCount = 0;
   private segmenter: VadSegmenter | null = null;
+  private silenceRms: number;
+  private silencePeak: number;
+  private silenceHangoverMs: number;
 
-  constructor(private readonly options: DictationControllerOptions) {}
+  constructor(private readonly options: DictationControllerOptions) {
+    this.silenceRms = options.silenceRms;
+    this.silencePeak = options.silencePeak;
+    this.silenceHangoverMs = options.silenceHangoverMs;
+  }
 
   get isRecording(): boolean {
     return this.isRecordingValue;
@@ -42,23 +55,13 @@ export class DictationController {
     return this.options.pluginPlatform.isAsrReady();
   }
 
-  async loadModel(): Promise<boolean> {
-    if (this.options.pluginPlatform.isAsrReady()) {
-      this.options.onStatus("Model already loaded");
-      return true;
+  setVadSettings(settings: DictationVadSettings): void {
+    if (this.isRecordingValue) {
+      return;
     }
-
-    this.options.onStatus("Loading model in background...");
-
-    try {
-      const provider = await this.options.pluginPlatform.loadAsr();
-      this.options.onStatus(`${provider.name} loaded. Ready to record.`);
-      return true;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.options.onStatus(`Load failed: ${message}`);
-      return false;
-    }
+    this.silenceRms = settings.silenceRms;
+    this.silencePeak = settings.silencePeak;
+    this.silenceHangoverMs = settings.silenceHangoverMs;
   }
 
   /** Returns the recording state after the toggle attempt. */
@@ -86,10 +89,10 @@ export class DictationController {
           const vadConfig: VadSegmenterConfig = {
             sampleRate: this.options.sampleRate,
             frameSamples: VAD_FRAME_SAMPLES,
-            silenceRms: this.options.silenceRms,
-            silencePeak: this.options.silencePeak,
+            silenceRms: this.silenceRms,
+            silencePeak: this.silencePeak,
             speechOnsetMs: VAD_SPEECH_ONSET_MS,
-            silenceHangoverMs: this.options.silenceHangoverMs,
+            silenceHangoverMs: this.silenceHangoverMs,
             maxSegmentSecs: VAD_MAX_SEGMENT_SECS,
             preRollMs: VAD_PRE_ROLL_MS,
           };

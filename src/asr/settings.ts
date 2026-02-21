@@ -6,7 +6,6 @@ import {
 } from "./runtime-config";
 
 export interface AsrSettings {
-  asrEnabled: boolean;
   silenceRms: number;
   silencePeak: number;
   silenceHangoverMs: number;
@@ -23,7 +22,6 @@ interface StorageLike {
 }
 
 const STORAGE_KEYS = {
-  asrEnabled: "toru.asr.enabled",
   silenceRms: "toru.silence.rms",
   silencePeak: "toru.silence.peak",
   silenceHangoverMs: "toru.silence.hangover.ms",
@@ -37,7 +35,6 @@ const STORAGE_KEYS = {
 } as const;
 
 export const DEFAULT_ASR_SETTINGS: AsrSettings = {
-  asrEnabled: false,
   silenceRms: 0.0025,
   silencePeak: 0.012,
   silenceHangoverMs: 500,
@@ -75,10 +72,6 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function booleanWithFallback(value: unknown, fallback: boolean): boolean {
-  return typeof value === "boolean" ? value : fallback;
-}
-
 function numberWithFallback(
   value: unknown,
   fallback: number,
@@ -104,10 +97,6 @@ export function sanitizeAsrSettings(
   input: PartialAsrSettings | undefined,
 ): AsrSettings {
   return {
-    asrEnabled: booleanWithFallback(
-      input?.asrEnabled,
-      DEFAULT_ASR_SETTINGS.asrEnabled,
-    ),
     silenceRms: numberWithFallback(
       input?.silenceRms,
       DEFAULT_ASR_SETTINGS.silenceRms,
@@ -140,7 +129,6 @@ export function readAsrSettings(
   const target = storage ?? window.localStorage;
 
   return sanitizeAsrSettings({
-    asrEnabled: toBoolean(target.getItem(STORAGE_KEYS.asrEnabled)),
     silenceRms: toNumber(target.getItem(STORAGE_KEYS.silenceRms)),
     silencePeak: toNumber(target.getItem(STORAGE_KEYS.silencePeak)),
     silenceHangoverMs: toNumber(target.getItem(STORAGE_KEYS.silenceHangoverMs)),
@@ -172,7 +160,6 @@ export function writeAsrSettings(
   const target = storage ?? window.localStorage;
   const normalized = sanitizeAsrSettings(settings);
 
-  target.setItem(STORAGE_KEYS.asrEnabled, normalized.asrEnabled ? "1" : "0");
   target.setItem(STORAGE_KEYS.silenceRms, String(normalized.silenceRms));
   target.setItem(STORAGE_KEYS.silencePeak, String(normalized.silencePeak));
   target.setItem(

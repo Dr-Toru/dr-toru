@@ -15,7 +15,6 @@ export class AsrSettingsController {
 
   private readonly saveBtn: HTMLButtonElement;
   private readonly statusEl: HTMLElement;
-  private readonly asrEnabledInput: HTMLInputElement;
   private readonly beamSearchEnabledInput: HTMLInputElement;
   private readonly silenceRmsInput: HTMLInputElement;
   private readonly silencePeakInput: HTMLInputElement;
@@ -34,7 +33,6 @@ export class AsrSettingsController {
 
     this.saveBtn = mustBtn("saveAsrSettingsBtn");
     this.statusEl = mustEl("asrSettingsStatus");
-    this.asrEnabledInput = mustInput("asrEnabled");
     this.beamSearchEnabledInput = mustInput("asrBeamSearchEnabled");
     this.silenceRmsInput = mustInput("asrSilenceRms");
     this.silencePeakInput = mustInput("asrSilencePeak");
@@ -47,9 +45,6 @@ export class AsrSettingsController {
     this.minTokenLogpInput = mustInput("asrMinTokenLogp");
     this.beamPruneLogpInput = mustInput("asrBeamPruneLogp");
 
-    this.asrEnabledInput.addEventListener("change", () => {
-      this.updateFieldState();
-    });
     this.beamSearchEnabledInput.addEventListener("change", () => {
       this.updateFieldState();
     });
@@ -62,7 +57,6 @@ export class AsrSettingsController {
   }
 
   populate(settings: AsrSettings): void {
-    this.asrEnabledInput.checked = settings.asrEnabled;
     this.beamSearchEnabledInput.checked =
       settings.runtimeConfig.decode.beamSearchEnabled;
     this.silenceRmsInput.value = String(settings.silenceRms);
@@ -93,7 +87,6 @@ export class AsrSettingsController {
 
     try {
       const next = sanitizeAsrSettings({
-        asrEnabled: this.asrEnabledInput.checked,
         silenceRms: this.silenceRmsInput.valueAsNumber,
         silencePeak: this.silencePeakInput.valueAsNumber,
         silenceHangoverMs: this.silenceHangoverInput.valueAsNumber,
@@ -123,16 +116,14 @@ export class AsrSettingsController {
   }
 
   private updateFieldState(): void {
-    const asrEnabled = this.asrEnabledInput.checked;
     const beamEnabled = this.beamSearchEnabledInput.checked;
 
-    this.beamSearchEnabledInput.disabled = !asrEnabled;
-    this.silenceRmsInput.disabled = !asrEnabled;
-    this.silencePeakInput.disabled = !asrEnabled;
-    this.silenceHangoverInput.disabled = !asrEnabled;
-    this.ortThreadsInput.disabled = !asrEnabled;
+    this.silenceRmsInput.disabled = false;
+    this.silencePeakInput.disabled = false;
+    this.silenceHangoverInput.disabled = false;
+    this.ortThreadsInput.disabled = false;
 
-    const decodeEnabled = asrEnabled && beamEnabled;
+    const decodeEnabled = beamEnabled && !this.beamSearchEnabledInput.disabled;
     this.beamWidthInput.disabled = !decodeEnabled;
     this.lmAlphaInput.disabled = !decodeEnabled;
     this.lmBetaInput.disabled = !decodeEnabled;

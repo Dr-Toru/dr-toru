@@ -4,11 +4,12 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
+use crate::util::write_json_atomic;
+
 use super::{
     err_to_string,
     manifest_utils::{is_supported_runtime, is_valid_semver},
-    parse_string_field, write_json_atomic, ActivePlugins, PluginKind, PluginManifest,
-    PluginRegistryState,
+    parse_string_field, ActivePlugins, PluginKind, PluginManifest, PluginRegistryState,
 };
 
 const REGISTRY_FORMAT: u8 = 1;
@@ -57,7 +58,7 @@ pub(super) fn save_registry(
 pub(super) fn builtin_ort_asr_plugin() -> PluginManifest {
     PluginManifest {
         plugin_id: BUILTIN_ORT_ASR_PLUGIN_ID.to_string(),
-        name: "Built-in Medical ASR".to_string(),
+        name: "Google MedASR".to_string(),
         version: "1.0.0".to_string(),
         kind: PluginKind::Asr,
         runtime: "ort-ctc".to_string(),
@@ -68,6 +69,10 @@ pub(super) fn builtin_ort_asr_plugin() -> PluginManifest {
         license: None,
         installed_at: None,
         metadata: Some(Value::Object(Map::from_iter([
+            (
+                "language".to_string(),
+                Value::String("en".to_string()),
+            ),
             (
                 "vocabPath".to_string(),
                 Value::String("models/medasr_lasr_vocab.json".to_string()),

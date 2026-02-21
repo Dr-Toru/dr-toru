@@ -1,16 +1,16 @@
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
+use super::registry::{
+    ensure_registry, load_registry, plugin_paths, resolve_entrypoint, resolve_plugin,
+};
 use super::{
     err_to_string, parse_string_array_field, parse_string_field, PluginKind, PluginRuntimeState,
     RuntimeExecuteResult, RuntimeHealth,
-};
-use super::registry::{
-    ensure_registry, load_registry, plugin_paths, resolve_entrypoint, resolve_plugin,
 };
 
 pub(super) struct RunningLlamafile {
@@ -72,8 +72,8 @@ fn normalize_http_path(path: &str, default_path: &str) -> String {
 }
 
 fn service_health_path(metadata: &Option<Value>) -> String {
-    let configured = parse_string_field(metadata, "serviceHealthPath")
-        .unwrap_or_else(|| "/health".to_string());
+    let configured =
+        parse_string_field(metadata, "serviceHealthPath").unwrap_or_else(|| "/health".to_string());
     normalize_http_path(&configured, "/health")
 }
 
@@ -89,15 +89,14 @@ fn build_url(endpoint: &str, path: &str) -> String {
 }
 
 fn service_start_args(metadata: &Option<Value>, port: u16) -> Vec<String> {
-    let templates = parse_string_array_field(metadata, "serviceStartArgs")
-        .unwrap_or_else(|| {
-            vec![
-                "--server".to_string(),
-                "--port".to_string(),
-                "{port}".to_string(),
-                "--nobrowser".to_string(),
-            ]
-        });
+    let templates = parse_string_array_field(metadata, "serviceStartArgs").unwrap_or_else(|| {
+        vec![
+            "--server".to_string(),
+            "--port".to_string(),
+            "{port}".to_string(),
+            "--nobrowser".to_string(),
+        ]
+    });
     templates
         .into_iter()
         .map(|template| template.replace("{port}", &port.to_string()))

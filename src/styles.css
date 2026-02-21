@@ -1,4 +1,4 @@
-/* MedGemma Mobile - Design System */
+/* Dr. Toru - Design System */
 
 * {
   margin: 0;
@@ -1321,6 +1321,7 @@ body {
 #screen-settings .plugin-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-3);
   padding: var(--space-3);
   border: 1px solid var(--border);
@@ -1386,6 +1387,22 @@ body {
 #screen-settings .plugin-row .plugin-delete-btn:hover {
   color: var(--text-primary);
   border-color: var(--text-secondary);
+}
+
+#screen-settings .plugin-settings-panel {
+  flex-basis: 100%;
+  width: 100%;
+  margin-top: var(--space-2);
+}
+
+#screen-settings .plugin-settings-panel .plugin-row {
+  background: var(--bg-secondary);
+  border-style: dashed;
+}
+
+#screen-settings .plugin-settings-panel .settings-advanced {
+  margin-top: var(--space-2);
+  margin-bottom: 0;
 }
 
 #screen-settings .import-progress {
