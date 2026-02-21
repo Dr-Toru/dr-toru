@@ -76,14 +76,30 @@ export function createRuntimeAdapter(
 ): RuntimeAdapter {
   switch (manifest.kind) {
     case "asr": {
+      if (
+        manifest.runtime !== "ort-ctc" &&
+        manifest.runtime !== "ort-whisper"
+      ) {
+        throw new Error(
+          `Unsupported ASR runtime "${manifest.runtime}" for ${manifest.pluginId}`,
+        );
+      }
       const vocabPath = manifest.metadata?.vocabPath;
-      if (typeof vocabPath !== "string" || !vocabPath.trim()) {
+      if (
+        manifest.runtime === "ort-ctc" &&
+        (typeof vocabPath !== "string" || !vocabPath.trim())
+      ) {
         throw new Error(
           `Plugin ${manifest.pluginId} is missing metadata.vocabPath`,
         );
       }
       if (isTauri()) {
         return new NativeAsrRuntimeAdapter(manifest.pluginId, options.events);
+      }
+      if (manifest.runtime !== "ort-ctc") {
+        throw new Error(
+          `Runtime ${manifest.runtime} is only supported in native desktop mode`,
+        );
       }
       return new OrtRuntimeAdapter(
         manifest,
@@ -95,6 +111,11 @@ export function createRuntimeAdapter(
       );
     }
     case "llm":
+      if (manifest.runtime !== "llamafile") {
+        throw new Error(
+          `Unsupported LLM runtime "${manifest.runtime}" for ${manifest.pluginId}`,
+        );
+      }
       return new LlamafileRuntimeAdapter(manifest.pluginId);
     default:
       throw new Error(

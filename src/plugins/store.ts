@@ -26,19 +26,6 @@ export interface PluginServiceHealth {
   endpoint: string | null;
 }
 
-function deriveOnnxVocabPath(sourcePath: string): string {
-  const fileName = sourcePath.split(/[\\/]/).pop() ?? "";
-  const baseName = fileName.replace(/\.onnx$/i, "");
-  const separator = sourcePath.includes("\\") ? "\\" : "/";
-  const index = Math.max(
-    sourcePath.lastIndexOf("/"),
-    sourcePath.lastIndexOf("\\"),
-  );
-  const dir = index >= 0 ? sourcePath.slice(0, index) : "";
-  const vocabName = `${baseName}_vocab.json`;
-  return dir ? `${dir}${separator}${vocabName}` : vocabName;
-}
-
 export interface PluginRegistryStore {
   init(): Promise<PluginRegistryState>;
   list(): Promise<PluginManifest[]>;
@@ -155,25 +142,19 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
 
     const fileName = sourcePath.split(/[\\/]/).pop() ?? "";
     const extension = fileName.toLowerCase().split(".").pop() ?? "";
-    if (
-      extension !== "llamafile" &&
-      extension !== "onnx" &&
-      extension !== "asrpkg"
-    ) {
-      throw new Error(
-        "Only .llamafile, .onnx, and .asrpkg imports are supported",
-      );
+    if (extension !== "llamafile" && extension !== "zip") {
+      throw new Error("Only .llamafile and .zip imports are supported");
     }
-    if (extension === "asrpkg") {
+    if (extension === "zip") {
       throw new Error(
-        "ASR package import is only available in desktop runtime",
+        "Zip package import is only available in desktop runtime",
       );
     }
 
     const isLlm = extension === "llamafile";
     const baseName =
       request.displayName?.trim() ||
-      fileName.replace(/\.(llamafile|onnx)$/i, "") ||
+      fileName.replace(/\.(llamafile|zip)$/i, "") ||
       "Imported Model";
     const timestamp = Date.now();
     const normalizedSlug = baseName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -184,15 +165,11 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
       name: baseName,
       version: "1.0.0",
       kind: isLlm ? "llm" : "asr",
+      runtime: isLlm ? "llamafile" : "ort-ctc",
       entrypointPath: sourcePath,
-      sha256: "0".repeat(64),
+      hash: "0".repeat(64),
       installedAt: new Date().toISOString(),
-      metadata: isLlm
-        ? undefined
-        : {
-            vocabPath: deriveOnnxVocabPath(sourcePath),
-            vocabSha256: "0".repeat(64),
-          },
+      metadata: isLlm ? undefined : {},
     };
 
     await this.add(manifest);

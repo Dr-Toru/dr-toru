@@ -48,6 +48,8 @@ let uploadTranscriptBtn: HTMLButtonElement;
 let transcriptUploadInput: HTMLInputElement;
 let pluginListEl: HTMLElement;
 let importPluginBtn: HTMLButtonElement;
+let importProgressEl: HTMLElement;
+let importProgressLabel: HTMLElement;
 let navBtns: HTMLButtonElement[] = [];
 let screenEls: Record<RouteName, HTMLElement>;
 let currentRoute: AppRoute | null = null;
@@ -65,6 +67,10 @@ window.addEventListener("DOMContentLoaded", () => {
   transcriptUploadInput = mustFileInput("transcriptUploadInput");
   pluginListEl = mustEl("pluginList");
   importPluginBtn = mustBtn("importPluginBtn");
+  importProgressEl = mustEl("importProgress");
+  importProgressLabel = importProgressEl.querySelector(
+    ".import-progress-label",
+  ) as HTMLElement;
 
   const asrSettingsController = new AsrSettingsController({
     isRecording: () => dictation?.isRecording ?? false,
@@ -623,10 +629,18 @@ async function importPlugin(): Promise<void> {
     );
 
     const { listen } = await import("@tauri-apps/api/event");
+    importProgressLabel.textContent = "Importing\u2026";
+    importProgressEl.hidden = false;
     const unlisten = await listen<{
       copiedBytes: number;
       totalBytes: number;
-    }>("plugin-import-progress", () => undefined);
+    }>("plugin-import-progress", (event) => {
+      const { copiedBytes, totalBytes } = event.payload;
+      if (totalBytes > 0) {
+        const pct = Math.min(100, Math.round((copiedBytes / totalBytes) * 100));
+        importProgressLabel.textContent = `${pct}%`;
+      }
+    });
     let imported;
     try {
       imported = await pluginPlatform.importFromPath({
@@ -635,6 +649,7 @@ async function importPlugin(): Promise<void> {
       });
     } finally {
       unlisten();
+      importProgressEl.hidden = true;
     }
     await refreshPluginState();
     if (

@@ -34,4 +34,31 @@ describe("runtime adapter", () => {
       ),
     ).toThrowError(/metadata\.vocabPath/);
   });
+
+  it("rejects unsupported ASR runtime values", () => {
+    expect(() =>
+      createRuntimeAdapter(
+        {
+          ...BUILTIN_ORT_ASR_PLUGIN,
+          pluginId: "bad.asr.runtime-unknown",
+          runtime: "custom-runtime",
+        },
+        OPTIONS,
+      ),
+    ).toThrowError(/Unsupported ASR runtime/);
+  });
+
+  it("rejects whisper runtime in web mode", () => {
+    expect(() =>
+      createRuntimeAdapter(
+        {
+          ...BUILTIN_ORT_ASR_PLUGIN,
+          pluginId: "bad.asr.runtime-whisper-web",
+          runtime: "ort-whisper",
+          metadata: {},
+        },
+        OPTIONS,
+      ),
+    ).toThrowError(/only supported in native desktop mode/);
+  });
 });

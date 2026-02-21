@@ -21,7 +21,7 @@ describe("PluginService", () => {
     expect(activeLlm).toBeNull();
   });
 
-  it("allows imported ONNX provider to become active ASR", async () => {
+  it("allows imported ASR provider to become active", async () => {
     const store = new NoopPluginRegistryStore();
     const service = new PluginService(store);
     await service.init();
@@ -31,7 +31,7 @@ describe("PluginService", () => {
       pluginId: "import.asr.ort.test",
       name: "Imported ASR",
       entrypointPath: "/tmp/test.onnx",
-      sha256: "1".repeat(64),
+      hash: "1".repeat(64),
     });
 
     await service.setActivePlugin("asr", "import.asr.ort.test");

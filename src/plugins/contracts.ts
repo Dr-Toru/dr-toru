@@ -8,8 +8,9 @@ export interface PluginManifest {
   name: string;
   version: string;
   kind: PluginKind;
+  runtime: string;
   entrypointPath: string;
-  sha256: string;
+  hash: string;
   modelFamily?: string;
   sizeBytes?: number;
   license?: string;
@@ -33,21 +34,32 @@ export const BUILTIN_ORT_ASR_PLUGIN: PluginManifest = {
   name: "Built-in Medical ASR",
   version: "1.0.0",
   kind: "asr",
+  runtime: "ort-ctc",
   entrypointPath: "models/medasr_lasr_ctc_int8.onnx",
-  sha256: "05c1907f53d9dea3db23092e4d730f011ee400b3fb282d6af8443276dfb9d270",
+  hash: "05c1907f53d9dea3db23092e4d730f011ee400b3fb282d6af8443276dfb9d270",
   modelFamily: "medasr_lasr",
   metadata: {
     vocabPath: "models/medasr_lasr_vocab.json",
-    vocabSha256:
+    vocabHash:
       "631bd152b5beca9a74d21bd1c3ff53fecf63d10d11aae72e491cacdfbf69a756",
     lmPath: "models/lm_6.kenlm",
     kenlmWasmPath: "kenlm/kenlm.js",
+    runtimeConfig: {
+      asrType: "ctc",
+    },
   },
 };
 
-const SHA256_RE = /^[a-f0-9]{64}$/;
+const HASH_RE = /^[a-f0-9]{64}$/;
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/;
 const ID_RE = /^[A-Za-z0-9._-]{3,128}$/;
+
+function isSupportedRuntime(kind: PluginKind, runtime: string): boolean {
+  if (kind === "asr") {
+    return runtime === "ort-ctc" || runtime === "ort-whisper";
+  }
+  return runtime === "llamafile";
+}
 
 export function validatePluginManifest(
   manifest: PluginManifest,
@@ -72,6 +84,15 @@ export function validatePluginManifest(
     });
   }
 
+  if (!manifest.runtime.trim()) {
+    issues.push({ field: "runtime", message: "runtime is required" });
+  } else if (!isSupportedRuntime(manifest.kind, manifest.runtime.trim())) {
+    issues.push({
+      field: "runtime",
+      message: `runtime ${manifest.runtime} is not supported for kind ${manifest.kind}`,
+    });
+  }
+
   if (!manifest.entrypointPath.trim()) {
     issues.push({
       field: "entrypointPath",
@@ -79,14 +100,14 @@ export function validatePluginManifest(
     });
   }
 
-  if (!SHA256_RE.test(manifest.sha256)) {
+  if (!HASH_RE.test(manifest.hash)) {
     issues.push({
-      field: "sha256",
-      message: "sha256 must be 64 lowercase hex characters",
+      field: "hash",
+      message: "hash must be 64 lowercase hex characters",
     });
   }
 
-  if (manifest.kind === "asr") {
+  if (manifest.kind === "asr" && manifest.runtime === "ort-ctc") {
     const vocabPath = manifest.metadata?.vocabPath;
     if (typeof vocabPath !== "string" || !vocabPath.trim()) {
       issues.push({
