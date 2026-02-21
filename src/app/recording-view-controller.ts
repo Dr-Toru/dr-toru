@@ -4,7 +4,6 @@ import { RecordingService } from "./recording-service";
 const MIN_BAR_HEIGHT = 4;
 const MAX_BAR_HEIGHT = 20;
 const LOUD_SPEECH_RMS = 0.15;
-const BAR_SCALE = [0.7, 1.0, 0.85, 0.6] as const;
 
 export function levelToHeight(rms: number): number {
   if (rms <= 0) return MIN_BAR_HEIGHT;
@@ -12,11 +11,19 @@ export function levelToHeight(rms: number): number {
   return MIN_BAR_HEIGHT + (MAX_BAR_HEIGHT - MIN_BAR_HEIGHT) * normalized;
 }
 
+export type SubView = "transcript" | "context" | "soap" | "summary";
+
+const SUBVIEW_LABELS: Record<SubView, string> = {
+  transcript: "Transcript",
+  context: "Context",
+  soap: "SOAP Note",
+  summary: "Summary",
+};
+
 export interface RecordingViewControllerOptions {
   transcriptEl: HTMLElement;
   contextNoteEl: HTMLTextAreaElement;
   transcribeBtn: HTMLButtonElement;
-  headerTranscribeBtn?: HTMLButtonElement;
   uploadBtn: HTMLButtonElement;
   soapBtn: HTMLButtonElement;
   soapSectionEl: HTMLElement;
@@ -30,14 +37,15 @@ export interface RecordingViewControllerOptions {
   treatmentSummaryBlankStateEl: HTMLElement;
   treatmentSummaryCopyBtn: HTMLButtonElement;
   treatmentSummaryOverlayEl: HTMLElement;
-  contextTabBtn: HTMLButtonElement;
-  soapTabBtn: HTMLButtonElement;
-  treatmentSummaryTabBtn: HTMLButtonElement;
-  contextPanel: HTMLElement;
-  soapPanel: HTMLElement;
-  treatmentSummaryPanel: HTMLElement;
+  backBtn: HTMLElement;
+  titleBtn: HTMLButtonElement;
+  titleLabel: HTMLElement;
+  dropdown: HTMLElement;
+  transcriptSubview: HTMLElement;
+  contextSubview: HTMLElement;
+  soapSubview: HTMLElement;
+  summarySubview: HTMLElement;
   timerEl: HTMLElement;
-  barEls: readonly HTMLElement[];
   typingIndicatorEl: HTMLElement;
   recordingService: RecordingService;
   platform: PluginPlatform;
@@ -82,14 +90,12 @@ export class RecordingViewController {
   private readonly treatmentSummaryBlankStateEl: HTMLElement;
   private readonly treatmentSummaryCopyBtn: HTMLButtonElement;
   private readonly treatmentSummaryOverlayEl: HTMLElement;
-  private readonly contextTabBtn: HTMLButtonElement;
-  private readonly soapTabBtn: HTMLButtonElement;
-  private readonly treatmentSummaryTabBtn: HTMLButtonElement;
-  private readonly contextPanel: HTMLElement;
-  private readonly soapPanel: HTMLElement;
-  private readonly treatmentSummaryPanel: HTMLElement;
+  private readonly backBtn: HTMLElement;
+  private readonly titleBtn: HTMLButtonElement;
+  private readonly titleLabel: HTMLElement;
+  private readonly dropdown: HTMLElement;
+  private readonly subviews: Record<SubView, HTMLElement>;
   private readonly timerEl: HTMLElement;
-  private readonly barEls: readonly HTMLElement[];
   private readonly typingIndicatorEl: HTMLElement;
   private readonly recordingService: RecordingService;
   private readonly platform: PluginPlatform;
@@ -116,9 +122,7 @@ export class RecordingViewController {
   constructor(options: RecordingViewControllerOptions) {
     this.transcriptEl = options.transcriptEl;
     this.contextNoteEl = options.contextNoteEl;
-    this.transcribeBtns = options.headerTranscribeBtn
-      ? [options.headerTranscribeBtn, options.transcribeBtn]
-      : [options.transcribeBtn];
+    this.transcribeBtns = [options.transcribeBtn];
     this.uploadBtn = options.uploadBtn;
     this.soapBtn = options.soapBtn;
     this.soapSectionEl = options.soapSectionEl;
@@ -132,14 +136,17 @@ export class RecordingViewController {
     this.treatmentSummaryBlankStateEl = options.treatmentSummaryBlankStateEl;
     this.treatmentSummaryCopyBtn = options.treatmentSummaryCopyBtn;
     this.treatmentSummaryOverlayEl = options.treatmentSummaryOverlayEl;
-    this.contextTabBtn = options.contextTabBtn;
-    this.soapTabBtn = options.soapTabBtn;
-    this.treatmentSummaryTabBtn = options.treatmentSummaryTabBtn;
-    this.contextPanel = options.contextPanel;
-    this.soapPanel = options.soapPanel;
-    this.treatmentSummaryPanel = options.treatmentSummaryPanel;
+    this.backBtn = options.backBtn;
+    this.titleBtn = options.titleBtn;
+    this.titleLabel = options.titleLabel;
+    this.dropdown = options.dropdown;
+    this.subviews = {
+      transcript: options.transcriptSubview,
+      context: options.contextSubview,
+      soap: options.soapSubview,
+      summary: options.summarySubview,
+    };
     this.timerEl = options.timerEl;
-    this.barEls = options.barEls;
     this.typingIndicatorEl = options.typingIndicatorEl;
     this.recordingService = options.recordingService;
     this.platform = options.platform;
@@ -161,15 +168,17 @@ export class RecordingViewController {
     this.treatmentSummaryBtn.addEventListener("click", () => {
       void this.generateTreatmentSummary();
     });
-    this.contextTabBtn.addEventListener("click", () => {
-      this.switchTab("context");
+    this.titleBtn.addEventListener("click", () => {
+      this.toggleDropdown();
     });
-    this.soapTabBtn.addEventListener("click", () => {
-      this.switchTab("soap");
-    });
-    this.treatmentSummaryTabBtn.addEventListener("click", () => {
-      this.switchTab("treatment_summary");
-    });
+    for (const item of this.dropdown.querySelectorAll<HTMLButtonElement>(
+      "[data-view]",
+    )) {
+      item.addEventListener("click", () => {
+        const view = item.dataset.view as SubView;
+        this.switchView(view);
+      });
+    }
     this.contextNoteEl.addEventListener("input", () => {
       this.scheduleContextSave();
     });
@@ -179,6 +188,7 @@ export class RecordingViewController {
   async openRoute(recordingId: string | null): Promise<OpenRouteResult> {
     try {
       if (recordingId && this.context?.recordingId === recordingId) {
+        this.switchView("transcript");
         return { status: "opened", recordingId };
       }
 
@@ -195,7 +205,7 @@ export class RecordingViewController {
         );
         this.liveTranscript = "";
         this.contextNoteEl.value = "";
-        this.switchTab("context");
+        this.switchView("transcript");
         this.renderSoap();
         this.renderTreatmentSummary();
         this.render();
@@ -231,7 +241,7 @@ export class RecordingViewController {
             this.context.treatmentSummaryAttachmentId = summary.attachmentId;
             this.context.treatmentSummaryText = summary.text;
           }
-          this.switchTab("context");
+          this.switchView("transcript");
           this.renderSoap();
           this.renderTreatmentSummary();
           this.render();
@@ -265,7 +275,6 @@ export class RecordingViewController {
       }
       this.addStoppedTimestamp();
       this.clearTimerInterval();
-      this.resetBars();
       this.hideTypingIndicator();
     }
     this.render();
@@ -281,15 +290,9 @@ export class RecordingViewController {
     this.render();
   }
 
-  setLevel(rms: number): void {
-    if (!this.recording || this.barEls.length === 0) return;
-    const base = levelToHeight(rms);
-    for (let i = 0; i < this.barEls.length; i++) {
-      const bar = this.barEls[i];
-      if (!bar) continue;
-      const scale = BAR_SCALE[i] ?? 1;
-      bar.style.height = `${Math.max(MIN_BAR_HEIGHT, base * scale)}px`;
-    }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  setLevel(_rms: number): void {
+    // Placeholder for future visualization
   }
 
   setLiveTranscript(transcript: string): void {
@@ -378,6 +381,12 @@ export class RecordingViewController {
       !this.context?.transcript?.trim() || this.recording || this.generating;
     this.treatmentSummaryBtn.disabled =
       !this.context?.transcript?.trim() || this.recording || this.generating;
+
+    // Disable navigation while recording
+    const navDisabled = this.recording;
+    (this.backBtn as HTMLButtonElement).disabled = navDisabled;
+    this.titleBtn.disabled = navDisabled;
+
     this.timerEl.classList.toggle("recording", this.recording);
     this.renderTranscript();
   }
@@ -476,12 +485,6 @@ export class RecordingViewController {
     }
   }
 
-  private resetBars(): void {
-    for (const bar of this.barEls) {
-      bar.style.height = `${MIN_BAR_HEIGHT}px`;
-    }
-  }
-
   private currentElapsed(): string {
     if (this.recordingStartTime === null) return "0:00";
     const ms = this.elapsedOffset + (Date.now() - this.recordingStartTime);
@@ -564,7 +567,7 @@ export class RecordingViewController {
       this.context.soapAttachmentId = result.attachmentId;
       this.context.soapText = soapText;
       this.renderSoap();
-      this.switchTab("soap");
+      this.switchView("soap");
     } catch (err) {
       this.onError(err, "SOAP generation");
     } finally {
@@ -611,7 +614,7 @@ export class RecordingViewController {
       this.context.treatmentSummaryAttachmentId = result.attachmentId;
       this.context.treatmentSummaryText = text;
       this.renderTreatmentSummary();
-      this.switchTab("treatment_summary");
+      this.switchView("summary");
     } catch (err) {
       this.onError(err, "Treatment summary generation");
     } finally {
@@ -622,18 +625,38 @@ export class RecordingViewController {
     }
   }
 
-  switchTab(tab: "context" | "soap" | "treatment_summary"): void {
-    this.contextTabBtn.classList.toggle("is-active", tab === "context");
-    this.soapTabBtn.classList.toggle("is-active", tab === "soap");
-    this.treatmentSummaryTabBtn.classList.toggle(
-      "is-active",
-      tab === "treatment_summary",
-    );
-    this.contextPanel.hidden = tab !== "context";
-    this.soapPanel.hidden = tab !== "soap";
-    this.treatmentSummaryPanel.hidden = tab !== "treatment_summary";
+  switchView(view: SubView): void {
+    for (const [v, el] of Object.entries(this.subviews) as [
+      SubView,
+      HTMLElement,
+    ][]) {
+      el.hidden = v !== view;
+    }
+    this.titleLabel.textContent = SUBVIEW_LABELS[view];
+    for (const item of this.dropdown.querySelectorAll("[data-view]")) {
+      item.classList.toggle(
+        "is-active",
+        item.getAttribute("data-view") === view,
+      );
+    }
+    this.closeDropdown();
     this.updateSoapCopyBtn();
     this.updateTreatmentSummaryCopyBtn();
+  }
+
+  private toggleDropdown(): void {
+    const isOpen = !this.dropdown.hidden;
+    if (isOpen) {
+      this.closeDropdown();
+    } else {
+      this.dropdown.hidden = false;
+      this.titleBtn.classList.add("is-open");
+    }
+  }
+
+  private closeDropdown(): void {
+    this.dropdown.hidden = true;
+    this.titleBtn.classList.remove("is-open");
   }
 
   private renderSoap(): void {
@@ -642,16 +665,18 @@ export class RecordingViewController {
       this.soapContentEl.textContent = text;
       this.soapSectionEl.hidden = false;
       this.soapBlankStateEl.hidden = true;
+      this.soapBtn.textContent = "Regenerate";
     } else {
       this.soapContentEl.textContent = "";
       this.soapSectionEl.hidden = true;
       this.soapBlankStateEl.hidden = false;
+      this.soapBtn.textContent = "Generate";
     }
     this.updateSoapCopyBtn();
   }
 
   private updateSoapCopyBtn(): void {
-    const show = !this.soapPanel.hidden && !this.soapSectionEl.hidden;
+    const show = !this.subviews.soap.hidden && !this.soapSectionEl.hidden;
     this.soapCopyBtn.hidden = !show;
   }
 
@@ -661,18 +686,19 @@ export class RecordingViewController {
       this.treatmentSummaryContentEl.textContent = text;
       this.treatmentSummarySectionEl.hidden = false;
       this.treatmentSummaryBlankStateEl.hidden = true;
+      this.treatmentSummaryBtn.textContent = "Regenerate";
     } else {
       this.treatmentSummaryContentEl.textContent = "";
       this.treatmentSummarySectionEl.hidden = true;
       this.treatmentSummaryBlankStateEl.hidden = false;
+      this.treatmentSummaryBtn.textContent = "Generate";
     }
     this.updateTreatmentSummaryCopyBtn();
   }
 
   private updateTreatmentSummaryCopyBtn(): void {
     const show =
-      !this.treatmentSummaryPanel.hidden &&
-      !this.treatmentSummarySectionEl.hidden;
+      !this.subviews.summary.hidden && !this.treatmentSummarySectionEl.hidden;
     this.treatmentSummaryCopyBtn.hidden = !show;
   }
 

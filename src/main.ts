@@ -120,12 +120,6 @@ window.addEventListener("DOMContentLoaded", () => {
   const store = getRecordingStore();
   const recordingService = new RecordingService(store);
 
-  const barEls = Array.from(
-    document.querySelectorAll<HTMLElement>(
-      "#screen-recording .status-indicator .bar",
-    ),
-  );
-
   pluginPlatform = createPluginPlatform({
     workerUrl: new URL("./asr.worker.ts", import.meta.url),
     ortDir,
@@ -142,11 +136,15 @@ window.addEventListener("DOMContentLoaded", () => {
     },
   });
 
+  const backBtn = mustBtn("backBtn");
+  backBtn.addEventListener("click", () => {
+    void setRoute({ name: "list" }, true);
+  });
+
   recordingView = new RecordingViewController({
     transcriptEl: mustEl("transcript"),
     contextNoteEl: mustTextarea("contextNote"),
     transcribeBtn: mustBtn("recordBtn"),
-    headerTranscribeBtn: mustBtn("headerRecordBtn"),
     uploadBtn: uploadTranscriptBtn,
     soapBtn: mustBtn("soapBtn"),
     soapSectionEl: mustEl("soapSection"),
@@ -160,14 +158,15 @@ window.addEventListener("DOMContentLoaded", () => {
     treatmentSummaryBlankStateEl: mustEl("treatmentSummaryBlankState"),
     treatmentSummaryCopyBtn: mustBtn("treatmentSummaryCopyBtn"),
     treatmentSummaryOverlayEl: mustEl("treatmentSummaryOverlay"),
-    contextTabBtn: mustBtn("tabContext"),
-    soapTabBtn: mustBtn("tabSoap"),
-    treatmentSummaryTabBtn: mustBtn("tabTreatmentSummary"),
-    contextPanel: mustEl("panelContext"),
-    soapPanel: mustEl("panelSoap"),
-    treatmentSummaryPanel: mustEl("panelTreatmentSummary"),
+    backBtn,
+    titleBtn: mustBtn("subviewTitleBtn"),
+    titleLabel: mustEl("subviewTitleLabel"),
+    dropdown: mustEl("subviewDropdown"),
+    transcriptSubview: mustEl("subviewTranscript"),
+    contextSubview: mustEl("subviewContext"),
+    soapSubview: mustEl("subviewSoap"),
+    summarySubview: mustEl("subviewSummary"),
     timerEl: mustEl("recordingTimer"),
-    barEls,
     typingIndicatorEl: mustEl("typingIndicator"),
     recordingService,
     platform: pluginPlatform,
@@ -197,6 +196,20 @@ window.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => {
         copyBtn.textContent = "Copy";
         copyBtn.classList.remove("copied");
+      }, 1500);
+    });
+  });
+
+  const contextCopyBtn = mustBtn("contextCopyBtn");
+  contextCopyBtn.addEventListener("click", () => {
+    const text = mustTextarea("contextNote").value.trim();
+    if (!text) return;
+    void navigator.clipboard.writeText(text).then(() => {
+      contextCopyBtn.textContent = "Copied";
+      contextCopyBtn.classList.add("copied");
+      setTimeout(() => {
+        contextCopyBtn.textContent = "Copy";
+        contextCopyBtn.classList.remove("copied");
       }, 1500);
     });
   });

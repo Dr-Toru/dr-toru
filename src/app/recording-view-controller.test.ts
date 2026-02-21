@@ -214,63 +214,14 @@ describe("levelToHeight", () => {
   });
 });
 
-describe("setLevel and bar management", () => {
-  it("sets different heights on each bar using BAR_SCALE", () => {
+describe("setLevel", () => {
+  it("is callable without error", () => {
     const service = makeServiceStub();
-    const { controller, barEls } = makeController(service);
+    const { controller } = makeController(service);
 
     controller.setRecording(true);
     controller.setLevel(0.05);
-
-    const heights = barEls.map((b) => parseFloat(b.style.height));
-    expect(heights.length).toBe(4);
-    // bars should not all be the same
-    expect(new Set(heights).size).toBeGreaterThan(1);
-    // all should be >= MIN_BAR_HEIGHT
-    for (const h of heights) {
-      expect(h).toBeGreaterThanOrEqual(4);
-    }
-  });
-
-  it("returns MIN_BAR_HEIGHT for all bars when rms is 0", () => {
-    const service = makeServiceStub();
-    const { controller, barEls } = makeController(service);
-
-    controller.setRecording(true);
     controller.setLevel(0);
-
-    for (const bar of barEls) {
-      expect(parseFloat(bar.style.height)).toBe(4);
-    }
-  });
-
-  it("is a no-op when not recording", () => {
-    const service = makeServiceStub();
-    const { controller, barEls } = makeController(service);
-
-    controller.setLevel(0.1);
-
-    for (const bar of barEls) {
-      expect(bar.style.height).toBe("4px");
-    }
-  });
-
-  it("resets bars to MIN_BAR_HEIGHT when recording stops", () => {
-    const service = makeServiceStub();
-    const { controller, barEls } = makeController(service);
-
-    controller.setRecording(true);
-    controller.setLevel(0.1);
-
-    // Verify bars were set above minimum
-    const heightsBefore = barEls.map((b) => parseFloat(b.style.height));
-    expect(Math.max(...heightsBefore)).toBeGreaterThan(4);
-
-    controller.setRecording(false);
-
-    for (const bar of barEls) {
-      expect(parseFloat(bar.style.height)).toBe(4);
-    }
   });
 });
 
@@ -473,18 +424,21 @@ describe("context textarea", () => {
   });
 });
 
-function makeBars(count = 4): HTMLElement[] {
-  return Array.from({ length: count }, () => {
-    const el = document.createElement("span");
-    el.style.height = "4px";
-    return el;
-  });
+function makeDropdown(): HTMLElement {
+  const dropdown = document.createElement("div");
+  dropdown.hidden = true;
+  for (const view of ["transcript", "context", "soap", "summary"]) {
+    const item = document.createElement("button");
+    item.setAttribute("data-view", view);
+    if (view === "transcript") item.classList.add("is-active");
+    dropdown.appendChild(item);
+  }
+  return dropdown;
 }
 
 function makeController(
   service: RecordingService,
   onError: (error: unknown, context: string) => void = () => undefined,
-  barEls: HTMLElement[] = makeBars(),
 ): {
   controller: RecordingViewController;
   transcriptEl: HTMLElement;
@@ -492,7 +446,6 @@ function makeController(
   transcribeBtn: HTMLButtonElement;
   uploadBtn: HTMLButtonElement;
   timerEl: HTMLElement;
-  barEls: HTMLElement[];
   typingIndicatorEl: HTMLElement;
   onRecordingsChanged: ReturnType<typeof vi.fn>;
 } {
@@ -518,14 +471,18 @@ function makeController(
   const treatmentSummaryCopyBtn = document.createElement("button");
   treatmentSummaryCopyBtn.hidden = true;
   const treatmentSummaryOverlayEl = document.createElement("div");
-  const contextTabBtn = document.createElement("button");
-  const soapTabBtn = document.createElement("button");
-  const treatmentSummaryTabBtn = document.createElement("button");
-  const contextPanel = document.createElement("div");
-  const soapPanel = document.createElement("div");
-  soapPanel.hidden = true;
-  const treatmentSummaryPanel = document.createElement("div");
-  treatmentSummaryPanel.hidden = true;
+  const backBtnEl = document.createElement("button");
+  const titleBtn = document.createElement("button");
+  const titleLabel = document.createElement("span");
+  titleLabel.textContent = "Transcript";
+  const dropdown = makeDropdown();
+  const transcriptSubview = document.createElement("div");
+  const contextSubview = document.createElement("div");
+  contextSubview.hidden = true;
+  const soapSubview = document.createElement("div");
+  soapSubview.hidden = true;
+  const summarySubview = document.createElement("div");
+  summarySubview.hidden = true;
   const platform = {
     runLlm: vi.fn().mockResolvedValue(""),
   } as unknown as PluginPlatform;
@@ -547,14 +504,15 @@ function makeController(
     treatmentSummaryBlankStateEl,
     treatmentSummaryCopyBtn,
     treatmentSummaryOverlayEl,
-    contextTabBtn,
-    soapTabBtn,
-    treatmentSummaryTabBtn,
-    contextPanel,
-    soapPanel,
-    treatmentSummaryPanel,
+    backBtn: backBtnEl,
+    titleBtn,
+    titleLabel,
+    dropdown,
+    transcriptSubview,
+    contextSubview,
+    soapSubview,
+    summarySubview,
     timerEl,
-    barEls,
     typingIndicatorEl,
     recordingService: service,
     platform,
@@ -570,7 +528,6 @@ function makeController(
     transcribeBtn,
     uploadBtn,
     timerEl,
-    barEls,
     typingIndicatorEl,
     onRecordingsChanged,
   };
