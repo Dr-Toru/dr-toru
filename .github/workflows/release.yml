@@ -99,9 +99,11 @@ jobs:
         shell: pwsh
         run: |
           "CARGO_BUILD_JOBS=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CARGO_PROFILE_RELEASE_OPT_LEVEL=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_PROFILE_RELEASE_OPT_LEVEL=0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=8" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CARGO_PROFILE_RELEASE_LTO=off" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_PROFILE_RELEASE_PANIC=abort" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=rust-lld" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Ensure Vulkan SDK for Whisper on Windows
         if: matrix.platform == 'windows-latest'
