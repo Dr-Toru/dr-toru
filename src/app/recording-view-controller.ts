@@ -486,7 +486,7 @@ export class RecordingViewController {
   }
 
   private currentElapsed(): string {
-    if (this.recordingStartTime === null) return "0:00";
+    if (this.recordingStartTime === null) return "";
     const ms = this.elapsedOffset + (Date.now() - this.recordingStartTime);
     return formatElapsed(ms);
   }

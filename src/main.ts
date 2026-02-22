@@ -1,3 +1,4 @@
+import { chunkAudio } from "./audio/chunk";
 import { decodeAudioFileToSamples } from "./audio/upload";
 import { AudioCapture } from "./audio/capture";
 import {
@@ -65,7 +66,7 @@ let currentRouteStateKey = "";
 let lastMainRoute: AppRoute = { name: "list" };
 let routeSeq = 0;
 let pluginActivationTask: Promise<void> | null = null;
-let modelIdleUnloadTimer: ReturnType<typeof setTimeout> | null = null;
+let modelIdleUnloadTimer: number | null = null;
 let modelIdleUnloadTask: Promise<void> | null = null;
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -1050,13 +1051,41 @@ async function transcribeUploadedFile(file: File): Promise<void> {
       return;
     }
 
-    const transcript = await pluginPlatform.transcribe(samples);
+    const chunks = chunkAudio(samples, SAMPLE_RATE);
+    let transcript = "";
+    for (const chunk of chunks) {
+      const text = await pluginPlatform.transcribe(chunk);
+      transcript = mergeUploadChunk(transcript, text.trim());
+    }
     await recordingView.onRecordingComplete(transcript);
   } catch (error) {
     reportUnexpectedError(error, `Failed to transcribe file "${file.name}"`);
   } finally {
     recordingView.setUploading(false);
   }
+}
+
+/**
+ * Merge consecutive upload transcript chunks using character-level
+ * suffix/prefix overlap detection.  Works for both space-delimited
+ * languages (English) and languages without spaces (Japanese).
+ */
+const MAX_OVERLAP_CHARS = 200;
+const MIN_OVERLAP_CHARS = 4;
+
+function mergeUploadChunk(current: string, next: string): string {
+  if (!next) return current;
+  if (!current) return next;
+
+  const limit = Math.min(current.length, next.length, MAX_OVERLAP_CHARS);
+  for (let len = limit; len >= MIN_OVERLAP_CHARS; len--) {
+    if (current.endsWith(next.substring(0, len))) {
+      const suffix = next.substring(len);
+      return suffix ? `${current} ${suffix}` : current;
+    }
+  }
+
+  return `${current} ${next}`;
 }
 
 function isAsrTranscriptionEnabled(): boolean {
