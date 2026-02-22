@@ -284,6 +284,9 @@ export class RecordingViewController {
 
   setUploading(uploading: boolean): void {
     this.uploading = uploading;
+    if (!uploading) {
+      this.timerEl.textContent = "0:00";
+    }
     this.render();
   }
 
@@ -390,6 +393,9 @@ export class RecordingViewController {
     this.titleBtn.disabled = navDisabled;
 
     this.timerEl.classList.toggle("recording", this.recording);
+    if (this.uploading && !this.recording) {
+      this.timerEl.textContent = t("transcribing");
+    }
     this.renderTranscript();
   }
 

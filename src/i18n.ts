@@ -96,6 +96,9 @@ const translations: Record<Language, Record<string, string>> = {
     generateSummary: "Generate a treatment summary from your transcript",
     generatingSummary: "Generating treatment summary...",
 
+    // Recording view - status
+    transcribing: "Transcribing...",
+
     // Recording view - timestamps
     transcriptStarted: "Transcript started",
     transcriptStopped: "Transcript stopped",
@@ -146,8 +149,8 @@ const translations: Record<Language, Record<string, string>> = {
     transcript: "文字起こし",
     context: "コンテキスト",
     soapNote: "SOAPノート",
-    summary: "サマリー",
-    treatmentSummary: "治療サマリー",
+    summary: "治療経過",
+    treatmentSummary: "治療経過",
 
     // Recording view - actions
     copy: "コピー",
@@ -163,8 +166,11 @@ const translations: Record<Language, Record<string, string>> = {
       "録音を開始するか音声ファイルをアップロードして文字起こしを生成",
     generateSoap: "文字起こしからSOAPノートを生成",
     generatingSoap: "SOAPノート生成中...",
-    generateSummary: "文字起こしから治療サマリーを生成",
-    generatingSummary: "治療サマリー生成中...",
+    generateSummary: "文字起こしから治療経過を生成",
+    generatingSummary: "治療経過生成中...",
+
+    // Recording view - status
+    transcribing: "文字起こし中...",
 
     // Recording view - timestamps
     transcriptStarted: "文字起こし開始",
