@@ -1231,9 +1231,7 @@ body {
   top: calc(var(--safe-top) + var(--space-3));
   left: var(--space-4);
   right: var(--space-4);
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  display: block;
   padding: var(--space-3) var(--space-4);
   background: var(--error);
   color: white;
@@ -1245,11 +1243,16 @@ body {
 }
 
 .app-error-text {
-  flex: 1;
-  min-width: 0;
+  display: block;
+  padding-right: 82px;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 .app-error-dismiss {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
   appearance: none;
   border: 1px solid rgba(255, 255, 255, 0.7);
   background: rgba(255, 255, 255, 0.14);
