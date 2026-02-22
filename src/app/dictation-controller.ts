@@ -109,9 +109,7 @@ export class DictationController {
           this.options.onRecordingChange(true);
           this.options.onStatus("Recording...");
         } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          this.options.onStatus(`Microphone error: ${message}`);
+          this.options.onStatus(formatMicrophoneError(error));
         }
 
         return this.isRecordingValue;
@@ -357,4 +355,23 @@ function findWordOverlap(currentWords: string[], nextWords: string[]): number {
 
 function roundMetric(value: number): number {
   return Math.round(value * 10) / 10;
+}
+
+function formatMicrophoneError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const name = error instanceof Error ? error.name : "";
+
+  if (name === "NotAllowedError" || name === "SecurityError") {
+    return "Microphone error: access denied. Enable microphone access for Dr. Toru in System Settings > Privacy & Security > Microphone, then restart the app.";
+  }
+  if (name === "NotFoundError") {
+    return "Microphone error: no input device found. Connect a microphone and try again.";
+  }
+  if (name === "NotReadableError") {
+    return "Microphone error: device is busy or unavailable. Close other apps using the microphone and try again.";
+  }
+  if (name === "AbortError") {
+    return "Microphone error: input stream was interrupted. Try starting recording again.";
+  }
+  return `Microphone error: ${message}`;
 }

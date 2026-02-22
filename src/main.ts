@@ -295,7 +295,7 @@ window.addEventListener("DOMContentLoaded", () => {
     silencePeak: asrSettings.silencePeak,
     silenceHangoverMs: asrSettings.silenceHangoverMs,
     debugMetrics: DEBUG_METRICS,
-    onStatus: () => undefined,
+    onStatus: (message) => handleDictationStatus(message),
     onTranscript: (text) => {
       recordingView.setLiveTranscript(text);
     },
@@ -846,6 +846,23 @@ function showAppError(message: string): void {
 
 function hideAppError(): void {
   appErrorEl.hidden = true;
+}
+
+function handleDictationStatus(message: string): void {
+  if (!isVisibleDictationStatus(message)) {
+    return;
+  }
+  showAppError(message);
+}
+
+function isVisibleDictationStatus(message: string): boolean {
+  return (
+    message.startsWith("Microphone error:") ||
+    message.startsWith("Inference error:") ||
+    message.startsWith("Worker error:") ||
+    message.startsWith("Recording save failed:") ||
+    message === "Model still loading in background..."
+  );
 }
 
 function updateAsrLoadingIndicator(): void {
