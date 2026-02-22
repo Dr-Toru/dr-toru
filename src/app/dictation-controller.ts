@@ -109,6 +109,7 @@ export class DictationController {
           this.options.onRecordingChange(true);
           this.options.onStatus("Recording...");
         } catch (error) {
+          console.error("Microphone start failed:", error);
           this.options.onStatus(formatMicrophoneError(error));
         }
 
@@ -362,7 +363,10 @@ function formatMicrophoneError(error: unknown): string {
   const name = error instanceof Error ? error.name : "";
 
   if (name === "NotAllowedError" || name === "SecurityError") {
-    return "Microphone error: access denied. Enable microphone access for Dr. Toru in System Settings > Privacy & Security > Microphone, then restart the app.";
+    return appendMicrophoneDetails(
+      "Microphone error: access denied. Enable microphone access for Dr. Toru in System Settings > Privacy & Security > Microphone, then restart the app.",
+      message,
+    );
   }
   if (name === "NotFoundError") {
     return "Microphone error: no input device found. Connect a microphone and try again.";
@@ -374,4 +378,12 @@ function formatMicrophoneError(error: unknown): string {
     return "Microphone error: input stream was interrupted. Try starting recording again.";
   }
   return `Microphone error: ${message}`;
+}
+
+function appendMicrophoneDetails(base: string, details: string): string {
+  const text = details.trim();
+  if (!text) {
+    return base;
+  }
+  return `${base} Details: ${text}`;
 }

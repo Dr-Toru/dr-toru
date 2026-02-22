@@ -24,7 +24,7 @@ plugins (anything that isn't the built-in MedASR/ort-ctc), this routes through
 // src/plugins/runtime-adapter.ts:241-244
 return invoke<RuntimeExecuteResult>("plugin_asr_transcribe", {
   pluginId: this.pluginId,
-  samples: Array.from(request.samples),  // ← converts Float32Array to number[]
+  samples: Array.from(request.samples), // ← converts Float32Array to number[]
 });
 ```
 
@@ -72,6 +72,7 @@ transcribe each → merge results) but with fixed-size chunks instead of
 VAD segments.
 
 This approach:
+
 - Fixes the IPC size issue (each chunk is small)
 - Works for both native and web worker ASR runtimes
 - Reuses the existing `mergeChunkText()` overlap-merge logic
@@ -155,11 +156,11 @@ already is — `export function mergeChunkText`). No changes needed here.
 
 ### Files to change
 
-| Action | File | Purpose |
-|--------|------|---------|
-| Create | `src/audio/chunk.ts` | `chunkAudio()` utility |
-| Modify | `src/main.ts` | Chunk uploaded audio before transcribing |
-| Test | `src/audio/chunk.test.ts` | Unit tests for chunking logic |
+| Action | File                      | Purpose                                  |
+| ------ | ------------------------- | ---------------------------------------- |
+| Create | `src/audio/chunk.ts`      | `chunkAudio()` utility                   |
+| Modify | `src/main.ts`             | Chunk uploaded audio before transcribing |
+| Test   | `src/audio/chunk.test.ts` | Unit tests for chunking logic            |
 
 ## Acceptance Criteria
 

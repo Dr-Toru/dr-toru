@@ -75,7 +75,26 @@ export class AudioCapture {
   }
 
   private async openMic(): Promise<void> {
-    this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (!navigator.mediaDevices?.getUserMedia) {
+      const diagnostics = await collectMicDiagnostics();
+      throw createMicError(
+        "NotSupportedError",
+        `navigator.mediaDevices.getUserMedia is unavailable [${diagnostics}]`,
+      );
+    }
+
+    try {
+      this.micStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+    } catch (error) {
+      const diagnostics = await collectMicDiagnostics();
+      throw createMicError(
+        errorName(error),
+        `${errorMessage(error)} [${diagnostics}]`,
+      );
+    }
+
     this.audioCtx = new AudioContext({ sampleRate: this.config.sampleRate });
     this.sourceNode = this.audioCtx.createMediaStreamSource(this.micStream);
 
@@ -95,6 +114,53 @@ export class AudioCapture {
     if (this.onFrame) {
       this.onFrame(new Float32Array(input));
     }
+  }
+}
+
+function createMicError(name: string, message: string): Error {
+  const error = new Error(message);
+  error.name = name;
+  return error;
+}
+
+function errorName(error: unknown): string {
+  if (error instanceof Error && error.name) {
+    return error.name;
+  }
+  return "Error";
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return String(error);
+}
+
+async function collectMicDiagnostics(): Promise<string> {
+  const permissionState = await getMicPermissionState();
+  const activation = navigator.userActivation?.isActive ?? false;
+  return [
+    `origin=${location.origin}`,
+    `secure=${window.isSecureContext}`,
+    `visibility=${document.visibilityState}`,
+    `userActivation=${activation}`,
+    `permission=${permissionState}`,
+  ].join(" ");
+}
+
+async function getMicPermissionState(): Promise<string> {
+  if (!navigator.permissions?.query) {
+    return "unsupported";
+  }
+
+  try {
+    const status = await navigator.permissions.query({
+      name: "microphone" as PermissionName,
+    });
+    return status.state;
+  } catch {
+    return "unavailable";
   }
 }
 
