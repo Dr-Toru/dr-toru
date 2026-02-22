@@ -1,3 +1,4 @@
+import { chunkAudio } from "./audio/chunk";
 import { decodeAudioFileToSamples } from "./audio/upload";
 import { AudioCapture } from "./audio/capture";
 import {
@@ -8,7 +9,10 @@ import {
   type AsrSettings,
 } from "./asr/settings";
 import { AsrSettingsController } from "./app/asr-settings-controller";
-import { DictationController } from "./app/dictation-controller";
+import {
+  DictationController,
+  mergeChunkText,
+} from "./app/dictation-controller";
 import { ListController, fireRecordingsChanged } from "./app/list";
 import { RecordingService } from "./app/recording-service";
 import { RecordingViewController } from "./app/recording-view-controller";
@@ -1050,7 +1054,12 @@ async function transcribeUploadedFile(file: File): Promise<void> {
       return;
     }
 
-    const transcript = await pluginPlatform.transcribe(samples);
+    const chunks = chunkAudio(samples, SAMPLE_RATE);
+    let transcript = "";
+    for (const chunk of chunks) {
+      const text = await pluginPlatform.transcribe(chunk);
+      transcript = mergeChunkText(transcript, text);
+    }
     await recordingView.onRecordingComplete(transcript);
   } catch (error) {
     reportUnexpectedError(error, `Failed to transcribe file "${file.name}"`);
