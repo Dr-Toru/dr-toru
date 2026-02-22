@@ -23,7 +23,7 @@
           type="button"
           aria-label="Dismiss error"
         >
-          Dismiss
+          <span data-i18n="dismiss">Dismiss</span>
         </button>
       </div>
 
@@ -35,7 +35,7 @@
         aria-hidden="true"
       >
         <header class="view-header">
-          <h1 class="view-title">Sessions</h1>
+          <h1 class="view-title" data-i18n="sessions">Sessions</h1>
           <button
             id="settingsBtn"
             class="back-btn"
@@ -64,7 +64,9 @@
               class="recording-search-input"
               type="search"
               placeholder="Search transcripts"
+              data-i18n-placeholder="searchPlaceholder"
               aria-label="Search transcripts"
+              data-i18n-aria="searchPlaceholder"
               autocomplete="off"
               spellcheck="false"
             />
@@ -85,7 +87,7 @@
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
-            New Session
+            <span data-i18n="newSession">New Session</span>
           </a>
         </div>
       </section>
@@ -136,6 +138,7 @@
                 class="subview-dropdown-item is-active"
                 type="button"
                 data-view="transcript"
+                data-i18n="transcript"
               >
                 Transcript
               </button>
@@ -143,6 +146,7 @@
                 class="subview-dropdown-item"
                 type="button"
                 data-view="context"
+                data-i18n="context"
               >
                 Context
               </button>
@@ -150,6 +154,7 @@
                 class="subview-dropdown-item"
                 type="button"
                 data-view="soap"
+                data-i18n="soapNote"
               >
                 SOAP Note
               </button>
@@ -157,6 +162,7 @@
                 class="subview-dropdown-item"
                 type="button"
                 data-view="summary"
+                data-i18n="summary"
               >
                 Summary
               </button>
@@ -182,7 +188,7 @@
                   class="section-action-btn"
                   type="button"
                 >
-                  Copy
+                  <span data-i18n="copy">Copy</span>
                 </button>
               </div>
               <div
@@ -193,7 +199,7 @@
                 aria-label="Running transcript"
               ></div>
               <div id="transcriptBlankState" class="transcript-blank-state">
-                <p class="blank-state-text">
+                <p class="blank-state-text" data-i18n="transcriptBlankState">
                   Start recording or upload an audio file to generate a
                   transcript
                 </p>
@@ -208,7 +214,9 @@
                 <span class="dot"></span>
                 <span class="dot"></span>
                 <span class="dot"></span>
-                <span class="typing-label">Listening</span>
+                <span class="typing-label" data-i18n="listening"
+                  >Listening</span
+                >
               </div>
             </div>
             <div class="subview-actions">
@@ -236,7 +244,7 @@
                   <polyline points="7 8 12 3 17 8" />
                   <path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
                 </svg>
-                Upload
+                <span data-i18n="upload">Upload</span>
               </button>
               <button
                 id="recordBtn"
@@ -269,8 +277,10 @@
                 >
                   <rect x="6" y="6" width="12" height="12" rx="2" />
                 </svg>
-                <span class="record-btn-label">Transcribe</span>
-                <span class="loading-label">Loading</span>
+                <span class="record-btn-label" data-i18n="transcribe"
+                  >Transcribe</span
+                >
+                <span class="loading-label" data-i18n="loading">Loading</span>
                 <span class="loading-dots" aria-hidden="true">
                   <span class="dot"></span>
                   <span class="dot"></span>
@@ -283,13 +293,15 @@
           <!-- Context sub-view -->
           <div class="subview" id="subviewContext" hidden>
             <div class="section-header">
-              <span class="section-label">Clinical Notes</span>
+              <span class="section-label" data-i18n="clinicalNotes"
+                >Clinical Notes</span
+              >
               <button
                 id="contextCopyBtn"
                 class="section-action-btn"
                 type="button"
               >
-                Copy
+                <span data-i18n="copy">Copy</span>
               </button>
             </div>
             <textarea
@@ -297,20 +309,21 @@
               class="section-input"
               aria-label="Clinical context notes"
               placeholder="Add any additional context about the patient or paste files here"
+              data-i18n-placeholder="contextPlaceholder"
             ></textarea>
           </div>
 
           <!-- SOAP sub-view -->
           <div class="subview" id="subviewSoap" hidden>
             <div class="section-header">
-              <span class="section-label">SOAP Note</span>
+              <span class="section-label" data-i18n="soapNote">SOAP Note</span>
               <button
                 id="soapCopyBtn"
                 class="section-action-btn"
                 type="button"
                 hidden
               >
-                Copy
+                <span data-i18n="copy">Copy</span>
               </button>
             </div>
             <div class="subview-content">
@@ -318,7 +331,7 @@
                 <div id="soapContent" class="artifact-content"></div>
               </div>
               <div id="soapBlankState" class="artifact-blank-state">
-                <p class="blank-state-text">
+                <p class="blank-state-text" data-i18n="generateSoap">
                   Generate a SOAP note from your transcript
                 </p>
               </div>
@@ -331,26 +344,28 @@
                 disabled
                 aria-label="Generate SOAP note"
               >
-                Generate
+                <span data-i18n="generate">Generate</span>
               </button>
             </div>
             <div class="processing-overlay" id="soapOverlay" hidden>
               <div class="spinner"></div>
-              <p>Generating SOAP note...</p>
+              <p data-i18n="generatingSoap">Generating SOAP note...</p>
             </div>
           </div>
 
           <!-- Summary sub-view -->
           <div class="subview" id="subviewSummary" hidden>
             <div class="section-header">
-              <span class="section-label">Treatment Summary</span>
+              <span class="section-label" data-i18n="treatmentSummary"
+                >Treatment Summary</span
+              >
               <button
                 id="treatmentSummaryCopyBtn"
                 class="section-action-btn"
                 type="button"
                 hidden
               >
-                Copy
+                <span data-i18n="copy">Copy</span>
               </button>
             </div>
             <div class="subview-content">
@@ -361,7 +376,7 @@
                 ></div>
               </div>
               <div id="treatmentSummaryBlankState" class="artifact-blank-state">
-                <p class="blank-state-text">
+                <p class="blank-state-text" data-i18n="generateSummary">
                   Generate a treatment summary from your transcript
                 </p>
               </div>
@@ -374,12 +389,14 @@
                 disabled
                 aria-label="Generate treatment summary"
               >
-                Generate
+                <span data-i18n="generate">Generate</span>
               </button>
             </div>
             <div class="processing-overlay" id="treatmentSummaryOverlay" hidden>
               <div class="spinner"></div>
-              <p>Generating treatment summary...</p>
+              <p data-i18n="generatingSummary">
+                Generating treatment summary...
+              </p>
             </div>
           </div>
         </div>
@@ -405,15 +422,26 @@
               <polyline points="15 18 9 12 15 6" />
             </svg>
           </a>
-          <h2 class="view-title">Settings</h2>
+          <h2 class="view-title" data-i18n="settings">Settings</h2>
         </header>
         <div class="view-body">
-          <h3>Plugins</h3>
+          <h3 data-i18n="language">Language</h3>
+          <div class="settings-grid">
+            <label class="setting-field">
+              <select id="languageSelect">
+                <option value="en">English</option>
+                <option value="ja">日本語</option>
+              </select>
+            </label>
+          </div>
+          <h3 data-i18n="plugins">Plugins</h3>
           <div id="pluginList" class="plugin-list"></div>
           <div id="asrPluginSettingsPanel" class="plugin-settings-panel" hidden>
             <div class="plugin-row">
               <div class="plugin-info">
-                <div class="plugin-name">Enhanced Dictation</div>
+                <div class="plugin-name" data-i18n="enhancedDictation">
+                  Enhanced Dictation
+                </div>
                 <div id="beamSearchMeta" class="plugin-meta">
                   Improves quality but uses more memory
                 </div>
@@ -421,12 +449,14 @@
               <div class="plugin-controls">
                 <label class="plugin-enabled-toggle">
                   <input id="asrBeamSearchEnabled" type="checkbox" />
-                  <span>Enabled</span>
+                  <span data-i18n="enabled">Enabled</span>
                 </label>
               </div>
             </div>
             <details class="settings-advanced">
-              <summary>Advanced dictation tuning</summary>
+              <summary data-i18n="advancedDictationTuning">
+                Advanced dictation tuning
+              </summary>
               <p id="asrSettingsStatus" class="status"></p>
               <div class="settings-grid">
                 <label class="setting-field">
@@ -522,12 +552,16 @@
                 </label>
               </div>
               <div class="actions" style="margin-top: var(--space-4)">
-                <button id="saveAsrSettingsBtn" type="button">Save</button>
+                <button id="saveAsrSettingsBtn" type="button" data-i18n="save">
+                  Save
+                </button>
               </div>
             </details>
           </div>
           <div class="actions">
-            <button id="importPluginBtn" type="button">Import Plugin</button>
+            <button id="importPluginBtn" type="button" data-i18n="importPlugin">
+              Import Plugin
+            </button>
             <div id="importProgress" class="import-progress" hidden>
               <span class="dot"></span>
               <span class="dot"></span>
