@@ -7,9 +7,9 @@ and `asr::transcribe()` functions the Tauri app uses in production.
 
 ```bash
 cd src-tauri
-cargo run --release --bin benchmark-asr
-cargo run --release --bin benchmark-asr -- --audio ../benchmarks/test.wav --reference ../benchmarks/test.txt
-cargo run --release --bin benchmark-asr -- --model /path/to/other.onnx
+cargo run --release --features benchmarks --example benchmark-asr
+cargo run --release --features benchmarks --example benchmark-asr -- --audio ../benchmarks/test.wav --reference ../benchmarks/test.txt
+cargo run --release --features benchmarks --example benchmark-asr -- --model /path/to/other.onnx
 ```
 
 Use `--release` for representative timings. Supports `--model` and `--vocab`
@@ -26,16 +26,16 @@ flags to test alternative ONNX models against the same reference.
 
 ### Files modified
 
-| File                                 | Change                                                                   |
-| ------------------------------------ | ------------------------------------------------------------------------ |
-| `src-tauri/src/plugins/asr.rs`       | `pub(super)` → `pub` on key items; removed `▁` from special token filter |
-| `src-tauri/src/plugins/mod.rs`       | `mod asr` → `pub mod asr` (expose for bin target)                        |
-| `src-tauri/src/lib.rs`               | `mod plugins` → `pub mod plugins`                                        |
-| `src-tauri/Cargo.toml`               | Added `[[bin]]` + `default-run = "dr-toru"`                              |
-| `src-tauri/src/bin/benchmark_asr.rs` | New benchmark binary (~400 lines)                                        |
-| `src/asr.worker.ts`                  | Removed `▁` from special token filter (same fix as Rust)                 |
-| `benchmarks/benchmark-asr.ts`        | Deleted (replaced by Rust binary)                                        |
-| `benchmarks/dump_wasm_logits.ts`     | Deleted                                                                  |
+| File                                  | Change                                                                   |
+| ------------------------------------- | ------------------------------------------------------------------------ |
+| `src-tauri/src/plugins/asr.rs`        | `pub(super)` → `pub` on key items; removed `▁` from special token filter |
+| `src-tauri/src/plugins/mod.rs`        | `mod asr` → `pub mod asr` (expose for benchmark target)                  |
+| `src-tauri/src/lib.rs`                | `mod plugins` → `pub mod plugins`                                        |
+| `src-tauri/Cargo.toml`                | Added benchmark target + `default-run = "dr-toru"`                       |
+| `src-tauri/examples/benchmark_asr.rs` | New native benchmark target (~400 lines)                                 |
+| `src/asr.worker.ts`                   | Removed `▁` from special token filter (same fix as Rust)                 |
+| `benchmarks/benchmark-asr.ts`         | Deleted (replaced by Rust binary)                                        |
+| `benchmarks/dump_wasm_logits.ts`      | Deleted                                                                  |
 
 ## Key findings (2026-02-19)
 

@@ -5,8 +5,8 @@
 //!
 //! Usage:
 //!   cd src-tauri
-//!   cargo run --release --bin benchmark-asr
-//!   cargo run --release --bin benchmark-asr -- --audio ../benchmarks/test.wav --reference ../benchmarks/test.txt
+//!   cargo run --release --features benchmarks --example benchmark-asr
+//!   cargo run --release --features benchmarks --example benchmark-asr -- --audio ../benchmarks/test.wav --reference ../benchmarks/test.txt
 
 use std::time::Instant;
 
