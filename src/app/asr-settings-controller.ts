@@ -3,6 +3,7 @@ import {
   writeAsrSettings,
   type AsrSettings,
 } from "../asr/settings";
+import { t } from "../i18n";
 
 export interface AsrSettingsControllerOptions {
   isRecording: () => boolean;
@@ -74,14 +75,12 @@ export class AsrSettingsController {
       settings.runtimeConfig.decode.beamPruneLogp,
     );
     this.updateFieldState();
-    this.statusEl.textContent =
-      "Tune dictation behavior here. Saving reloads the app and applies updates.";
+    this.statusEl.textContent = t("dictationTuneHint");
   }
 
   private save(): void {
     if (this.isRecording()) {
-      this.statusEl.textContent =
-        "Stop recording before saving dictation settings.";
+      this.statusEl.textContent = t("stopRecordingBeforeSave");
       return;
     }
 
@@ -105,8 +104,7 @@ export class AsrSettingsController {
 
       writeAsrSettings(next);
       this.populate(next);
-      this.statusEl.textContent =
-        "Dictation settings saved. Reloading to apply updates...";
+      this.statusEl.textContent = t("dictationSettingsSaved");
       window.setTimeout(() => {
         window.location.reload();
       }, 150);

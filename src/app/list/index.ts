@@ -1,4 +1,5 @@
 import type { RecordingSummary } from "../../domain/recording";
+import { getLanguage, t } from "../../i18n";
 import type { RecordingStore } from "../../storage/store";
 import {
   message as showDialogMessage,
@@ -114,8 +115,8 @@ export class ListController {
       this.teardownItems();
       this.container.replaceChildren(
         renderEmptyState({
-          title: "No matching sessions",
-          subtitle: "Try another search phrase",
+          title: t("noMatches"),
+          subtitle: t("noMatchesHint"),
         }),
       );
       return;
@@ -216,7 +217,10 @@ function renderItem(options: RenderItemOptions): RenderedItem {
   const count = document.createElement("span");
   count.className = "recording-attachment-count";
   const n = summary.attachmentCount;
-  count.textContent = `${n} attachment${n === 1 ? "" : "s"}`;
+  count.textContent = t("attachmentCount", {
+    count: n,
+    plural: n === 1 ? "" : "s",
+  });
 
   const meta = document.createElement("span");
   meta.className = "recording-item-meta";
@@ -224,7 +228,10 @@ function renderItem(options: RenderItemOptions): RenderedItem {
   if (matchCount > 0) {
     const matches = document.createElement("span");
     matches.className = "recording-match-count";
-    matches.textContent = `${matchCount} match${matchCount === 1 ? "" : "es"}`;
+    matches.textContent = t("matchCount", {
+      count: matchCount,
+      plural: matchCount === 1 ? "" : "es",
+    });
     meta.append(matches);
   }
   meta.append(count);
@@ -251,7 +258,7 @@ function renderItem(options: RenderItemOptions): RenderedItem {
     exportButton = document.createElement("button");
     exportButton.type = "button";
     exportButton.className = "recording-item-menu-item";
-    exportButton.textContent = "Export";
+    exportButton.textContent = t("export");
     exportButton.setAttribute("role", "menuitem");
     menu.append(exportButton);
   }
@@ -260,7 +267,7 @@ function renderItem(options: RenderItemOptions): RenderedItem {
   deleteButton.type = "button";
   deleteButton.className =
     "recording-item-menu-item recording-item-menu-item-destructive";
-  deleteButton.textContent = "Delete";
+  deleteButton.textContent = t("delete");
   deleteButton.setAttribute("role", "menuitem");
   menu.append(deleteButton);
 
@@ -414,7 +421,7 @@ function showAlert(text: string): void {
 function formatDate(iso: string): string {
   try {
     const d = new Date(iso);
-    return d.toLocaleString(undefined, {
+    return d.toLocaleString(getLanguage(), {
       month: "short",
       day: "numeric",
       year: "numeric",
@@ -466,8 +473,8 @@ function renderEmptyState(options?: {
   title?: string;
   subtitle?: string;
 }): HTMLElement {
-  const title = options?.title ?? "No sessions yet";
-  const subtitle = options?.subtitle ?? "Open a new session to get started";
+  const title = options?.title ?? t("noSessions");
+  const subtitle = options?.subtitle ?? t("noSessionsHint");
   const el = document.createElement("div");
   el.className = "empty-state";
   const titleEl = document.createElement("p");

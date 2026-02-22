@@ -1,3 +1,4 @@
+import { chunkAudio } from "./audio/chunk";
 import { decodeAudioFileToSamples } from "./audio/upload";
 import { AudioCapture } from "./audio/capture";
 import {
@@ -20,6 +21,13 @@ import {
   type AppRoute,
   type RouteName,
 } from "./app/router";
+import {
+  readLanguage,
+  setLanguage,
+  translateDom,
+  t,
+  type Language,
+} from "./i18n";
 import {
   createPluginPlatform,
   type PluginPlatform,
@@ -65,7 +73,7 @@ let currentRouteStateKey = "";
 let lastMainRoute: AppRoute = { name: "list" };
 let routeSeq = 0;
 let pluginActivationTask: Promise<void> | null = null;
-let modelIdleUnloadTimer: ReturnType<typeof setTimeout> | null = null;
+let modelIdleUnloadTimer: number | null = null;
 let modelIdleUnloadTask: Promise<void> | null = null;
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -201,10 +209,10 @@ window.addEventListener("DOMContentLoaded", () => {
     const text = transcriptEl.textContent?.trim();
     if (!text) return;
     void navigator.clipboard.writeText(text).then(() => {
-      copyBtn.textContent = "Copied";
+      copyBtn.textContent = t("copied");
       copyBtn.classList.add("copied");
       setTimeout(() => {
-        copyBtn.textContent = "Copy";
+        copyBtn.textContent = t("copy");
         copyBtn.classList.remove("copied");
       }, 1500);
     });
@@ -215,10 +223,10 @@ window.addEventListener("DOMContentLoaded", () => {
     const text = mustTextarea("contextNote").value.trim();
     if (!text) return;
     void navigator.clipboard.writeText(text).then(() => {
-      contextCopyBtn.textContent = "Copied";
+      contextCopyBtn.textContent = t("copied");
       contextCopyBtn.classList.add("copied");
       setTimeout(() => {
-        contextCopyBtn.textContent = "Copy";
+        contextCopyBtn.textContent = t("copy");
         contextCopyBtn.classList.remove("copied");
       }, 1500);
     });
@@ -230,10 +238,10 @@ window.addEventListener("DOMContentLoaded", () => {
     const text = soapEl.textContent?.trim();
     if (!text) return;
     void navigator.clipboard.writeText(text).then(() => {
-      soapCopyBtn.textContent = "Copied";
+      soapCopyBtn.textContent = t("copied");
       soapCopyBtn.classList.add("copied");
       setTimeout(() => {
-        soapCopyBtn.textContent = "Copy";
+        soapCopyBtn.textContent = t("copy");
         soapCopyBtn.classList.remove("copied");
       }, 1500);
     });
@@ -245,10 +253,10 @@ window.addEventListener("DOMContentLoaded", () => {
     const text = el.textContent?.trim();
     if (!text) return;
     void navigator.clipboard.writeText(text).then(() => {
-      treatmentSummaryCopyBtn.textContent = "Copied";
+      treatmentSummaryCopyBtn.textContent = t("copied");
       treatmentSummaryCopyBtn.classList.add("copied");
       setTimeout(() => {
-        treatmentSummaryCopyBtn.textContent = "Copy";
+        treatmentSummaryCopyBtn.textContent = t("copy");
         treatmentSummaryCopyBtn.classList.remove("copied");
       }, 1500);
     });
@@ -304,6 +312,21 @@ window.addEventListener("DOMContentLoaded", () => {
     onRecordingComplete: (transcript) =>
       recordingView.onRecordingComplete(transcript),
   });
+
+  // i18n: set initial language, translate static DOM, wire dropdown
+  const lang = readLanguage();
+  document.documentElement.lang = lang;
+  translateDom();
+
+  const languageSelect = document.getElementById(
+    "languageSelect",
+  ) as HTMLSelectElement | null;
+  if (languageSelect) {
+    languageSelect.value = lang;
+    languageSelect.addEventListener("change", () => {
+      setLanguage(languageSelect.value as Language);
+    });
+  }
 
   void initializeStorage();
   void setRoute(parseRoute(window.location.hash), true);
@@ -501,10 +524,10 @@ function formatFileSize(bytes: number): string {
 
 function formatPluginKindLabel(plugin: PluginManifest): string {
   if (plugin.kind === "llm") {
-    return "Text Generation";
+    return t("textGeneration");
   }
   const language = parseAsrLanguage(plugin.metadata);
-  return language ? `Dictation (${language})` : "Dictation";
+  return language ? `${t("dictation")} (${language})` : t("dictation");
 }
 
 function parseAsrLanguage(metadata: PluginManifest["metadata"]): string | null {
@@ -554,8 +577,11 @@ function renderPluginList(): void {
   let panelAttached = false;
 
   if (plugins.length === 0) {
-    pluginListEl.innerHTML =
-      '<p class="plugin-list-empty">No plugins imported yet.</p>';
+    pluginListEl.innerHTML = "";
+    const emptyP = document.createElement("p");
+    emptyP.className = "plugin-list-empty";
+    emptyP.textContent = t("noPluginsYet");
+    pluginListEl.appendChild(emptyP);
     asrPluginSettingsPanelEl.hidden = true;
     return;
   }
@@ -586,7 +612,7 @@ function renderPluginList(): void {
     meta.className = "plugin-meta";
     const metaParts = [formatPluginKindLabel(plugin)];
     if (isBuiltIn) {
-      metaParts.push("Built-in");
+      metaParts.push(t("builtIn"));
     }
     if (plugin.sizeBytes) {
       metaParts.push(formatFileSize(plugin.sizeBytes));
@@ -609,14 +635,14 @@ function renderPluginList(): void {
       void setPluginEnabled(plugin.kind, plugin.pluginId, enabledInput.checked);
     });
     const enabledText = document.createElement("span");
-    enabledText.textContent = "Enabled";
+    enabledText.textContent = t("enabled");
     enabledLabel.append(enabledInput, enabledText);
     controls.appendChild(enabledLabel);
 
     if (!isBuiltIn) {
       const deleteBtn = document.createElement("button");
       deleteBtn.className = "plugin-delete-btn";
-      deleteBtn.textContent = "Delete";
+      deleteBtn.textContent = t("delete");
       deleteBtn.type = "button";
       deleteBtn.disabled = controlsDisabled;
       deleteBtn.addEventListener("click", () => {
@@ -1067,13 +1093,41 @@ async function transcribeUploadedFile(file: File): Promise<void> {
       return;
     }
 
-    const transcript = await pluginPlatform.transcribe(samples);
+    const chunks = chunkAudio(samples, SAMPLE_RATE);
+    let transcript = "";
+    for (const chunk of chunks) {
+      const text = await pluginPlatform.transcribe(chunk);
+      transcript = mergeUploadChunk(transcript, text.trim());
+    }
     await recordingView.onRecordingComplete(transcript);
   } catch (error) {
     reportUnexpectedError(error, `Failed to transcribe file "${file.name}"`);
   } finally {
     recordingView.setUploading(false);
   }
+}
+
+/**
+ * Merge consecutive upload transcript chunks using character-level
+ * suffix/prefix overlap detection.  Works for both space-delimited
+ * languages (English) and languages without spaces (Japanese).
+ */
+const MAX_OVERLAP_CHARS = 200;
+const MIN_OVERLAP_CHARS = 4;
+
+function mergeUploadChunk(current: string, next: string): string {
+  if (!next) return current;
+  if (!current) return next;
+
+  const limit = Math.min(current.length, next.length, MAX_OVERLAP_CHARS);
+  for (let len = limit; len >= MIN_OVERLAP_CHARS; len--) {
+    if (current.endsWith(next.substring(0, len))) {
+      const suffix = next.substring(len);
+      return suffix ? `${current} ${suffix}` : current;
+    }
+  }
+
+  return `${current} ${next}`;
 }
 
 function isAsrTranscriptionEnabled(): boolean {

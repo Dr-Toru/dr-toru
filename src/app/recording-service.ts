@@ -145,6 +145,10 @@ export class RecordingService {
     setActive: boolean;
     role?: "source" | "derived";
     sourceAttachmentId?: string | null;
+    metadata?: Record<
+      string,
+      import("../domain/recording").AttachmentMetaValue
+    >;
   }): Promise<{ attachmentId: string }> {
     const now = new Date().toISOString();
     const recording =
@@ -167,11 +171,16 @@ export class RecordingService {
       text: opts.text,
     });
 
+    const extraMeta = opts.metadata ?? {};
     if (existing) {
       const updated: Attachment = {
         ...existing,
         path: written.path,
-        metadata: { ...existing.metadata, sizeBytes: written.sizeBytes },
+        metadata: {
+          ...existing.metadata,
+          sizeBytes: written.sizeBytes,
+          ...extraMeta,
+        },
       };
       recording.attachments = recording.attachments.map((a) =>
         a.attachmentId === updated.attachmentId ? updated : a,
@@ -186,7 +195,7 @@ export class RecordingService {
           createdBy: opts.createdBy,
           path: written.path,
           sourceAttachmentId: opts.sourceAttachmentId ?? null,
-          metadata: { sizeBytes: written.sizeBytes },
+          metadata: { sizeBytes: written.sizeBytes, ...extraMeta },
         }),
       );
     }

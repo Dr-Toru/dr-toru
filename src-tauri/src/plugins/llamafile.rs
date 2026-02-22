@@ -103,6 +103,51 @@ fn service_start_args(metadata: &Option<Value>, port: u16) -> Vec<String> {
         .collect()
 }
 
+/// Truncate LLM output when it enters a repetition loop.
+///
+/// Small models often generate a valid response then start repeating large
+/// blocks of text.  We detect this by sliding a window through the output
+/// and checking whether any substring of `MIN_REPEAT_LEN` or more characters
+/// has already appeared earlier.  When found, we truncate just before the
+/// second occurrence.  This is content-agnostic — works for SOAP, summaries,
+/// or any other transformation.
+const MIN_REPEAT_LEN: usize = 200;
+
+fn truncate_repeated_output(text: String) -> String {
+    let bytes = text.as_bytes();
+    if bytes.len() < MIN_REPEAT_LEN * 2 {
+        return text;
+    }
+
+    // For each position, check if the substring starting there (of length
+    // MIN_REPEAT_LEN) appeared earlier in the text.
+    for pos in MIN_REPEAT_LEN..bytes.len().saturating_sub(MIN_REPEAT_LEN) {
+        // Ensure we're at a char boundary.
+        if !text.is_char_boundary(pos) {
+            continue;
+        }
+        let end = pos + MIN_REPEAT_LEN;
+        if end > bytes.len() || !text.is_char_boundary(end) {
+            continue;
+        }
+        let needle = &text[pos..end];
+        // Check if this exact substring appeared in text[..pos].
+        if let Some(_) = text[..pos].find(needle) {
+            // Truncate at `pos`, then trim trailing separators.
+            let truncated = text[..pos].trim_end();
+            let truncated = truncated
+                .trim_end_matches("---")
+                .trim_end_matches("- - -")
+                .trim_end_matches('\n')
+                .trim();
+            if !truncated.is_empty() {
+                return truncated.to_string();
+            }
+        }
+    }
+    text
+}
+
 fn extract_completion_text(payload: &Value) -> Option<String> {
     if let Some(text) = payload.get("content").and_then(Value::as_str) {
         return Some(text.to_string());
@@ -410,14 +455,14 @@ pub(super) fn execute_blocking(
             "model": "local",
             "messages": [{ "role": "user", "content": full_prompt }],
             "temperature": 0.2,
-            "max_tokens": 2048,
+            "max_tokens": 768,
             "frequency_penalty": 1.3,
             "stop": ["<end_of_turn>"]
         })
     } else {
         json!({
             "prompt": full_prompt,
-            "n_predict": 2048,
+            "n_predict": 768,
             "temperature": 0.2,
             "repeat_penalty": 1.3,
             "stop": ["<end_of_turn>", "\nCritique:", "\n**Critique"]
@@ -428,7 +473,7 @@ pub(super) fn execute_blocking(
         &endpoint,
         &completion_path,
         &payload,
-        Duration::from_secs(90),
+        Duration::from_secs(45),
     )?;
     if status >= 400 {
         let trimmed = response_text.trim();
@@ -444,6 +489,7 @@ pub(super) fn execute_blocking(
     let text = extract_completion_text(&payload)
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+        .map(truncate_repeated_output)
         .ok_or_else(|| "Service response did not include text content".to_string())?;
     Ok(RuntimeExecuteResult { text })
 }
