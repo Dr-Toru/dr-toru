@@ -1,4 +1,6 @@
+import { getLanguage, t } from "../i18n";
 import type { PluginPlatform } from "../plugins/platform";
+import { getLlmPrompt } from "../prompts";
 import { RecordingService } from "./recording-service";
 
 const MIN_BAR_HEIGHT = 4;
@@ -13,11 +15,11 @@ export function levelToHeight(rms: number): number {
 
 export type SubView = "transcript" | "context" | "soap" | "summary";
 
-const SUBVIEW_LABELS: Record<SubView, string> = {
-  transcript: "Transcript",
-  context: "Context",
-  soap: "SOAP Note",
-  summary: "Summary",
+const SUBVIEW_I18N_KEYS: Record<SubView, string> = {
+  transcript: "transcript",
+  context: "context",
+  soap: "soapNote",
+  summary: "summary",
 };
 
 export interface RecordingViewControllerOptions {
@@ -497,14 +499,14 @@ export class RecordingViewController {
       this.stoppedEl.className = "transcript-timestamp";
     }
     const now = new Date();
-    const time = now.toLocaleString(undefined, {
+    const time = now.toLocaleString(getLanguage(), {
       hour: "numeric",
       minute: "2-digit",
       month: "numeric",
       day: "numeric",
       year: "numeric",
     });
-    this.stoppedEl.textContent = `Transcript stopped ${time}`;
+    this.stoppedEl.textContent = `${t("transcriptStopped")} ${time}`;
   }
 
   private addTimestamp(): void {
@@ -513,14 +515,14 @@ export class RecordingViewController {
       this.timestampEl.className = "transcript-timestamp";
     }
     const now = new Date();
-    const time = now.toLocaleString(undefined, {
+    const time = now.toLocaleString(getLanguage(), {
       hour: "numeric",
       minute: "2-digit",
       month: "numeric",
       day: "numeric",
       year: "numeric",
     });
-    this.timestampEl.textContent = `Transcript started ${time}`;
+    this.timestampEl.textContent = `${t("transcriptStarted")} ${time}`;
   }
 
   private showTypingIndicator(): void {
@@ -551,7 +553,11 @@ export class RecordingViewController {
         input += `\n\nClinician's Notes:\n${context}`;
       }
 
-      const soapText = await this.platform.runLlm("soap", input);
+      const soapText = await this.platform.runLlm(
+        "soap",
+        input,
+        getLlmPrompt("soap"),
+      );
 
       const result = await this.recordingService.saveAttachmentText({
         recordingId: this.context.recordingId,
@@ -562,6 +568,7 @@ export class RecordingViewController {
         setActive: false,
         role: "derived",
         sourceAttachmentId: this.context.attachmentId,
+        metadata: { language: getLanguage() },
       });
 
       this.context.soapAttachmentId = result.attachmentId;
@@ -598,7 +605,11 @@ export class RecordingViewController {
         input += `\n\nClinician's Notes:\n${context}`;
       }
 
-      const text = await this.platform.runLlm("treatment_summary", input);
+      const text = await this.platform.runLlm(
+        "treatment_summary",
+        input,
+        getLlmPrompt("treatment_summary"),
+      );
 
       const result = await this.recordingService.saveAttachmentText({
         recordingId: this.context.recordingId,
@@ -609,6 +620,7 @@ export class RecordingViewController {
         setActive: false,
         role: "derived",
         sourceAttachmentId: this.context.attachmentId,
+        metadata: { language: getLanguage() },
       });
 
       this.context.treatmentSummaryAttachmentId = result.attachmentId;
@@ -632,7 +644,7 @@ export class RecordingViewController {
     ][]) {
       el.hidden = v !== view;
     }
-    this.titleLabel.textContent = SUBVIEW_LABELS[view];
+    this.titleLabel.textContent = t(SUBVIEW_I18N_KEYS[view]);
     for (const item of this.dropdown.querySelectorAll("[data-view]")) {
       item.classList.toggle(
         "is-active",
@@ -665,12 +677,12 @@ export class RecordingViewController {
       this.soapContentEl.textContent = text;
       this.soapSectionEl.hidden = false;
       this.soapBlankStateEl.hidden = true;
-      this.soapBtn.textContent = "Regenerate";
+      this.soapBtn.textContent = t("regenerate");
     } else {
       this.soapContentEl.textContent = "";
       this.soapSectionEl.hidden = true;
       this.soapBlankStateEl.hidden = false;
-      this.soapBtn.textContent = "Generate";
+      this.soapBtn.textContent = t("generate");
     }
     this.updateSoapCopyBtn();
   }
@@ -686,12 +698,12 @@ export class RecordingViewController {
       this.treatmentSummaryContentEl.textContent = text;
       this.treatmentSummarySectionEl.hidden = false;
       this.treatmentSummaryBlankStateEl.hidden = true;
-      this.treatmentSummaryBtn.textContent = "Regenerate";
+      this.treatmentSummaryBtn.textContent = t("regenerate");
     } else {
       this.treatmentSummaryContentEl.textContent = "";
       this.treatmentSummarySectionEl.hidden = true;
       this.treatmentSummaryBlankStateEl.hidden = false;
-      this.treatmentSummaryBtn.textContent = "Generate";
+      this.treatmentSummaryBtn.textContent = t("generate");
     }
     this.updateTreatmentSummaryCopyBtn();
   }
