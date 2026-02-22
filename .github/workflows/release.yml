@@ -44,9 +44,6 @@ jobs:
           - platform: macos-latest
             rust_targets: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
-          - platform: macos-latest
-            rust_targets: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin
           - platform: windows-latest
             rust_targets: x86_64-pc-windows-msvc
             args: ""
@@ -77,6 +74,44 @@ jobs:
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Ensure Vulkan SDK for Whisper on Windows
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          function Get-VulkanSdkPath {
+            if (-not (Test-Path 'C:\VulkanSDK')) {
+              return $null
+            }
+            $candidate = Get-ChildItem 'C:\VulkanSDK' -Directory | Sort-Object Name -Descending | Select-Object -First 1
+            if ($null -eq $candidate) {
+              return $null
+            }
+            $libPath = Join-Path $candidate.FullName 'Lib'
+            if (-not (Test-Path $libPath)) {
+              return $null
+            }
+            return $candidate.FullName
+          }
+
+          $sdkPath = Get-VulkanSdkPath
+          if ($null -eq $sdkPath) {
+            if (Get-Command winget -ErrorAction SilentlyContinue) {
+              winget install --id LunarG.VulkanSDK --accept-source-agreements --accept-package-agreements --silent
+            } elseif (Get-Command choco -ErrorAction SilentlyContinue) {
+              choco install vulkan-sdk --yes --no-progress
+            } else {
+              throw 'Neither winget nor choco is available to install Vulkan SDK.'
+            }
+            $sdkPath = Get-VulkanSdkPath
+          }
+
+          if ($null -eq $sdkPath) {
+            throw 'Vulkan SDK was not found after installation. whisper-rs-sys requires VULKAN_SDK on Windows.'
+          }
+
+          "VULKAN_SDK=$sdkPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Using VULKAN_SDK=$sdkPath"
 
       - name: Import Windows signing certificate
         if: matrix.platform == 'windows-latest' && env.WINDOWS_CERTIFICATE != '' && env.WINDOWS_CERTIFICATE_PASSWORD != '' && env.WINDOWS_CERTIFICATE_THUMBPRINT != '' && env.WINDOWS_TIMESTAMP_URL != ''
