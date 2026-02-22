@@ -83,6 +83,15 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Tune Rust build memory usage on Windows
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          "CARGO_BUILD_JOBS=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_PROFILE_RELEASE_OPT_LEVEL=2" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=64" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_PROFILE_RELEASE_LTO=off" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Ensure Vulkan SDK for Whisper on Windows
         if: matrix.platform == 'windows-latest'
         shell: pwsh
