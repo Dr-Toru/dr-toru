@@ -100,10 +100,10 @@ jobs:
 
           $sdkPath = Get-VulkanSdkPath
           if ($null -eq $sdkPath) {
-            if (Get-Command winget -ErrorAction SilentlyContinue) {
-              winget install --id LunarG.VulkanSDK --accept-source-agreements --accept-package-agreements --silent
-            } elseif (Get-Command choco -ErrorAction SilentlyContinue) {
+            if (Get-Command choco -ErrorAction SilentlyContinue) {
               choco install vulkan-sdk --yes --no-progress
+            } elseif (Get-Command winget -ErrorAction SilentlyContinue) {
+              winget install --id LunarG.VulkanSDK --source winget --accept-source-agreements --accept-package-agreements --silent
             } else {
               throw 'Neither winget nor choco is available to install Vulkan SDK.'
             }
