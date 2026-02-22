@@ -46,18 +46,11 @@ jobs:
         run: pnpm test
 
   publish:
-    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || (inputs.platform == 'windows' && matrix.platform == 'windows-latest') || (inputs.platform == 'macos' && matrix.platform == 'macos-latest')
     needs: verify
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - platform: macos-latest
-            rust_targets: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin
-          - platform: windows-latest
-            rust_targets: x86_64-pc-windows-msvc
-            args: ""
+        include: ${{ fromJSON((github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'windows' && '[{"platform":"windows-latest","rust_targets":"x86_64-pc-windows-msvc","args":""}]') || (github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'macos' && '[{"platform":"macos-latest","rust_targets":"aarch64-apple-darwin","args":"--target aarch64-apple-darwin"}]') || '[{"platform":"macos-latest","rust_targets":"aarch64-apple-darwin","args":"--target aarch64-apple-darwin"},{"platform":"windows-latest","rust_targets":"x86_64-pc-windows-msvc","args":""}]') }}
     runs-on: ${{ matrix.platform }}
     env:
       WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
