@@ -1,13 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use ort::value::Tensor;
 use realfft::{RealFftPlanner, RealToComplex};
 use serde::Deserialize;
-use transcribe_rs::engines::whisper::{WhisperEngine, WhisperInferenceParams, WhisperModelParams};
-use transcribe_rs::TranscriptionEngine;
+use whisper_rs::{
+    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
+};
 
 use super::RuntimeExecuteResult;
 
@@ -42,8 +42,9 @@ pub struct CtcSession {
 }
 
 pub struct WhisperSession {
-    engine: Mutex<WhisperEngine>,
-    inference_params: WhisperInferenceParams,
+    _context: WhisperContext,
+    state: Mutex<WhisperState>,
+    runtime_config: WhisperRuntimeConfig,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -356,20 +357,27 @@ pub fn load_whisper_session(
     model_path: &str,
     runtime_config: WhisperRuntimeConfig,
 ) -> Result<RunningAsr, String> {
-    let mut engine = WhisperEngine::new();
-    let params = WhisperModelParams { use_gpu: false };
-    engine
-        .load_model_with_params(Path::new(model_path), params)
-        .map_err(|e| format!("Failed to load Whisper model {model_path}: {e}"))?;
+    let mut context_params = WhisperContextParameters::default();
+    context_params.use_gpu = false;
 
-    let mut inference_params = WhisperInferenceParams::default();
-    inference_params.language = normalize_optional_text(runtime_config.language);
-    inference_params.translate = runtime_config.translate;
-    inference_params.initial_prompt = normalize_optional_text(runtime_config.initial_prompt);
+    let context = WhisperContext::new_with_params(model_path, context_params)
+        .map_err(|e| format!("Failed to load Whisper model {model_path}: {e}"))?;
+    let state = context
+        .create_state()
+        .map_err(|e| {
+            format!("Failed to load Whisper model {model_path}: failed to create state: {e}")
+        })?;
+
+    let runtime_config = WhisperRuntimeConfig {
+        language: normalize_optional_text(runtime_config.language),
+        translate: runtime_config.translate,
+        initial_prompt: normalize_optional_text(runtime_config.initial_prompt),
+    };
 
     Ok(RunningAsr::Whisper(Arc::new(WhisperSession {
-        engine: Mutex::new(engine),
-        inference_params,
+        _context: context,
+        state: Mutex::new(state),
+        runtime_config,
     })))
 }
 
@@ -437,16 +445,45 @@ fn transcribe_whisper(
     asr: &WhisperSession,
     samples: &[f32],
 ) -> Result<RuntimeExecuteResult, String> {
-    let mut engine = asr
-        .engine
+    let mut state = asr
+        .state
         .lock()
         .map_err(|e| format!("Failed to lock Whisper session: {e}"))?;
-    let result = engine
-        .transcribe_samples(samples.to_vec(), Some(asr.inference_params.clone()))
+
+    let mut params = FullParams::new(SamplingStrategy::BeamSearch {
+        beam_size: 3,
+        patience: -1.0, // whisper.cpp default
+    });
+    params.set_language(asr.runtime_config.language.as_deref());
+    params.set_translate(asr.runtime_config.translate);
+    params.set_print_special(false);
+    params.set_print_progress(false);
+    params.set_print_realtime(false);
+    params.set_print_timestamps(false);
+    params.set_suppress_blank(true);
+    params.set_suppress_non_speech_tokens(true);
+    params.set_no_speech_thold(0.2);
+    if let Some(initial_prompt) = asr.runtime_config.initial_prompt.as_deref() {
+        params.set_initial_prompt(initial_prompt);
+    }
+
+    state
+        .full(params, samples)
         .map_err(|e| format!("Whisper inference failed: {e}"))?;
 
+    let segment_count = state
+        .full_n_segments()
+        .map_err(|e| format!("Whisper inference failed: {e}"))?;
+    let mut full_text = String::new();
+    for segment_idx in 0..segment_count {
+        let segment_text = state
+            .full_get_segment_text_lossy(segment_idx)
+            .map_err(|e| format!("Whisper inference failed: {e}"))?;
+        full_text.push_str(&segment_text);
+    }
+
     Ok(RuntimeExecuteResult {
-        text: result.text.trim().to_string(),
+        text: full_text.trim().to_string(),
     })
 }
 

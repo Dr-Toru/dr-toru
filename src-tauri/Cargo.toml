@@ -31,7 +31,7 @@ ort = "2.0.0-rc.11"
 ndarray = "0.16"
 realfft = "3"
 zip = { version = "8", default-features = false, features = ["deflate"] }
-transcribe-rs = { version = "0.2.5", default-features = false, features = ["whisper"] }
+whisper-rs = "0.13.2"
 
 [[bin]]
 name = "benchmark-asr"

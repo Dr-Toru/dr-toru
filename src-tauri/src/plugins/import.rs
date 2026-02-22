@@ -589,7 +589,7 @@ fn load_zip_package(extract_root: &Path) -> Result<ParsedZipPackage, String> {
             }
         }
     } else if kind == PluginKind::Asr && runtime == "whisper" {
-        // transcribe-rs WhisperEngine loads a single GGML model file.
+        // Whisper runtime loads a single GGML model file.
         if !has_extension(&entrypoint.relative_path, "bin") {
             return Err(
                 "ASR runtime whisper requires entrypoint to be a GGML .bin file".to_string(),
