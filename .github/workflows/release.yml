@@ -98,21 +98,41 @@ jobs:
             return $candidate.FullName
           }
 
+          function New-VulkanSdkShimFromWindowsKit {
+            $kitsRoot = 'C:\Program Files (x86)\Windows Kits\10\Lib'
+            if (-not (Test-Path $kitsRoot)) {
+              return $null
+            }
+
+            $libCandidates = Get-ChildItem $kitsRoot -Directory -ErrorAction SilentlyContinue |
+              Sort-Object Name -Descending |
+              ForEach-Object { Join-Path $_.FullName 'um\x64\vulkan-1.lib' } |
+              Where-Object { Test-Path $_ }
+
+            $libPath = $libCandidates | Select-Object -First 1
+            if ($null -eq $libPath -or -not (Test-Path $libPath)) {
+              return $null
+            }
+
+            $shimRoot = Join-Path $env:RUNNER_TEMP 'vulkan-sdk-shim'
+            $shimLib = Join-Path $shimRoot 'Lib'
+            New-Item -Path $shimLib -ItemType Directory -Force | Out-Null
+            Copy-Item -Path $libPath -Destination (Join-Path $shimLib 'vulkan-1.lib') -Force
+            return $shimRoot
+          }
+
           $sdkPath = Get-VulkanSdkPath
           if ($null -eq $sdkPath) {
-            $usedWinget = $false
+            $sdkPath = New-VulkanSdkShimFromWindowsKit
+          }
+
+          if ($null -eq $sdkPath) {
             if (Get-Command winget -ErrorAction SilentlyContinue) {
-              $usedWinget = $true
-              winget install --id LunarG.VulkanSDK --source winget --exact --silent --disable-interactivity --accept-source-agreements --accept-package-agreements
-            } elseif (Get-Command choco -ErrorAction SilentlyContinue) {
-              choco install vulkan-sdk --yes --no-progress
-            } else {
-              throw 'Neither winget nor choco is available to install Vulkan SDK.'
+              winget install --id KhronosGroup.VulkanSDK --source winget --exact --silent --disable-interactivity --accept-source-agreements --accept-package-agreements
             }
             $sdkPath = Get-VulkanSdkPath
-            if ($null -eq $sdkPath -and $usedWinget -and (Get-Command choco -ErrorAction SilentlyContinue)) {
-              choco install vulkan-sdk --yes --no-progress
-              $sdkPath = Get-VulkanSdkPath
+            if ($null -eq $sdkPath) {
+              $sdkPath = New-VulkanSdkShimFromWindowsKit
             }
           }
 
