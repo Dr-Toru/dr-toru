@@ -1,0 +1,135 @@
+name: release-rc
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck, lint, format check
+        run: pnpm check
+
+      - name: Unit tests
+        run: pnpm test
+
+  publish:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            rust_targets: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin
+          - platform: macos-latest
+            rust_targets: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin
+          - platform: windows-latest
+            rust_targets: x86_64-pc-windows-msvc
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Import Windows signing certificate
+        if: matrix.platform == 'windows-latest' && secrets.WINDOWS_CERTIFICATE != '' && secrets.WINDOWS_CERTIFICATE_PASSWORD != '' && secrets.WINDOWS_CERTIFICATE_THUMBPRINT != '' && secrets.WINDOWS_TIMESTAMP_URL != ''
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          New-Item -ItemType Directory -Path certificate -Force | Out-Null
+          Set-Content -Path certificate/tempCert.txt -Value $env:WINDOWS_CERTIFICATE
+          certutil -decode certificate/tempCert.txt certificate/certificate.pfx
+          Remove-Item -Path certificate/tempCert.txt
+          Import-PfxCertificate -FilePath certificate/certificate.pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText)
+
+      - name: Configure Windows signing metadata
+        if: matrix.platform == 'windows-latest' && secrets.WINDOWS_CERTIFICATE != '' && secrets.WINDOWS_CERTIFICATE_PASSWORD != '' && secrets.WINDOWS_CERTIFICATE_THUMBPRINT != '' && secrets.WINDOWS_TIMESTAMP_URL != ''
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
+          WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
+        run: |
+          $configPath = "src-tauri/tauri.conf.json"
+          $config = Get-Content -Path $configPath -Raw | ConvertFrom-Json -AsHashtable
+          if (-not $config.ContainsKey("bundle") -or $null -eq $config["bundle"]) {
+            $config["bundle"] = @{}
+          }
+          if (-not $config["bundle"].ContainsKey("windows") -or $null -eq $config["bundle"]["windows"]) {
+            $config["bundle"]["windows"] = @{}
+          }
+          $config["bundle"]["windows"]["certificateThumbprint"] = $env:WINDOWS_CERTIFICATE_THUMBPRINT
+          $config["bundle"]["windows"]["digestAlgorithm"] = "sha256"
+          $config["bundle"]["windows"]["timestampUrl"] = $env:WINDOWS_TIMESTAMP_URL
+          $config | ConvertTo-Json -Depth 100 | Set-Content -Path $configPath -Encoding UTF8
+
+      - name: Prepare App Store Connect API key
+        if: matrix.platform == 'macos-latest'
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          mkdir -p private_keys
+          printf "%s" "$APPLE_API_KEY_CONTENT" > "private_keys/AuthKey_${APPLE_API_KEY}.p8"
+          chmod 600 "private_keys/AuthKey_${APPLE_API_KEY}.p8"
+
+      - name: Build and publish signed RC artifacts
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_PATH: ${{ github.workspace }}/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
+        with:
+          projectPath: .
+          tauriScript: pnpm tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: "Dr. Toru ${{ github.ref_name }}"
+          releaseBody: "Automated build from tag."
+          releaseDraft: true
+          prerelease: ${{ contains(github.ref_name, '-') || contains(github.ref_name, '+') }}
+          args: ${{ matrix.args }}
