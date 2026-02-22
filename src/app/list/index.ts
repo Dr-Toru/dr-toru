@@ -1,5 +1,9 @@
 import type { RecordingSummary } from "../../domain/recording";
 import type { RecordingStore } from "../../storage/store";
+import {
+  message as showDialogMessage,
+  save as showDialogSave,
+} from "@tauri-apps/plugin-dialog";
 import { normalizeSearchText } from "../search-text";
 
 export const RECORDINGS_CHANGED_EVENT = "toru:recordings-changed";
@@ -139,7 +143,7 @@ export class ListController {
       await this.store.deleteRecording(recordingId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      window.alert(`Failed to delete recording: ${message}`);
+      showAlert(`Failed to delete recording: ${message}`);
       return;
     }
 
@@ -158,7 +162,7 @@ export class ListController {
       destinationPath = await pickExportPath(createdAt);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      window.alert(`Failed to open export dialog: ${message}`);
+      showAlert(`Failed to open export dialog: ${message}`);
       return;
     }
 
@@ -171,7 +175,7 @@ export class ListController {
       await notifyExportSuccess(destinationPath);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      window.alert(`Failed to export recording: ${message}`);
+      showAlert(`Failed to export recording: ${message}`);
     }
   }
 }
@@ -353,8 +357,7 @@ function renderItem(options: RenderItemOptions): RenderedItem {
 }
 
 async function pickExportPath(createdAt: string): Promise<string | null> {
-  const { save } = await import("@tauri-apps/plugin-dialog");
-  const selected = await save({
+  const selected = await showDialogSave({
     title: "Export Recording Session",
     defaultPath: `${formatDateFilename(createdAt)}.zip`,
     filters: [{ name: "Zip Archive", extensions: ["zip"] }],
@@ -391,13 +394,20 @@ function formatDateFilename(iso: string): string {
 
 async function notifyExportSuccess(destinationPath: string): Promise<void> {
   try {
-    const { message } = await import("@tauri-apps/plugin-dialog");
-    await message(`Exported to ${destinationPath}`, {
+    await showDialogMessage(`Exported to ${destinationPath}`, {
       title: "Success!",
       kind: "info",
     });
   } catch {
     // Best effort success notification; export already completed.
+  }
+}
+
+function showAlert(text: string): void {
+  try {
+    window.alert(text);
+  } catch {
+    console.error(text);
   }
 }
 
