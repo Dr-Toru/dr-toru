@@ -1227,12 +1227,44 @@ body {
 /* ===== Error Banner ===== */
 
 .app-error {
+  position: absolute;
+  top: calc(var(--safe-top) + var(--space-3));
+  left: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   background: var(--error);
   color: white;
   font-size: 14px;
   font-weight: 500;
-  z-index: 50;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  z-index: 200;
+}
+
+.app-error-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.app-error-dismiss {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.14);
+  color: white;
+  border-radius: var(--radius-full);
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.app-error-dismiss:active {
+  background: rgba(255, 255, 255, 0.24);
 }
 
 /* ===== Fade-in Animation ===== */

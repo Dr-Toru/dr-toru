@@ -48,6 +48,8 @@ let recordingView: RecordingViewController;
 let listController: ListController;
 
 let appErrorEl: HTMLElement;
+let appErrorTextEl: HTMLElement;
+let appErrorDismissBtn: HTMLButtonElement;
 let settingsBtn: HTMLButtonElement;
 let uploadTranscriptBtn: HTMLButtonElement;
 let transcriptUploadInput: HTMLInputElement;
@@ -68,6 +70,9 @@ let modelIdleUnloadTask: Promise<void> | null = null;
 
 window.addEventListener("DOMContentLoaded", () => {
   appErrorEl = mustEl("appError");
+  appErrorTextEl = mustEl("appErrorText");
+  appErrorDismissBtn = mustBtn("appErrorDismissBtn");
+  appErrorDismissBtn.addEventListener("click", hideAppError);
   settingsBtn = mustBtn("settingsBtn");
   uploadTranscriptBtn = mustBtn("uploadTranscriptBtn");
   transcriptUploadInput = mustFileInput("transcriptUploadInput");
@@ -835,8 +840,12 @@ function reportUnexpectedError(error: unknown, context: string): void {
 }
 
 function showAppError(message: string): void {
-  appErrorEl.textContent = message;
+  appErrorTextEl.textContent = message;
   appErrorEl.hidden = false;
+}
+
+function hideAppError(): void {
+  appErrorEl.hidden = true;
 }
 
 function updateAsrLoadingIndicator(): void {

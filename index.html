@@ -9,7 +9,23 @@
   </head>
   <body>
     <main id="app-shell" class="app">
-      <p id="appError" class="app-error" hidden></p>
+      <div
+        id="appError"
+        class="app-error"
+        role="alert"
+        aria-live="assertive"
+        hidden
+      >
+        <span id="appErrorText" class="app-error-text"></span>
+        <button
+          id="appErrorDismissBtn"
+          class="app-error-dismiss"
+          type="button"
+          aria-label="Dismiss error"
+        >
+          Dismiss
+        </button>
+      </div>
 
       <section
         id="screen-list"
