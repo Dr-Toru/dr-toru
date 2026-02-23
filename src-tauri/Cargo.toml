@@ -12,9 +12,9 @@ default-run = "dr-toru"
 # Keep a unique lib name to avoid bin/lib collisions on Windows:
 # https://github.com/rust-lang/cargo/issues/8519
 name = "dr_toru_lib"
-# Desktop Tauri builds only require cdylib/rlib. Building staticlib
-# adds significant link-time memory pressure on Windows CI.
-crate-type = ["cdylib", "rlib"]
+# Desktop-only: the bin links against rlib. cdylib/staticlib are only
+# needed for mobile targets and add major link-time memory pressure.
+crate-type = ["rlib"]
 
 [features]
 default = []
