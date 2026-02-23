@@ -7,13 +7,6 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   prettier,
   {
-    ignores: [
-      "dist",
-      "public/ort",
-      "public/models",
-      "public/kenlm",
-      "build",
-      "src-tauri",
-    ],
+    ignores: ["dist", "public/ort", "plugin-bundles", "build", "src-tauri"],
   },
 );

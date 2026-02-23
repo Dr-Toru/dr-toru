@@ -1,7 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
 import {
-  BUILTIN_ORT_ASR_PLUGIN,
   PLUGIN_REGISTRY_FORMAT,
   type PluginKind,
   type PluginManifest,
@@ -93,9 +92,9 @@ export class TauriPluginRegistryStore implements PluginRegistryStore {
 export class NoopPluginRegistryStore implements PluginRegistryStore {
   private state: PluginRegistryState = {
     format: PLUGIN_REGISTRY_FORMAT,
-    plugins: [{ ...BUILTIN_ORT_ASR_PLUGIN }],
+    plugins: [],
     activePlugins: {
-      asr: BUILTIN_ORT_ASR_PLUGIN.pluginId,
+      asr: null,
       llm: null,
     },
   };
@@ -177,10 +176,6 @@ export class NoopPluginRegistryStore implements PluginRegistryStore {
   }
 
   async remove(pluginId: string): Promise<void> {
-    if (pluginId === BUILTIN_ORT_ASR_PLUGIN.pluginId) {
-      throw new Error("Built-in ASR plugin cannot be removed");
-    }
-
     this.state.plugins = this.state.plugins.filter(
       (plugin) => plugin.pluginId !== pluginId,
     );

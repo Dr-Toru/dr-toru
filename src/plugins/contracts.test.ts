@@ -1,20 +1,29 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  BUILTIN_ORT_ASR_PLUGIN,
-  validatePluginManifest,
-  type PluginManifest,
-} from "./contracts";
+import { validatePluginManifest, type PluginManifest } from "./contracts";
+
+const ORT_ASR_MANIFEST: PluginManifest = {
+  pluginId: "import.asr.ort.test",
+  name: "Test ASR",
+  version: "1.0.0",
+  kind: "asr",
+  runtime: "ort-ctc",
+  entrypointPath: "/tmp/model.onnx",
+  hash: "a".repeat(64),
+  metadata: {
+    vocabPath: "/tmp/vocab.json",
+  },
+};
 
 describe("plugin contracts", () => {
-  it("accepts builtin ORT ASR manifest", () => {
-    const issues = validatePluginManifest(BUILTIN_ORT_ASR_PLUGIN);
+  it("accepts ORT ASR manifest with vocab metadata", () => {
+    const issues = validatePluginManifest(ORT_ASR_MANIFEST);
     expect(issues).toHaveLength(0);
   });
 
   it("rejects asr manifest without vocab metadata", () => {
     const manifest: PluginManifest = {
-      ...BUILTIN_ORT_ASR_PLUGIN,
+      ...ORT_ASR_MANIFEST,
       pluginId: "bad.asr.missing-vocab",
       metadata: {},
     };
@@ -42,7 +51,7 @@ describe("plugin contracts", () => {
 
   it("rejects unsupported runtime for kind", () => {
     const manifest: PluginManifest = {
-      ...BUILTIN_ORT_ASR_PLUGIN,
+      ...ORT_ASR_MANIFEST,
       pluginId: "bad.asr.runtime",
       runtime: "llamafile",
     };
@@ -53,7 +62,7 @@ describe("plugin contracts", () => {
 
   it("accepts whisper runtime without CTC vocab metadata", () => {
     const manifest: PluginManifest = {
-      ...BUILTIN_ORT_ASR_PLUGIN,
+      ...ORT_ASR_MANIFEST,
       pluginId: "test.asr.whisper",
       runtime: "whisper",
       metadata: {},
