@@ -80,13 +80,6 @@ jobs:
         with:
           targets: ${{ matrix.rust_targets }}
 
-      - name: Cache Rust dependencies and build outputs
-        uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: v2
-          workspaces: |
-            src-tauri -> target
-
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
