@@ -52,7 +52,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON((github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'windows' && '[{"platform":"windows-latest-large","rust_targets":"x86_64-pc-windows-msvc","args":""}]') || (github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'macos' && '[{"platform":"macos-latest","rust_targets":"aarch64-apple-darwin","args":"--target aarch64-apple-darwin"}]') || '[{"platform":"macos-latest","rust_targets":"aarch64-apple-darwin","args":"--target aarch64-apple-darwin"},{"platform":"windows-latest-large","rust_targets":"x86_64-pc-windows-msvc","args":""}]') }}
+        include: ${{ fromJSON((github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'windows' && '[{"platform":"windows-latest-l","rust_targets":"x86_64-pc-windows-msvc","args":""}]') || (github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'macos' && '[{"platform":"macos-latest","rust_targets":"aarch64-apple-darwin","args":"--target aarch64-apple-darwin"}]') || '[{"platform":"macos-latest","rust_targets":"aarch64-apple-darwin","args":"--target aarch64-apple-darwin"},{"platform":"windows-latest-l","rust_targets":"x86_64-pc-windows-msvc","args":""}]') }}
     runs-on: ${{ matrix.platform }}
     env:
       WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
