@@ -88,6 +88,7 @@ jobs:
       - name: Cache Rust dependencies and build outputs
         uses: Swatinem/rust-cache@v2
         with:
+          prefix-key: v1
           workspaces: |
             src-tauri -> target
 
