@@ -83,22 +83,12 @@ jobs:
       - name: Cache Rust dependencies and build outputs
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: v1
+          prefix-key: v2
           workspaces: |
             src-tauri -> target
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Tune Rust build memory usage on Windows
-        if: startsWith(matrix.platform, 'windows')
-        shell: pwsh
-        run: |
-          "CARGO_BUILD_JOBS=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CARGO_PROFILE_RELEASE_OPT_LEVEL=0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=8" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CARGO_PROFILE_RELEASE_LTO=off" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CARGO_PROFILE_RELEASE_PANIC=abort" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Ensure Vulkan SDK for Whisper on Windows
         if: startsWith(matrix.platform, 'windows')
