@@ -2,8 +2,8 @@
 name = "dr-toru"
 version = "0.0.1"
 description = "Offline-first medical dictation app"
-authors = ["Spicy Neuron"]
-edition = "2026"
+authors = ["Dr. Toru"]
+edition = "2021"
 default-run = "dr-toru"
 
 
