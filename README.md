@@ -1,4 +1,4 @@
-![](https://github.com/Spicy-Neuron/dr-toru/blob/main/src-tauri/icons/128x128%402x.png)
+![](https://github.com/Dr-Toru/dr-toru/blob/main/src-tauri/icons/128x128%402x.png)
 
 # Dr. Toru
 
@@ -19,7 +19,7 @@ notes -- all locally. Patient data never leaves your device.
 ## Installation
 
 Download the latest release for your platform from the
-[Releases](https://github.com/Spicy-Neuron/dr-toru/releases) page:
+[Releases](https://github.com/Dr-Toru/dr-toru/releases) page:
 
 - **macOS** -- `.dmg`
 - **Windows** -- `.msi` or `.exe`
@@ -28,7 +28,7 @@ Download the latest release for your platform from the
 
 After installing, you'll need to download a speech recognition model:
 
-1. Go to the [plugins page](https://github.com/Spicy-Neuron/dr-toru/releases/tag/plugins)
+1. Go to the [plugins page](https://github.com/Dr-Toru/dr-toru/releases/tag/plugins)
    and download a Dictation plugin.
 2. Open Dr. Toru, go to **Settings**, and import the downloaded file.
 
