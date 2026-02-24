@@ -1,3 +1,5 @@
+![](https://github.com/Spicy-Neuron/dr-toru/blob/main/src-tauri/icons/128x128%402x.png)
+
 # Dr. Toru
 
 Offline medical dictation app. Record, transcribe, and generate clinical
