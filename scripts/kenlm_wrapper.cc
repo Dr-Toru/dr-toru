@@ -3,7 +3,7 @@
  * the ASR web worker via Emscripten.
  *
  * Compiled with:  scripts/build-kenlm-wasm.sh
- * Output:         public/kenlm/kenlm.{js,wasm}
+ * Output:         plugin-bundles/medasr/kenlm/kenlm.{js,wasm}
  *
  * API (extern "C"):
  *   kenlm_load(path)             → 1 on success, 0 on failure

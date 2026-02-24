@@ -3,7 +3,7 @@
  * scripts/build-kenlm-wasm.sh via Emscripten with MODULARIZE=1.
  *
  * Usage in asr.worker.ts:
- *   const createKenLM = (await import("../public/kenlm/kenlm.js")).default;
+ *   const createKenLM = (await import(`${kenlmDir}kenlm.js`)).default;
  *   const mod: KenLMModule = await createKenLM();
  */
 

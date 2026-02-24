@@ -1,6 +1,6 @@
-use serde_json::{Map, Value};
 use std::collections::HashSet;
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
@@ -14,7 +14,7 @@ use super::{
 
 const REGISTRY_FORMAT: u8 = 1;
 const REGISTRY_FILE_NAME: &str = "registry.json";
-pub(super) const BUILTIN_ORT_ASR_PLUGIN_ID: &str = "builtin.asr.ort.medasr";
+const LEGACY_BUILTIN_PLUGIN_PREFIX: &str = "builtin.";
 
 #[derive(Debug, Clone)]
 pub(super) struct PluginPaths {
@@ -55,53 +55,6 @@ pub(super) fn save_registry(
     write_json_atomic(&paths.registry_file, state).map_err(err_to_string)
 }
 
-pub(super) fn builtin_ort_asr_plugin() -> PluginManifest {
-    PluginManifest {
-        plugin_id: BUILTIN_ORT_ASR_PLUGIN_ID.to_string(),
-        name: "Google MedASR".to_string(),
-        version: "1.0.0".to_string(),
-        kind: PluginKind::Asr,
-        runtime: "ort-ctc".to_string(),
-        entrypoint_path: "models/medasr_lasr_ctc_int8.onnx".to_string(),
-        hash: "05c1907f53d9dea3db23092e4d730f011ee400b3fb282d6af8443276dfb9d270".to_string(),
-        model_family: Some("medasr_lasr".to_string()),
-        size_bytes: None,
-        license: None,
-        installed_at: None,
-        metadata: Some(Value::Object(Map::from_iter([
-            (
-                "language".to_string(),
-                Value::String("en".to_string()),
-            ),
-            (
-                "vocabPath".to_string(),
-                Value::String("models/medasr_lasr_vocab.json".to_string()),
-            ),
-            (
-                "vocabHash".to_string(),
-                Value::String(
-                    "631bd152b5beca9a74d21bd1c3ff53fecf63d10d11aae72e491cacdfbf69a756".to_string(),
-                ),
-            ),
-            (
-                "lmPath".to_string(),
-                Value::String("models/lm_6.kenlm".to_string()),
-            ),
-            (
-                "kenlmWasmPath".to_string(),
-                Value::String("kenlm/kenlm.js".to_string()),
-            ),
-            (
-                "runtimeConfig".to_string(),
-                Value::Object(Map::from_iter([(
-                    "asrType".to_string(),
-                    Value::String("ctc".to_string()),
-                )])),
-            ),
-        ]))),
-    }
-}
-
 fn is_valid_plugin_id(value: &str) -> bool {
     let length = value.len();
     if !(3..=128).contains(&length) {
@@ -123,6 +76,12 @@ pub(super) fn validate_manifest(manifest: &PluginManifest) -> Result<(), String>
     if !is_valid_plugin_id(&manifest.plugin_id) {
         return Err("pluginId must be 3-128 chars and use [A-Za-z0-9._-]".to_string());
     }
+    if manifest
+        .plugin_id
+        .starts_with(LEGACY_BUILTIN_PLUGIN_PREFIX)
+    {
+        return Err("legacy builtin plugins are no longer supported".to_string());
+    }
     if manifest.name.trim().is_empty() {
         return Err("name is required".to_string());
     }
@@ -140,6 +99,11 @@ pub(super) fn validate_manifest(manifest: &PluginManifest) -> Result<(), String>
     }
     if manifest.entrypoint_path.trim().is_empty() {
         return Err("entrypointPath is required".to_string());
+    }
+    if !Path::new(&manifest.entrypoint_path).is_absolute()
+        && !manifest.entrypoint_path.starts_with("plugins/")
+    {
+        return Err("relative entrypointPath must start with plugins/".to_string());
     }
     if !is_valid_hash(&manifest.hash) {
         return Err("hash must be 64 lowercase hex chars".to_string());
@@ -172,16 +136,11 @@ fn sanitize_registry(mut state: PluginRegistryState) -> Result<PluginRegistrySta
         if validate_manifest(&plugin).is_err() {
             continue;
         }
-        if plugin.plugin_id == BUILTIN_ORT_ASR_PLUGIN_ID {
-            continue;
-        }
         if !seen_ids.insert(plugin.plugin_id.clone()) {
             continue;
         }
         valid_plugins.push(plugin);
     }
-
-    valid_plugins.push(builtin_ort_asr_plugin());
 
     let has_asr_active = state
         .active_plugins
@@ -259,26 +218,107 @@ pub(super) fn resolve_entrypoint(
     }
 
     // Imported plugin assets live under plugins/ in the app data directory.
-    // Bundled assets (e.g. the built-in ASR model) live in the resource
-    // directory, mirroring the TS resolveAssetUrl split.
+    // Relative entrypoints outside plugins/ are rejected.
     if entrypoint_path.starts_with("plugins/") {
         let app_data = app.path().app_data_dir().map_err(err_to_string)?;
         return Ok(app_data.join(candidate));
     }
 
-    let resource = app.path().resource_dir().map_err(err_to_string)?;
-    Ok(resource.join(candidate))
+    Err("relative entrypointPath must start with plugins/".to_string())
 }
 
 impl Default for PluginRegistryState {
     fn default() -> Self {
         Self {
             format: REGISTRY_FORMAT,
-            plugins: vec![builtin_ort_asr_plugin()],
+            plugins: Vec::new(),
             active_plugins: ActivePlugins {
-                asr: Some(BUILTIN_ORT_ASR_PLUGIN_ID.to_string()),
+                asr: None,
                 llm: None,
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{sanitize_registry, validate_manifest, REGISTRY_FORMAT};
+    use crate::plugins::{ActivePlugins, PluginKind, PluginManifest, PluginRegistryState};
+    use serde_json::json;
+
+    fn manifest(
+        plugin_id: &str,
+        kind: PluginKind,
+        runtime: &str,
+        entrypoint_path: &str,
+        metadata: Option<serde_json::Value>,
+    ) -> PluginManifest {
+        PluginManifest {
+            plugin_id: plugin_id.to_string(),
+            name: "Plugin".to_string(),
+            version: "1.0.0".to_string(),
+            kind,
+            runtime: runtime.to_string(),
+            entrypoint_path: entrypoint_path.to_string(),
+            hash: "a".repeat(64),
+            model_family: None,
+            size_bytes: None,
+            license: None,
+            installed_at: None,
+            metadata,
+        }
+    }
+
+    #[test]
+    fn validate_manifest_rejects_legacy_builtin_id() {
+        let legacy = manifest(
+            "builtin.asr.ort.medasr",
+            PluginKind::Asr,
+            "ort-ctc",
+            "plugins/assets/import.asr.test/model.onnx",
+            Some(json!({
+                "vocabPath": "plugins/assets/import.asr.test/vocab.json"
+            })),
+        );
+
+        let result = validate_manifest(&legacy);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "legacy builtin plugins are no longer supported"
+        );
+    }
+
+    #[test]
+    fn sanitize_registry_removes_legacy_entries_and_clears_active_asr() {
+        let legacy = manifest(
+            "builtin.asr.ort.medasr",
+            PluginKind::Asr,
+            "ort-ctc",
+            "models/medasr.onnx",
+            Some(json!({ "vocabPath": "models/medasr_vocab.json" })),
+        );
+        let imported = manifest(
+            "import.asr.ort.test.1",
+            PluginKind::Asr,
+            "ort-ctc",
+            "plugins/assets/import.asr.ort.test.1/model.onnx",
+            Some(json!({
+                "vocabPath": "plugins/assets/import.asr.ort.test.1/vocab.json"
+            })),
+        );
+        let state = PluginRegistryState {
+            format: REGISTRY_FORMAT,
+            plugins: vec![legacy, imported.clone()],
+            active_plugins: ActivePlugins {
+                asr: Some("builtin.asr.ort.medasr".to_string()),
+                llm: None,
+            },
+        };
+
+        let sanitized = sanitize_registry(state).expect("registry should sanitize");
+        assert_eq!(sanitized.plugins.len(), 1);
+        assert_eq!(sanitized.plugins[0].plugin_id, imported.plugin_id);
+        assert_eq!(sanitized.active_plugins.asr, None);
     }
 }

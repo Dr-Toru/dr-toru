@@ -2,8 +2,7 @@ import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 
 import { AsrClient, type AsrClientEvents } from "../asr/client";
 import type { AsrRuntimeConfig } from "../asr-messages";
-import { DEFAULT_ASR_RUNTIME_CONFIG } from "../asr/runtime-config";
-import { BUILTIN_MED_ASR_PLUGIN_ID, type PluginManifest } from "./contracts";
+import type { PluginManifest } from "./contracts";
 
 export interface RuntimeHealth {
   ready: boolean;
@@ -105,7 +104,7 @@ export function createRuntimeAdapter(
         options.ortDir,
         options.appDataDir,
         options.appOrigin,
-        resolveAsrRuntimeConfig(manifest, options.asrRuntimeConfig),
+        options.asrRuntimeConfig,
       );
     }
     case "llm":
@@ -120,26 +119,6 @@ export function createRuntimeAdapter(
         `Unsupported plugin kind "${manifest.kind}" for ${manifest.pluginId}`,
       );
   }
-}
-
-function resolveAsrRuntimeConfig(
-  manifest: PluginManifest,
-  runtimeConfig: AsrRuntimeConfig,
-): AsrRuntimeConfig {
-  if (manifest.pluginId === BUILTIN_MED_ASR_PLUGIN_ID) {
-    return runtimeConfig;
-  }
-  return {
-    ortThreads: DEFAULT_ASR_RUNTIME_CONFIG.ortThreads,
-    decode: {
-      beamSearchEnabled: DEFAULT_ASR_RUNTIME_CONFIG.decode.beamSearchEnabled,
-      beamWidth: DEFAULT_ASR_RUNTIME_CONFIG.decode.beamWidth,
-      lmAlpha: DEFAULT_ASR_RUNTIME_CONFIG.decode.lmAlpha,
-      lmBeta: DEFAULT_ASR_RUNTIME_CONFIG.decode.lmBeta,
-      minTokenLogp: DEFAULT_ASR_RUNTIME_CONFIG.decode.minTokenLogp,
-      beamPruneLogp: DEFAULT_ASR_RUNTIME_CONFIG.decode.beamPruneLogp,
-    },
-  };
 }
 
 class OrtRuntimeAdapter implements RuntimeAdapter {

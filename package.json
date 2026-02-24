@@ -14,12 +14,13 @@
     "check:all": "tsc --noEmit && eslint . && prettier --check .",
     "check:fix-all": "tsc --noEmit && eslint --fix . && prettier --write .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "package:medasr-plugin": "./scripts/package-medasr-plugin.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2",
-    "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-opener": "^2.5.3",
     "onnxruntime-web": "^1.24.1"
   },
   "devDependencies": {

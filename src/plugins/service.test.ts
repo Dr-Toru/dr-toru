@@ -1,16 +1,28 @@
 import { describe, expect, it } from "vitest";
 
-import { BUILTIN_ORT_ASR_PLUGIN } from "./contracts";
 import { PluginService } from "./service";
 import { NoopPluginRegistryStore } from "./store";
 
+const ORT_ASR_MANIFEST = {
+  pluginId: "import.asr.ort.test",
+  name: "Imported ASR",
+  version: "1.0.0",
+  kind: "asr" as const,
+  runtime: "ort-ctc",
+  entrypointPath: "/tmp/test.onnx",
+  hash: "1".repeat(64),
+  metadata: {
+    vocabPath: "/tmp/test.vocab.json",
+  },
+};
+
 describe("PluginService", () => {
-  it("resolves builtin ASR provider by default", async () => {
+  it("reports no active ASR provider by default", async () => {
     const service = new PluginService(new NoopPluginRegistryStore());
     await service.init();
 
     const activeAsr = await service.activePlugin("asr");
-    expect(activeAsr?.pluginId).toBe("builtin.asr.ort.medasr");
+    expect(activeAsr).toBeNull();
   });
 
   it("reports no active llm by default", async () => {
@@ -26,13 +38,7 @@ describe("PluginService", () => {
     const service = new PluginService(store);
     await service.init();
 
-    await store.add({
-      ...BUILTIN_ORT_ASR_PLUGIN,
-      pluginId: "import.asr.ort.test",
-      name: "Imported ASR",
-      entrypointPath: "/tmp/test.onnx",
-      hash: "1".repeat(64),
-    });
+    await store.add(ORT_ASR_MANIFEST);
 
     await service.setActivePlugin("asr", "import.asr.ort.test");
 

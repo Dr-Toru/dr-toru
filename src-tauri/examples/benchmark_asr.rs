@@ -66,10 +66,10 @@ fn parse_args() -> Args {
         }
     }
     if model_path.is_empty() {
-        model_path = "../public/models/medasr_lasr_ctc_int8.onnx".to_string();
+        model_path = "../plugin-bundles/medasr/models/medasr_lasr_ctc_int8.onnx".to_string();
     }
     if vocab_path.is_empty() {
-        vocab_path = "../public/models/medasr_lasr_vocab.json".to_string();
+        vocab_path = "../plugin-bundles/medasr/models/medasr_lasr_vocab.json".to_string();
     }
 
     if audio_path.is_empty() || reference.is_empty() {

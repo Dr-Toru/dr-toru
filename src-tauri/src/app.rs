@@ -53,6 +53,7 @@ fn debug_devtools_set(window: WebviewWindow, open: bool) -> Result<DevtoolsState
 pub(crate) fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(crate::plugins::PluginRuntimeState::default())
         .invoke_handler(tauri::generate_handler![
             debug_devtools_status,

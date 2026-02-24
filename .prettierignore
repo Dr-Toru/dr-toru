@@ -1,6 +1,6 @@
 dist
 public/ort
-public/models
+plugin-bundles
 pnpm-lock.yaml
 src-tauri/target
 src-tauri/gen

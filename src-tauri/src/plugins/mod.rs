@@ -19,7 +19,7 @@ use llamafile::{
 };
 use registry::{
     auto_activate_vacant, ensure_registry, load_registry, plugin_paths, resolve_entrypoint,
-    resolve_plugin, save_registry, validate_manifest, BUILTIN_ORT_ASR_PLUGIN_ID,
+    resolve_plugin, save_registry, validate_manifest,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -287,10 +287,6 @@ pub fn plugin_registry_remove(
     plugin_id: String,
     runtime_state: State<'_, PluginRuntimeState>,
 ) -> Result<(), String> {
-    if plugin_id == BUILTIN_ORT_ASR_PLUGIN_ID {
-        return Err("Built-in ASR plugin cannot be removed".to_string());
-    }
-
     let paths = plugin_paths(&app)?;
     ensure_registry(&paths)?;
     let mut state = load_registry(&paths)?;
@@ -559,3 +555,4 @@ pub fn plugin_asr_unload(plugin_id: String, runtime_state: State<'_, PluginRunti
     let mut running = runtime_state.lock_running_asr();
     asr::unload(&mut running, &plugin_id);
 }
+

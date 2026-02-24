@@ -29,30 +29,6 @@ export interface PluginValidationIssue {
   message: string;
 }
 
-export const BUILTIN_MED_ASR_PLUGIN_ID = "builtin.asr.ort.medasr";
-
-export const BUILTIN_ORT_ASR_PLUGIN: PluginManifest = {
-  pluginId: BUILTIN_MED_ASR_PLUGIN_ID,
-  name: "Google MedASR",
-  version: "1.0.0",
-  kind: "asr",
-  runtime: "ort-ctc",
-  entrypointPath: "models/medasr_lasr_ctc_int8.onnx",
-  hash: "05c1907f53d9dea3db23092e4d730f011ee400b3fb282d6af8443276dfb9d270",
-  modelFamily: "medasr_lasr",
-  metadata: {
-    language: "en",
-    vocabPath: "models/medasr_lasr_vocab.json",
-    vocabHash:
-      "631bd152b5beca9a74d21bd1c3ff53fecf63d10d11aae72e491cacdfbf69a756",
-    lmPath: "models/lm_6.kenlm",
-    kenlmWasmPath: "kenlm/kenlm.js",
-    runtimeConfig: {
-      asrType: "ctc",
-    },
-  },
-};
-
 const HASH_RE = /^[a-f0-9]{64}$/;
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/;
 const ID_RE = /^[A-Za-z0-9._-]{3,128}$/;

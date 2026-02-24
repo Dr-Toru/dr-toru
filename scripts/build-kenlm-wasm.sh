@@ -11,15 +11,15 @@
 #   ./scripts/build-kenlm-wasm.sh
 #
 # Output:
-#   public/kenlm/kenlm.js    Emscripten JS glue (ES module, MODULARIZE)
-#   public/kenlm/kenlm.wasm  Compiled WebAssembly binary
+#   plugin-bundles/medasr/kenlm/kenlm.js    Emscripten JS glue (ES module, MODULARIZE)
+#   plugin-bundles/medasr/kenlm/kenlm.wasm  Compiled WebAssembly binary
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="$PROJECT_ROOT/build/kenlm-wasm"
-OUTPUT_DIR="$PROJECT_ROOT/public/kenlm"
+OUTPUT_DIR="$PROJECT_ROOT/plugin-bundles/medasr/kenlm"
 KENLM_DIR="$BUILD_DIR/kenlm"
 KENLM_REPO="https://github.com/kpu/kenlm.git"
 
@@ -160,5 +160,5 @@ echo "  $OUTPUT_DIR/kenlm.wasm ($(wc -c < "$OUTPUT_DIR/kenlm.wasm" | tr -d ' ') 
 echo ""
 echo "Next steps:"
 echo "  1. Download lm_6.kenlm from google/medasr on HuggingFace"
-echo "  2. Place it at public/models/lm_6.kenlm"
-echo "  3. Run 'pnpm dev' and verify KenLM loads in the worker console"
+echo "  2. Place it at plugin-bundles/medasr/models/lm_6.kenlm"
+echo "  3. Run 'pnpm package:medasr-plugin' to create an importable bundle"

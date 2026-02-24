@@ -1,8 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_ASR_RUNTIME_CONFIG } from "../asr/runtime-config";
-import { BUILTIN_ORT_ASR_PLUGIN } from "./contracts";
+import type { PluginManifest } from "./contracts";
 import { createRuntimeAdapter } from "./runtime-adapter";
+
+const ORT_ASR_MANIFEST: PluginManifest = {
+  pluginId: "import.asr.ort.test",
+  name: "Test ASR",
+  version: "1.0.0",
+  kind: "asr",
+  runtime: "ort-ctc",
+  entrypointPath: "/tmp/model.onnx",
+  hash: "a".repeat(64),
+  metadata: {
+    vocabPath: "/tmp/vocab.json",
+  },
+};
 
 const OPTIONS = {
   workerUrl: new URL("http://localhost/asr.worker.ts"),
@@ -18,7 +31,7 @@ const OPTIONS = {
 
 describe("runtime adapter", () => {
   it("creates ORT runtime for valid ASR manifest", () => {
-    const adapter = createRuntimeAdapter(BUILTIN_ORT_ASR_PLUGIN, OPTIONS);
+    const adapter = createRuntimeAdapter(ORT_ASR_MANIFEST, OPTIONS);
     expect(adapter).toBeDefined();
   });
 
@@ -26,7 +39,7 @@ describe("runtime adapter", () => {
     expect(() =>
       createRuntimeAdapter(
         {
-          ...BUILTIN_ORT_ASR_PLUGIN,
+          ...ORT_ASR_MANIFEST,
           pluginId: "bad.asr.runtime-missing-vocab",
           metadata: {},
         },
@@ -39,7 +52,7 @@ describe("runtime adapter", () => {
     expect(() =>
       createRuntimeAdapter(
         {
-          ...BUILTIN_ORT_ASR_PLUGIN,
+          ...ORT_ASR_MANIFEST,
           pluginId: "bad.asr.runtime-unknown",
           runtime: "custom-runtime",
         },
@@ -52,7 +65,7 @@ describe("runtime adapter", () => {
     expect(() =>
       createRuntimeAdapter(
         {
-          ...BUILTIN_ORT_ASR_PLUGIN,
+          ...ORT_ASR_MANIFEST,
           pluginId: "bad.asr.runtime-whisper-web",
           runtime: "whisper",
           metadata: {},
@@ -62,7 +75,7 @@ describe("runtime adapter", () => {
     ).toThrowError(/only supported in native desktop mode/);
   });
 
-  it("applies custom runtime config only to built-in Med ASR", () => {
+  it("applies custom runtime config to ORT ASR plugins", () => {
     const tunedOptions = {
       ...OPTIONS,
       asrRuntimeConfig: {
@@ -78,24 +91,26 @@ describe("runtime adapter", () => {
       },
     };
 
-    const builtInAdapter = createRuntimeAdapter(
-      BUILTIN_ORT_ASR_PLUGIN,
-      tunedOptions,
-    ) as unknown as { asrRuntimeConfig: typeof tunedOptions.asrRuntimeConfig };
-    expect(builtInAdapter.asrRuntimeConfig.decode.beamSearchEnabled).toBe(true);
-    expect(builtInAdapter.asrRuntimeConfig.ortThreads).toBe(2);
-
-    const importedAdapter = createRuntimeAdapter(
+    const adapter = createRuntimeAdapter(
       {
-        ...BUILTIN_ORT_ASR_PLUGIN,
+        ...ORT_ASR_MANIFEST,
         pluginId: "import.asr.ort.custom",
       },
       tunedOptions,
     ) as unknown as { asrRuntimeConfig: typeof tunedOptions.asrRuntimeConfig };
-    expect(importedAdapter.asrRuntimeConfig.decode.beamSearchEnabled).toBe(
+    expect(adapter.asrRuntimeConfig.decode.beamSearchEnabled).toBe(true);
+    expect(adapter.asrRuntimeConfig.ortThreads).toBe(2);
+  });
+
+  it("preserves default runtime config values passed by caller", () => {
+    const adapter = createRuntimeAdapter(
+      ORT_ASR_MANIFEST,
+      OPTIONS,
+    ) as unknown as { asrRuntimeConfig: typeof OPTIONS.asrRuntimeConfig };
+    expect(adapter.asrRuntimeConfig.decode.beamSearchEnabled).toBe(
       DEFAULT_ASR_RUNTIME_CONFIG.decode.beamSearchEnabled,
     );
-    expect(importedAdapter.asrRuntimeConfig.ortThreads).toBe(
+    expect(adapter.asrRuntimeConfig.ortThreads).toBe(
       DEFAULT_ASR_RUNTIME_CONFIG.ortThreads,
     );
   });
