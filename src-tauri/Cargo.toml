@@ -1,12 +1,11 @@
 [package]
 name = "dr-toru"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-edition = "2021"
+version = "0.0.1"
+description = "Offline-first medical dictation app"
+authors = ["Spicy Neuron"]
+edition = "2026"
 default-run = "dr-toru"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
 # Keep a unique lib name to avoid bin/lib collisions on Windows:
